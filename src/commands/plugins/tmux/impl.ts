@@ -639,8 +639,8 @@ function suggestRecovery(target: string, session: string, source: string): void 
     const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
     if (choice >= 1 && choice <= candidates.length) {
       const picked = candidates[choice - 1];
-      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle}\n`);
-      const result = Bun.spawnSync(["maw", "wake", picked.oracle], {
+      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+      const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
         stdio: ["inherit", "inherit", "inherit"],
       });
       process.exit(result.exitCode ?? 0);
