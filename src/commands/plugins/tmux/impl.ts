@@ -553,6 +553,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const alive = listSessionNamesSync();
   if (!alive.includes(session)) {
     suggestRecovery(target, session, source);
+    return;
   }
 
   const isTty = _tty.isStdoutTTY();
@@ -576,6 +577,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
 
   if (result.exitCode !== 0) {
     suggestRecovery(target, session, source);
+    return;
   }
 }
 
@@ -618,31 +620,34 @@ function suggestRecovery(target: string, session: string, source: string): void 
     process.exit(1);
   }
 
-  selectAndWake(candidates);
-}
-
-async function selectAndWake(candidates: Array<{ oracle: string; label: string }>): Promise<never> {
-  const { select, isCancel } = await import("@clack/prompts");
-
-  const selected = await select({
-    message: "Wake which oracle?",
-    options: candidates.map(c => ({
-      value: c.oracle,
-      label: c.label,
-      hint: `maw wake ${c.oracle}`,
-    })),
-  });
-
-  if (isCancel(selected)) {
-    console.log("\x1b[90m  aborted\x1b[0m");
-    process.exit(0);
+  // Inline the select using Bun.spawnSync — renders a numbered list and
+  // reads one keystroke via /dev/tty (avoids async issues with clack).
+  console.log("");
+  console.log("  Wake which oracle?");
+  for (let i = 0; i < candidates.length; i++) {
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidates[i].label} \x1b[90m→ maw wake ${candidates[i].oracle}\x1b[0m`);
   }
+  console.log("");
 
-  console.log(`\x1b[36m→\x1b[0m maw wake ${selected}`);
-  const result = Bun.spawnSync(["maw", "wake", selected as string], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  process.exit(result.exitCode ?? 0);
+  try {
+    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+    process.stdout.write("  Select [1-" + candidates.length + "]: ");
+    const fd = openSync("/dev/tty", "r");
+    const buf = Buffer.alloc(8);
+    const n = readSync(fd, buf, 0, buf.length, null);
+    closeSync(fd);
+    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
+    if (choice >= 1 && choice <= candidates.length) {
+      const picked = candidates[choice - 1];
+      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle}\n`);
+      const result = Bun.spawnSync(["maw", "wake", picked.oracle], {
+        stdio: ["inherit", "inherit", "inherit"],
+      });
+      process.exit(result.exitCode ?? 0);
+    }
+  } catch { /* non-interactive — ignore */ }
+
+  process.exit(1);
 }
 
 function ghqFindOracleSync(slug: string): string | null {
