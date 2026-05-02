@@ -60,6 +60,14 @@
   "exports": {
     ".": "./src/cli.ts",
     "./sdk": "./src/sdk/index.ts",
-    "./schemas": "./src/lib/schemas.ts"
+    "./schemas": "./src/lib/schemas.ts",
+    "./plugin/types": "./src/plugin/types.ts",
+    "./cli/parse-args": "./src/cli/parse-args.ts",
+    "./lib/sleep": "./src/lib/sleep.ts",
+    "./commands/shared/fleet": "./src/commands/shared/fleet.ts",
+    "./commands/shared/wake": "./src/commands/shared/wake.ts",
+    "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
+    "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
+    "./commands/shared/done": "./src/commands/shared/done.ts"
   }
 }
