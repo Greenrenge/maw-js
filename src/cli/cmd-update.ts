@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
 import {
-  existsSync, writeFileSync, mkdirSync, readdirSync,
+  existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync,
   lstatSync, unlinkSync, symlinkSync, openSync, readSync, closeSync, realpathSync,
   renameSync, rmSync,
 } from "fs";
@@ -152,15 +152,29 @@ export async function runUpdate(args: string[]): Promise<void> {
       const BIN = join(homedir(), ".bun", "bin", "maw");
       const STASH = `${BIN}.prev`;
       let stashed = false;
-      // Refuse if .prev already exists — that's a prior crashed update's
-      // last-known-good escape hatch; silently overwriting would destroy it
-      // (architect's gotcha on #551). User resolves explicitly.
+      // #968 — if .prev already exists, it's a leftover from a prior crashed
+      // update. The original (#551) behavior refused at this point so the
+      // user wouldn't lose their last-known-good binary. But that left the
+      // user STUCK after a single crash — the retry/curl-fallback path below
+      // never runs because we exit here. Auto-rotate to a timestamped name
+      // instead: the working binary they're running RIGHT NOW still gets
+      // stashed (BIN → STASH below); the rotated copy is preserved as
+      // `${STASH}.crash.<unix-timestamp>` for forensic recovery if needed.
       if (existsSync(STASH)) {
-        console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists (prior update crashed — last-known-good binary).`);
-        console.error(`  restore manually:  mv ${STASH} ${BIN}`);
-        console.error(`  or discard it:     rm ${STASH}   \x1b[90m# only if you're sure\x1b[0m`);
-        console.error(`  then re-run:       maw update ${ref}`);
-        process.exit(1);
+        const archived = `${STASH}.crash.${Math.floor(Date.now() / 1000)}`;
+        try {
+          renameSync(STASH, archived);
+          console.warn(`\x1b[33m↺\x1b[0m rotated stale ${STASH} → ${archived} (prior crash leftover; in-flight stash will replace it)`);
+        } catch (e: any) {
+          // Belt-and-suspenders: if rotation fails (perms, disk full, etc.),
+          // fall back to the original refuse behavior so we never silently
+          // overwrite a working binary in the rename below.
+          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${e.message || e}`);
+          console.error(`  resolve manually:  mv ${STASH} ${BIN}     \x1b[90m# restore last-known-good\x1b[0m`);
+          console.error(`  or discard it:     rm ${STASH}             \x1b[90m# only if you're sure\x1b[0m`);
+          console.error(`  then re-run:       maw update ${ref}`);
+          process.exit(1);
+        }
       }
       try {
         if (existsSync(BIN)) {
@@ -169,14 +183,35 @@ export async function runUpdate(args: string[]): Promise<void> {
         }
       } catch { /* stash best-effort */ }
 
+      // #950 — directly evict maw-js from global package.json + node_modules
+      // BEFORE invoking `bun remove`. The `bun remove` command silently no-ops
+      // when bun's resolver is already in a same-package conflict state (existing
+      // pin for `maw-js#refA` + new request for `maw-js#refB` create a same-name
+      // conflict — bun emits DependencyLoop and refuses to mutate state). Direct
+      // file ops always succeed even when the resolver is wedged.
+      try {
+        const globalPkg = join(homedir(), ".bun", "install", "global", "package.json");
+        // CodeQL TOCTOU: skip existsSync — readFileSync throws ENOENT if missing,
+        // caught by outer try/catch. Same effect, no race-window between check + write.
+        const data = JSON.parse(readFileSync(globalPkg, "utf-8"));
+        let dirty = false;
+        for (const key of ["maw-js", "maw"]) {
+          if (data.dependencies?.[key]) { delete data.dependencies[key]; dirty = true; }
+        }
+        if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
+      } catch { /* best effort — file missing or unreadable; bun remove still runs below */ }
+      try {
+        const nm = join(homedir(), ".bun", "install", "global", "node_modules");
+        for (const name of ["maw-js", "maw", "@maw-js"]) {
+          try { rmSync(join(nm, name), { recursive: true, force: true }); } catch {}
+        }
+      } catch {}
+
       // #697 — use the PACKAGE name (`maw-js`), not the bin name (`maw`).
       // `bun remove -g maw` is a silent no-op because bun looks up by package
       // name in ~/.bun/install/global/package.json, and the package registered
-      // there is `maw-js`. Leaving the old ref in that manifest (e.g. pinning
-      // `maw-js: github:.../#v26.4.19-alpha.15`) was the actual persistent
-      // source of the dep-loop across every retry — bun kept merging the
-      // stale pin into its graph alongside the new resolution. Removing by
-      // package name evicts the pin from global package.json cleanly.
+      // there is `maw-js`. Kept as belt-and-suspenders after the direct-evict
+      // above — picks up any cleanup `bun remove` does that we don't replicate.
       try { execSync(`bun remove -g maw-js`, { stdio: "pipe" }); } catch {}
       try { execSync(`bun remove -g maw`, { stdio: "pipe" }); } catch {}
 
@@ -244,7 +279,11 @@ export async function runUpdate(args: string[]): Promise<void> {
     }
     if (installCode !== 0) {
       console.error(`\x1b[31merror\x1b[0m: bun add failed with exit ${installCode} — previous maw restored from stash (if available)`);
-      console.error(`  manual recovery: bun add -g github:${repository}#alpha`);
+      console.error(``);
+      console.error(`  Manual recovery (bypass bun resolver — release tags only):`);
+      console.error(`    curl -fsSL https://github.com/${repository}/releases/download/${ref}/maw -o ~/.bun/bin/maw && chmod +x ~/.bun/bin/maw && maw --version`);
+      console.error(``);
+      console.error(`  If dep-loop persists: edit ~/.bun/install/global/package.json to drop maw-js, then re-run \`bun add -g github:${repository}#${ref}\`.`);
       process.exit(installCode);
     }
     // Link SDK so plugins can `import { maw } from "@maw/sdk"` (workspace package at packages/sdk/)

@@ -4,9 +4,35 @@ import { homedir } from "os";
 import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
+import { ghqList, ghqListSync } from "../../../core/ghq";
+import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
+
+function listSessionNamesSync(): string[] {
+  try {
+    const result = Bun.spawnSync(["tmux", "list-sessions", "-F", "#{session_name}"]);
+    if (result.exitCode !== 0) return [];
+    return new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
+  } catch { return []; }
+}
+
+// #971 — process.stdout.isTTY is `undefined` (not false) in bun-bundled
+// binaries installed via curl. `!!undefined` → false, making attach always
+// fall to print-only. node:tty.isatty(1) checks the fd directly and works
+// in both source and bundled contexts. Wrapped in object for test mockability
+// (ES module namespace objects are frozen, bare `let` can't be reassigned).
+export const _tty = {
+  isStdoutTTY: (): boolean => {
+    try {
+      const { isatty } = require("node:tty") as typeof import("node:tty");
+      return isatty(1);
+    } catch {
+      return !!process.stdout.isTTY;
+    }
+  },
+};
 
 export interface TmuxPeekOpts {
   /** Number of lines from bottom of pane buffer. Default 30. */
@@ -50,19 +76,27 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     }
   }
 
-  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2:0".
-  // Matches maw peek's resolution. Suffix-preferred via the canonical
-  // resolveSessionTarget so "mawjs" → "101-mawjs" (not "mawjs-view").
+  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
+  // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
   try {
     const sessions = loadFleetEntries().map(e => ({ name: e.file.replace(/\.json$/, "") }));
     const r = resolveSessionTarget(target, sessions);
     if (r.kind === "exact" || r.kind === "fuzzy") {
-      return { resolved: `${r.match.name}:0`, source: `fleet-stem (${r.match.name})` };
+      return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
     }
   } catch { /* no fleet dir — fall through */ }
 
-  // 4. Bare session name → pane 0
-  return { resolved: `${target}:0`, source: "session-name (pane 0)" };
+  // 3.7 — Live tmux sessions (covers sessions not in fleet config).
+  const liveSessions = listSessionNamesSync().map(s => ({ name: s }));
+  if (liveSessions.length > 0) {
+    const r = resolveSessionTarget(target, liveSessions);
+    if (r.kind === "exact" || r.kind === "fuzzy") {
+      return { resolved: r.match.name, source: `live-session (${r.match.name})` };
+    }
+  }
+
+  // 4. Bare session name — let tmux resolve to current/first pane
+  return { resolved: target, source: "session-name" };
 }
 
 export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Promise<void> {
@@ -91,7 +125,15 @@ export interface TmuxLsOpts {
   all?: boolean;
   /** JSON output for scripting. */
   json?: boolean;
+  /** Compact: one line per session. Default for `maw ls`. Use -v for full detail. */
+  compact?: boolean;
+  /** Verbose: full per-pane detail. Overrides --compact. */
+  verbose?: boolean;
+  /** Roster: include sleeping oracles from ghq (compact mode only). */
+  roster?: boolean;
 }
+
+export type PaneStatus = "active" | "idle" | "stale" | "unknown";
 
 interface AnnotatedPane {
   id: string;
@@ -99,6 +141,8 @@ interface AnnotatedPane {
   command: string | undefined;
   title: string | undefined;
   annotation: string; // "fleet: X" | "team: agent @ team-name" | "orphan" | ""
+  status: PaneStatus;
+  lastActivitySec: number;
 }
 
 /**
@@ -137,13 +181,20 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
   }
 
-  const annotated: AnnotatedPane[] = allPanes.map(p => ({
-    id: p.id,
-    target: p.target,
-    command: p.command,
-    title: p.title,
-    annotation: annotatePane(p, fleetSessions, teamByPane),
-  }));
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  const annotated: AnnotatedPane[] = allPanes.map(p => {
+    const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
+    const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
+    return {
+      id: p.id,
+      target: p.target,
+      command: p.command,
+      title: p.title,
+      annotation: annotatePane(p, fleetSessions, teamByPane),
+      status,
+      lastActivitySec: ageSec < 0 ? 0 : ageSec,
+    };
+  });
 
   const scope = opts.all
     ? annotated
@@ -154,16 +205,96 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     return;
   }
 
-  if (!scope.length) {
+  if (!scope.length && !(opts.compact && opts.roster)) {
     console.log(opts.all
       ? "\x1b[90mNo panes found.\x1b[0m"
       : `\x1b[90mNo panes in current session '${currentSession || "(none)"}'. Use --all for every session.\x1b[0m`);
     return;
   }
 
+  const STATUS_DOT: Record<PaneStatus, string> = {
+    active: "\x1b[32m●\x1b[0m",
+    idle: "\x1b[33m◐\x1b[0m",
+    stale: "\x1b[31m◌\x1b[0m",
+    unknown: "\x1b[90m·\x1b[0m",
+  };
+
+  const formatAge = (sec: number): string => {
+    if (sec <= 0) return "";
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+    return `${Math.floor(sec / 3600)}h${Math.floor((sec % 3600) / 60)}m`;
+  };
+
+  if (opts.compact && !opts.verbose) {
+    const bySession = new Map<string, AnnotatedPane[]>();
+    for (const p of scope) {
+      const sess = p.target.split(":")[0]!;
+      if (!bySession.has(sess)) bySession.set(sess, []);
+      bySession.get(sess)!.push(p);
+    }
+    const bestStatus = (panes: AnnotatedPane[]): PaneStatus => {
+      if (panes.some(p => p.status === "active")) return "active";
+      if (panes.some(p => p.status === "idle")) return "idle";
+      if (panes.some(p => p.status === "stale")) return "stale";
+      return "unknown";
+    };
+    let worktrees: Awaited<ReturnType<typeof scanWorktrees>> = [];
+    try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    const wtBySession = new Map<string, typeof worktrees>();
+    for (const wt of worktrees) {
+      const mainName = wt.mainRepo.split("/").pop() || "";
+      if (!wtBySession.has(mainName)) wtBySession.set(mainName, []);
+      wtBySession.get(mainName)!.push(wt);
+    }
+
+    console.log();
+    const awakeNames = new Set<string>();
+    for (const [sess, panes] of bySession) {
+      awakeNames.add(sess);
+      const dot = STATUS_DOT[bestStatus(panes)];
+      const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
+      const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
+      const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
+      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      const wts = wtBySession.get(sess) || [];
+      for (const wt of wts) {
+        const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
+        const label = wt.status === "orphan" ? "orphan" : wt.status === "stale" ? "stale" : "worktree";
+        console.log(`    ${wtDot} \x1b[90m${wt.name}  (${label})\x1b[0m`);
+      }
+    }
+
+    if (opts.roster) {
+      try {
+        const repos = await ghqList();
+        const sleeping = repos
+          .filter(p => p.endsWith("-oracle"))
+          .map(p => p.split("/").pop()!)
+          .filter(name => !awakeNames.has(name))
+          .sort();
+        for (const name of sleeping) {
+          console.log(`  \x1b[90m· ${name}  (sleeping)\x1b[0m`);
+        }
+        const total = awakeNames.size + sleeping.length;
+        if (sleeping.length > 0) {
+          console.log();
+          console.log(`\x1b[90m  ${total} oracles — ${awakeNames.size} awake, ${sleeping.length} sleeping\x1b[0m`);
+        }
+      } catch { /* ghq unavailable */ }
+    }
+
+    console.log();
+    console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
+    console.log();
+    return;
+  }
+
   console.log();
-  console.log(`  \x1b[36;1m${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  console.log(`  \x1b[36;1m  ${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
   for (const p of scope) {
+    const dot = STATUS_DOT[p.status];
+    const age = formatAge(p.lastActivitySec);
     const annColored = p.annotation.startsWith("team:") ? `\x1b[36m${p.annotation}\x1b[0m`
       : p.annotation.startsWith("fleet:") ? `\x1b[32m${p.annotation}\x1b[0m`
       : p.annotation.startsWith("view:") ? `\x1b[90m${p.annotation}\x1b[0m`
@@ -171,7 +302,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       : "";
     const annPad = pad(p.annotation, 30);
     const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
-    console.log(`  ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+    console.log(`  ${dot} ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
 }
@@ -188,6 +319,13 @@ export interface TmuxSendOpts {
   /** Bypass claude-pane refusal. Required to inject into a live claude session. */
   force?: boolean;
 }
+
+// ❤️ Heartbeat #974 — per-pane cooldown + quota tracking.
+// Prevents rapid-fire send-keys spam from stale agent turns.
+export const _sendTracker = new Map<string, { lastTs: number; count: number; windowStart: number }>();
+const COOLDOWN_MS = 500;
+const QUOTA_PER_MINUTE = 100;
+const QUOTA_WINDOW_MS = 60_000;
 
 /**
  * Send a command into a target tmux pane. Wraps `tmux send-keys` with
@@ -208,6 +346,30 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
+
+  // Gate 0 — cooldown + quota (Heartbeat #974)
+  if (!opts.force) {
+    const now = Date.now();
+    const prev = _sendTracker.get(resolved);
+    if (prev) {
+      if (now - prev.lastTs < COOLDOWN_MS) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → cooldown (${COOLDOWN_MS}ms). Use --force to bypass.`);
+        return;
+      }
+      if (now - prev.windowStart > QUOTA_WINDOW_MS) {
+        prev.count = 0;
+        prev.windowStart = now;
+      }
+      if (prev.count >= QUOTA_PER_MINUTE) {
+        console.warn(`\x1b[33m⚠\x1b[0m send throttled: ${target} → quota (${QUOTA_PER_MINUTE}/min). Use --force to bypass.`);
+        return;
+      }
+      prev.lastTs = now;
+      prev.count++;
+    } else {
+      _sendTracker.set(resolved, { lastTs: now, count: 1, windowStart: now });
+    }
+  }
 
   // Gate 1 — destructive-command deny-list
   const destCheck = checkDestructive(command);
@@ -362,25 +524,148 @@ export async function cmdTmuxLayout(target: string, preset: string): Promise<voi
   console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);
 }
 
+export interface TmuxAttachOpts {
+  /** Force print-only mode (no exec) regardless of TTY/$TMUX state. */
+  print?: boolean;
+}
+
 /**
- * Print the tmux attach command for the user to exec themselves.
+ * Attach to a tmux session.
  *
- * We can't `exec tmux attach` from a Bun subprocess because attach is
- * TTY-interactive and our process is the wrong process to attach. Instead
- * we resolve the target and print the exact command — the user runs it.
+ * Branch behavior (issue #962, fix for #395 print-only regression):
+ *   - Inside tmux ($TMUX set) + TTY → `tmux switch-client -t <session>`
+ *   - Outside tmux + TTY            → `tmux attach -t <session>`
+ *   - No TTY (script/pipe/CI)       → fall back to 3-line print (don't break automation)
+ *   - Explicit --print              → force print mode regardless of TTY
  *
- * This matches `maw team spawn`'s pattern (Bug C philosophy): prepare,
- * print, let the operator run the interactive part.
+ * Pre-#962 this was print-only (since #395, 2026-04-17). RFC #954's `a`
+ * alias surfaced the regression — operators expected `maw a foo` to attach,
+ * not just print instructions.
  */
-export function cmdTmuxAttach(target: string): void {
+export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
   const { resolved, source } = hit;
   const session = resolved.split(":")[0] ?? "";
 
-  console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
-  console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
-  console.log(`  detach with: Ctrl-b d\x1b[0m`);
+  // Pre-flight: check if resolved session is actually alive. If not, show
+  // recovery suggestions instead of printing stale instructions or failing.
+  const alive = listSessionNamesSync();
+  if (!alive.includes(session)) {
+    suggestRecovery(target, session, source);
+    return;
+  }
+
+  const isTty = _tty.isStdoutTTY();
+  const inTmux = !!process.env.TMUX;
+
+  if (opts.print || !isTty) {
+    console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
+    console.log(`  detach with: Ctrl-b d\x1b[0m`);
+    return;
+  }
+
+  const tmuxArgs = inTmux
+    ? ["switch-client", "-t", session]
+    : ["attach", "-t", session];
+  const verb = inTmux ? "switch-client" : "attach";
+
+  const result = Bun.spawnSync(["tmux", ...tmuxArgs], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+
+  if (result.exitCode !== 0) {
+    suggestRecovery(target, session, source);
+    return;
+  }
+}
+
+function suggestRecovery(target: string, session: string, source: string): void {
+  const candidates: Array<{ oracle: string; label: string }> = [];
+
+  if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
+    console.log(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
+    try {
+      const entries = loadFleetEntries();
+      const entry = entries.find(e => e.file.replace(/\.json$/, "") === session);
+      if (entry?.session?.windows?.[0]) {
+        const w = entry.session.windows[0];
+        const oracleName = w.name.replace(/-oracle$/, "");
+        const localPath = ghqFindOracleSync(w.repo);
+        const status = localPath ? "cloned" : "not cloned";
+        candidates.push({ oracle: oracleName, label: `${w.name} (${status})` });
+      }
+    } catch { /* fleet not available */ }
+  } else {
+    console.log(`\x1b[31m✗\x1b[0m  No session matches '${target}'.`);
+  }
+
+  for (const s of findSimilarOracles(target).slice(0, 5)) {
+    const name = s.replace(/-oracle$/, "");
+    if (!candidates.some(c => c.oracle === name)) {
+      candidates.push({ oracle: name, label: s });
+    }
+  }
+
+  if (candidates.length === 0) {
+    process.exit(1);
+  }
+
+  if (!_tty.isStdoutTTY()) {
+    console.log("");
+    for (const c of candidates) {
+      console.log(`  ${c.label} \x1b[90m→ maw wake ${c.oracle}\x1b[0m`);
+    }
+    process.exit(1);
+  }
+
+  // Inline the select using Bun.spawnSync — renders a numbered list and
+  // reads one keystroke via /dev/tty (avoids async issues with clack).
+  console.log("");
+  console.log("  Wake which oracle?");
+  for (let i = 0; i < candidates.length; i++) {
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidates[i].label} \x1b[90m→ maw wake ${candidates[i].oracle}\x1b[0m`);
+  }
+  console.log("");
+
+  try {
+    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+    process.stdout.write("  Select [1-" + candidates.length + "]: ");
+    const fd = openSync("/dev/tty", "r");
+    const buf = Buffer.alloc(8);
+    const n = readSync(fd, buf, 0, buf.length, null);
+    closeSync(fd);
+    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
+    if (choice >= 1 && choice <= candidates.length) {
+      const picked = candidates[choice - 1];
+      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+      const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+        stdio: ["inherit", "inherit", "inherit"],
+      });
+      process.exit(result.exitCode ?? 0);
+    }
+  } catch { /* non-interactive — ignore */ }
+
+  process.exit(1);
+}
+
+function ghqFindOracleSync(slug: string): string | null {
+  try {
+    const repos = ghqListSync();
+    return repos.find(r => r.endsWith(`/${slug}`)) ?? null;
+  } catch { return null; }
+}
+
+function findSimilarOracles(target: string): string[] {
+  try {
+    const lc = target.toLowerCase();
+    const repos = ghqListSync();
+    return repos
+      .map(r => r.split("/").pop() ?? "")
+      .filter(name => name.endsWith("-oracle") && name.toLowerCase().includes(lc))
+      .filter((v, i, a) => a.indexOf(v) === i);
+  } catch { return []; }
 }
 
 /**
