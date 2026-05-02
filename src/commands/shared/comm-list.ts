@@ -9,7 +9,7 @@
  * Regression test: test/isolated/cmd-list-no-new-session-957.test.ts.
  */
 
-import { listSessions, getPaneInfos, scanWorktrees, cleanupWorktree } from "../../sdk";
+import { listSessions, getPaneInfos, scanWorktrees, cleanupWorktree, isAgentCommand } from "../../sdk";
 
 /**
  * #359 — render a session header line for `maw ls`.
@@ -60,7 +60,7 @@ export async function cmdList(opts: { fix?: boolean } = {}) {
     for (const w of s.windows) {
       const target = `${s.name}:${w.index}`;
       const info = infos[target] || { command: "", cwd: "" };
-      const isAgent = /claude|codex|node/i.test(info.command);
+      const isAgent = isAgentCommand(info.command);
       const cwdBroken = info.cwd.includes("(deleted)") || info.cwd.includes("(dead)");
 
       let dot: string;
