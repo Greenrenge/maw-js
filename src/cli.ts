@@ -48,6 +48,46 @@ async function main(): Promise<void> {
     // Load plugins from ~/.maw/plugins/ — the single source of truth
     await scanCommands(pluginDir, "user");
 
+    // Auto-restore: if no tmux sessions and a recent snapshot exists, offer to restore.
+    if (cmd && cmd !== "--help" && cmd !== "-h") {
+      try {
+        const { listSessions } = await import("./sdk");
+        const live = await listSessions().catch(() => [] as any[]);
+        if (live.length === 0) {
+          const { latestSnapshot } = await import("./core/fleet/snapshot");
+          const snap = latestSnapshot();
+          if (snap) {
+            const ageMs = Date.now() - new Date(snap.timestamp).getTime();
+            if (ageMs < 24 * 60 * 60 * 1000) {
+              const mins = Math.round(ageMs / 60000);
+              const ageStr = mins >= 60 ? `${Math.round(mins / 60)}h ago` : `${mins}m ago`;
+              console.log(`\x1b[36m📸\x1b[0m Last snapshot: ${snap.sessions.length} sessions (${ageStr})`);
+              for (const s of snap.sessions) console.log(`   ${s.name}`);
+              process.stdout.write(`\nRestore all? [y/N] `);
+              const buf = new Uint8Array(64);
+              const fd = require("fs").openSync("/dev/tty", "r");
+              const n = require("fs").readSync(fd, buf);
+              require("fs").closeSync(fd);
+              const answer = new TextDecoder().decode(buf.subarray(0, n)).trim().toLowerCase();
+              if (answer === "y" || answer === "yes") {
+                const { cmdWake } = await import("./commands/shared/wake-cmd");
+                for (const s of snap.sessions) {
+                  const oracle = s.name.replace(/^\d+-/, "");
+                  try {
+                    await cmdWake(oracle, { attach: false });
+                    console.log(`  \x1b[32m✓\x1b[0m ${s.name}`);
+                  } catch (e: any) {
+                    console.log(`  \x1b[31m✗\x1b[0m ${s.name}: ${e?.message || String(e)}`);
+                  }
+                }
+                console.log("");
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
     if (!cmd || cmd === "--help" || cmd === "-h") {
       usage();
     } else {
@@ -58,6 +98,20 @@ async function main(): Promise<void> {
       await routeTools(cmd, args);
 
     if (!handled) {
+      // RFC #954 — top-level verb aliases. Sits between routeTools and
+      // matchCommand. Either rewrites argv in place (continue dispatch flow)
+      // or dispatches a direct-handler and exits the pipeline.
+      const { resolveTopAlias, invokeDirectHandler } = await import("./cli/top-aliases");
+      const aliasResult = resolveTopAlias(args);
+      if (aliasResult) {
+        if (aliasResult.kind === "direct") {
+          await invokeDirectHandler(aliasResult.handler, aliasResult.argv);
+          return;
+        }
+        // Argv-rewrite: splice in place, then fall through to matchCommand
+        // (which will pick up the canonical plugin verb).
+        args.splice(0, args.length, ...aliasResult.argv);
+      }
       // Try plugin commands (beta) — after core routes, before fallback
       const pluginMatch = matchCommand(args);
       if (pluginMatch) {
@@ -120,15 +174,37 @@ async function main(): Promise<void> {
         }
         const isKnownCommand = knownCommands.some(n => n.toLowerCase() === cmd);
         if (!isKnownCommand) {
-          // #394 — fuzzy FIRST, tmux listSessions second. The old order paid
-          // ~40ms on every unknown arg even when it was clearly a typo of a
-          // known command. New flow:
-          //   1. fuzzy-match against knownCommands (distance ≤ 2)
-          //   2. if close candidates → "did you mean" + exit, skip tmux
-          //   3. else if arg has oracle-name shape → tmux listSessions
-          //   4. else → generic "run maw --help"
+          // Prefix auto-resolve: if input uniquely prefixes one known command, run it.
+          // e.g. "v" → "version", "up" → "update", "cl" → "cleanup"
+          const prefixMatches = knownCommands.filter(n => n.toLowerCase().startsWith(cmd) && n.toLowerCase() !== cmd);
+          const uniquePrefixes = [...new Set(prefixMatches.map(n => n.toLowerCase()))];
+          if (uniquePrefixes.length === 1) {
+            const resolved = prefixMatches[0];
+            args.splice(0, 1, resolved);
+            const retryMatch = matchCommand(args);
+            if (retryMatch) {
+              await executeCommand(retryMatch.desc, retryMatch.remaining);
+              process.exit(0);
+            }
+            const retryPlugin = resolvePluginMatch(plugins, args.join(" ").toLowerCase());
+            if (retryPlugin.kind === "match") {
+              const matchedWords = retryPlugin.matchedName.split(/\s+/).filter(Boolean).length;
+              const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: args.slice(matchedWords) });
+              if (result.ok && result.output) console.log(result.output);
+              else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
+              process.exit(0);
+            }
+            // Special case: core routes handled before plugin dispatch
+            if (resolved === "version") { console.log(getVersionString()); process.exit(0); }
+            if (resolved === "update" || resolved === "upgrade") { await runUpdate(args.slice(1)); process.exit(0); }
+          }
+
+          // #394 — fuzzy FIRST, tmux listSessions second.
           const { fuzzyMatch } = await import("./core/util/fuzzy");
-          const closeCandidates = fuzzyMatch(args[0], knownCommands, 3, 2);
+          // Include prefix matches in suggestions when multiple candidates exist
+          const closeCandidates = uniquePrefixes.length > 1
+            ? uniquePrefixes
+            : fuzzyMatch(args[0], knownCommands, 3, 2);
           let isOracle = false;
           if (closeCandidates.length === 0) {
             // No close typo-match. Only spend the tmux query if the arg

@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach } from "../../src/commands/plugins/tmux/impl";
+import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/plugins/tmux/impl";
+import * as impl from "../../src/commands/plugins/tmux/impl";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/plugins/tmux/impl.ts"), "utf-8");
 
 // Pure-validation tests for split, kill, layout, attach. These verbs call
 // hostExec under the hood — we test the input-validation paths that throw
@@ -40,22 +45,89 @@ describe("cmdTmuxSplit — pct bounds", () => {
   });
 });
 
-describe("cmdTmuxAttach — pure resolution + print", () => {
-  test("resolves and prints attach command (no side effects)", () => {
+describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
+  test("--print resolves and prints attach command (no exec)", () => {
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+    try {
+      cmdTmuxAttach("%999", { print: true });
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+    }
+    expect(calls).toHaveLength(0); // --print → never spawns
+    const joined = logs.join("\n");
+    expect(joined).toContain("tmux attach -t");
+    expect(joined).toContain("Ctrl-b d");
+  });
+
+  test("session-name target with --print → extracts session", () => {
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
     try {
-      cmdTmuxAttach("%999"); // pane id form, no resolution dependency
+      cmdTmuxAttach("some-session:0.1", { print: true });
     } finally {
       console.log = origLog;
     }
-    const joined = logs.join("\n");
-    expect(joined).toContain("tmux attach -t");
-    expect(joined).toContain("Ctrl-b d"); // detach instructions
+    expect(logs.join("\n")).toContain("tmux attach -t some-session");
   });
 
-  test("session-name target → extracts session for attach", () => {
+  test("no TTY (and no --print) → falls back to 3-line print, no spawn", () => {
+    // Simulate non-TTY environment (script / pipe / CI). Bun's test runner
+    // typically already has isTTY=undefined, but force it to be safe.
+    const origIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    try {
+      cmdTmuxAttach("%999"); // no opts → relies on TTY/$TMUX detection
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(0); // no TTY → never spawns
+    const joined = logs.join("\n");
+    expect(joined).toContain("tmux attach -t");
+    expect(joined).toContain("Ctrl-b d");
+  });
+});
+
+describe("cmdTmuxAttach — TTY exec branches", () => {
+  test("inside tmux + TTY → spawns `tmux switch-client -t <session>`", () => {
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
+    const origTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
@@ -63,7 +135,132 @@ describe("cmdTmuxAttach — pure resolution + print", () => {
       cmdTmuxAttach("some-session:0.1");
     } finally {
       console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      impl._tty.isStdoutTTY = origTTY;
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+      else delete process.env.TMUX;
     }
-    expect(logs.join("\n")).toContain("tmux attach -t some-session");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["tmux", "switch-client", "-t", "some-session"]);
+    expect(logs.join("\n")).not.toContain("Run: tmux attach -t");
+  });
+
+  test("outside tmux + TTY → spawns `tmux attach -t <session>`", () => {
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    try {
+      cmdTmuxAttach("some-session:0.1");
+    } finally {
+      (Bun as any).spawnSync = origSpawnSync;
+      impl._tty.isStdoutTTY = origTTY;
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session"]);
+  });
+
+  test("non-zero exit → throws with exit code + verb", () => {
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = (() => ({
+      exitCode: 1,
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      success: false,
+    }));
+
+    try {
+      expect(() => cmdTmuxAttach("ghost-session")).toThrow(/tmux attach failed.*exit 1/);
+    } finally {
+      (Bun as any).spawnSync = origSpawnSync;
+      impl._tty.isStdoutTTY = origTTY;
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+  });
+
+  test("--print overrides TTY detection — never spawns even in interactive shell", () => {
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
+    const origTmux = process.env.TMUX;
+    delete process.env.TMUX;
+
+    const calls: any[] = [];
+    const origSpawnSync = Bun.spawnSync;
+    (Bun as any).spawnSync = ((args: any, opts: any) => {
+      calls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    });
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    try {
+      cmdTmuxAttach("%999", { print: true });
+    } finally {
+      console.log = origLog;
+      (Bun as any).spawnSync = origSpawnSync;
+      impl._tty.isStdoutTTY = origTTY;
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+    }
+
+    expect(calls).toHaveLength(0);
+    expect(logs.join("\n")).toContain("tmux attach -t");
+  });
+});
+
+// ── Heartbeat #974: Cooldown + Quota Gating ──────────────────────────────────
+
+describe("cmdTmuxSend — cooldown + quota (Heartbeat #974)", () => {
+  test("_sendTracker is exported and is a Map", () => {
+    expect(_sendTracker).toBeInstanceOf(Map);
+  });
+
+  test("Gate 0 exists in cmdTmuxSend before Gate 1", () => {
+    const gate0 = implSrc.indexOf("Gate 0");
+    const gate1 = implSrc.indexOf("Gate 1");
+    expect(gate0).toBeGreaterThan(-1);
+    expect(gate1).toBeGreaterThan(gate0);
+  });
+
+  test("cooldown check uses _sendTracker.get(resolved)", () => {
+    expect(implSrc).toMatch(/_sendTracker\.get\(resolved\)/);
+  });
+
+  test("cooldown is bypassed by opts.force", () => {
+    expect(implSrc).toMatch(/if\s*\(\s*!opts\.force\s*\)\s*\{[\s\S]*?_sendTracker/);
+  });
+
+  test("COOLDOWN_MS and QUOTA_PER_MINUTE constants exist", () => {
+    expect(implSrc).toMatch(/const COOLDOWN_MS\s*=\s*\d+/);
+    expect(implSrc).toMatch(/const QUOTA_PER_MINUTE\s*=\s*\d+/);
+    expect(implSrc).toMatch(/const QUOTA_WINDOW_MS\s*=\s*\d+/);
+  });
+
+  test("quota resets when window expires", () => {
+    expect(implSrc).toMatch(/prev\.windowStart\s*>\s*QUOTA_WINDOW_MS/);
+    expect(implSrc).toMatch(/prev\.count\s*=\s*0/);
+  });
+
+  test("tracker map can be manipulated directly", () => {
+    _sendTracker.clear();
+    _sendTracker.set("test-pane", { lastTs: Date.now(), count: 50, windowStart: Date.now() });
+    expect(_sendTracker.get("test-pane")?.count).toBe(50);
+    _sendTracker.clear();
   });
 });

@@ -1,4 +1,4 @@
-import { sendKeys, selectWindow, hostExec, getPaneCommand } from "../transport/ssh";
+import { sendKeys, selectWindow, hostExec, getPaneCommand, isAgentCommand } from "../transport/ssh";
 import { tmux } from "../transport/tmux";
 import { buildCommand } from "../../config";
 import { extractOracleName, resolveTargetCwd, shellQuote } from "../../commands/shared/target-cwd";
@@ -46,7 +46,7 @@ const send: Handler = async (ws, data, engine) => {
   if (!data.force) {
     try {
       const cmd = await getPaneCommand(data.target);
-      if (!/claude|codex|node/i.test(cmd)) {
+      if (!isAgentCommand(cmd)) {
         ws.send(JSON.stringify({ type: "error", error: `no active Claude session in ${data.target} (running: ${cmd})` }));
         return;
       }
