@@ -125,8 +125,8 @@ export async function spawnTeammatePane(
   const targetFlag = anchor ? `-t '${anchor}' ` : "";
   const color = nextAgentColor(opts.colorIndex);
 
-  // Wrap: reset terminal after agent TUI exits, then login shell with full profile
-  const wrapped = `${command.replace(/'/g, "'\\''")}; printf "\\e[?1049l"; clear; exec zsh -li`;
+  // Wrap: restore terminal discipline + screen after agent TUI exits
+  const wrapped = `${command.replace(/'/g, "'\\''")}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li`;
 
   let paneId = "";
   await withPaneLock(async () => {

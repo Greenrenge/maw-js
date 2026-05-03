@@ -134,7 +134,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const escaped = agent.agentCmd.replace(/'/g, "'\\''");
       await hostExec(
-        `tmux send-keys -t '${agent.paneId}' '${escaped}; printf "\\e[?1049l"; clear; exec zsh -li' Enter`,
+        `tmux send-keys -t '${agent.paneId}' '${escaped}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li' Enter`,
       );
       await new Promise(r => setTimeout(r, 200));
 
