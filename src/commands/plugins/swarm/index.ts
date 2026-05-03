@@ -69,6 +69,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       applyTeamLayout, applyTiledLayout, getWindowTarget,
     } = await import("../tmux/layout-manager");
     const { hostExec, withPaneLock } = await import("../../../sdk");
+    const { PANE_INIT_PRELUDE } = await import("../../shared/pane-prelude");
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("fs");
     const { join } = await import("path");
     const { homedir } = await import("os");
@@ -111,7 +112,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       let paneId = "";
       await withPaneLock(async () => {
         paneId = (await hostExec(
-          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'exec zsh -li'`,
+          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${PANE_INIT_PRELUDE}; exec zsh -li'`,
         )).trim();
         await new Promise(r => setTimeout(r, 100));
       });
@@ -134,7 +135,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const escaped = agent.agentCmd.replace(/'/g, "'\\''");
       await hostExec(
-        `tmux send-keys -t '${agent.paneId}' '${escaped}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li' Enter`,
+        `tmux send-keys -t '${agent.paneId}' '${PANE_INIT_PRELUDE}; ${escaped}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li' Enter`,
       );
       await new Promise(r => setTimeout(r, 200));
 
