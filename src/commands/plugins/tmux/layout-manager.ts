@@ -125,8 +125,8 @@ export async function spawnTeammatePane(
   const targetFlag = anchor ? `-t '${anchor}' ` : "";
   const color = nextAgentColor(opts.colorIndex);
 
-  // Wrap in zsh so the pane stays alive after the command exits
-  const wrapped = `${command.replace(/'/g, "'\\''")}; exec zsh`;
+  // Wrap: restore terminal discipline + screen after agent TUI exits
+  const wrapped = `${command.replace(/'/g, "'\\''")}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li`;
 
   let paneId = "";
   await withPaneLock(async () => {

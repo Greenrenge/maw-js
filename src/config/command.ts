@@ -7,19 +7,23 @@ function matchGlob(pattern: string, name: string): boolean {
   return false;
 }
 
-export function buildCommand(agentName: string): string {
+export function buildCommand(agentName: string, engine?: string): string {
   const config = loadConfig();
-  let cmd = config.commands.default || "claude";
+  let cmd: string;
+
+  if (engine && config.commands[engine]) {
+    cmd = config.commands[engine];
+  } else {
+    cmd = config.commands.default || "claude";
+    for (const [pattern, command] of Object.entries(config.commands)) {
+      if (pattern === "default") continue;
+      if (matchGlob(pattern, agentName)) { cmd = command; break; }
+    }
+  }
 
   // Strip --dangerously-skip-permissions when running as root (#181)
   if (process.getuid?.() === 0) {
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/, "");
-  }
-
-  // Match specific patterns first (skip "default")
-  for (const [pattern, command] of Object.entries(config.commands)) {
-    if (pattern === "default") continue;
-    if (matchGlob(pattern, agentName)) { cmd = command; break; }
   }
 
   // Inject --session-id if configured for this agent
@@ -36,13 +40,16 @@ export function buildCommand(agentName: string): string {
 
   // Fallback for --continue/--resume: retry without it (fresh worktree / expired session).
   // Keep --session-id (if set) so the first run creates the session with that ID.
+  // Reset terminal after Claude TUI exits — prevents frozen prompt (#1091)
+  const reset = 'printf "\\e[?1049l\\e[0m"; stty sane 2>/dev/null; clear';
+
   if (cmd.includes("--continue") || cmd.includes("--resume")) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    return `${cmd} || ${fallback}`;
+    return `{ ${cmd} || ${fallback}; }; ${reset}`;
   }
 
-  return cmd;
+  return `${cmd}; ${reset}`;
 }
 
 /**
@@ -51,8 +58,8 @@ export function buildCommand(agentName: string): string {
  * already sets the initial pane cwd, and the scrollback noise wasn't worth
  * the reboot-recovery edge case. `cwd` param kept for API compat + future use.
  */
-export function buildCommandInDir(agentName: string, _cwd: string): string {
-  return buildCommand(agentName);
+export function buildCommandInDir(agentName: string, _cwd: string, engine?: string): string {
+  return buildCommand(agentName, engine);
 }
 
 export function getEnvVars(): Record<string, string> {

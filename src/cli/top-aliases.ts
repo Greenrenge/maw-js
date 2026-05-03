@@ -23,6 +23,7 @@
 
 import { cmdWake } from "../commands/shared/wake-cmd";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
+import { cmdPreflight } from "../commands/shared/preflight";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -45,6 +46,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   cleanup: "Kill zombie agent panes",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
+  preflight: "Pre-flight check — version, plugins, dead agents, config",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -70,6 +72,8 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
+
+  preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
 };
 
 /**
@@ -143,12 +147,13 @@ export async function invokeDirectHandler(
       "--list": Boolean,
       "--split": Boolean,
       "--all-local": Boolean,
+      "--engine": String, "-e": "--engine",
     }, 0);
 
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
       throw new UserError("wake: missing oracle name");
     }
 
@@ -162,6 +167,7 @@ export async function invokeDirectHandler(
       listWt?: boolean;
       split?: boolean;
       allLocal?: boolean;
+      engine?: string;
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
@@ -172,8 +178,28 @@ export async function invokeDirectHandler(
     if (flags["--list"]) opts.listWt = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
+    if (flags["--engine"]) opts.engine = flags["--engine"];
+
+    // Shorthand: --codex, --gemini etc. → engine from config.commands
+    // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
+    if (!opts.engine) {
+      const { loadConfig } = await import("../config");
+      const commands = loadConfig().commands || {};
+      for (const arg of (flags._ as string[])) {
+        if (arg.startsWith("--") && commands[arg.slice(2)]) {
+          opts.engine = arg.slice(2);
+          break;
+        }
+      }
+    }
 
     await cmdWake(oracle, opts);
+    return;
+  }
+
+  if (exportName === "cmdPreflight") {
+    const flags = parseFlags(argv, { "--fix": Boolean }, 0);
+    await cmdPreflight({ fix: !!flags["--fix"] });
     return;
   }
 
