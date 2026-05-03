@@ -40,13 +40,16 @@ export function buildCommand(agentName: string, engine?: string): string {
 
   // Fallback for --continue/--resume: retry without it (fresh worktree / expired session).
   // Keep --session-id (if set) so the first run creates the session with that ID.
+  // Reset terminal after Claude TUI exits — prevents frozen prompt (#1091)
+  const reset = 'printf "\\e[?1049l\\e[0m"; stty sane 2>/dev/null; clear';
+
   if (cmd.includes("--continue") || cmd.includes("--resume")) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    return `${cmd} || ${fallback}`;
+    return `{ ${cmd} || ${fallback}; }; ${reset}`;
   }
 
-  return cmd;
+  return `${cmd}; ${reset}`;
 }
 
 /**
