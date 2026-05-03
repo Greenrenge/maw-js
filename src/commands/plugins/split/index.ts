@@ -21,7 +21,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     let target: string;
-    let opts: { pct?: number; vertical?: boolean; noAttach?: boolean } = {};
+    let opts: { pct?: number; vertical?: boolean; noAttach?: boolean; anchorPane?: string } = {};
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
@@ -29,11 +29,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--pct": Number,
         "--vertical": Boolean,
         "--no-attach": Boolean,
+        "--from": String,
       }, 0);
 
       target = flags._[0];
       if (!target || target === "--help" || target === "-h") {
-        return { ok: false, error: "usage: maw split <target> [--pct N] [--vertical] [--no-attach]" };
+        return { ok: false, error: "usage: maw split <target> [--from <oracle>] [--pct N] [--vertical] [--no-attach]" };
       }
       if (target.startsWith("-")) {
         return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw split <target>` };
@@ -43,6 +44,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         pct: flags["--pct"],
         vertical: flags["--vertical"],
         noAttach: flags["--no-attach"],
+        anchorPane: flags["--from"] as string | undefined,
       };
     } else {
       const body = ctx.args as Record<string, unknown>;

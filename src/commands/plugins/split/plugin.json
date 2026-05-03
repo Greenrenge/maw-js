@@ -6,8 +6,9 @@
   "description": "Split current tmux pane and attach to a session (vesicle beside).",
   "cli": {
     "command": "split",
-    "help": "maw split <target> [--pct N] [--vertical] [--no-attach]",
+    "help": "maw split <target> [--from <oracle>] [--pct N] [--vertical] [--no-attach]",
     "flags": {
+      "--from": "string",
       "--pct": "number",
       "--vertical": "boolean",
       "--no-attach": "boolean"
