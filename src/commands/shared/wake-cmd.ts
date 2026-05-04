@@ -143,7 +143,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
         usedNames.add(wtWindowName);
         await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
+        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
         console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
       }
     }
@@ -169,7 +169,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
