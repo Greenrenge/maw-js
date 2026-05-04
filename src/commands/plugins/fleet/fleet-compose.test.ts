@@ -60,4 +60,17 @@ describe("fleet compose generator", () => {
     const { yaml } = generateServeCompose();
     expect(yaml).toContain("dockerfile: Dockerfile.serve");
   });
+
+  test("yaml is a single service (not per-oracle sidecars)", () => {
+    const { yaml } = generateServeCompose();
+    const serviceCount = (yaml.match(/^  [a-z][a-z0-9-]+:$/gm) || []).length;
+    expect(serviceCount).toBe(1);
+  });
+
+  test("yaml is concise (~30-40 lines)", () => {
+    const { yaml } = generateServeCompose();
+    const lines = yaml.split("\n").length;
+    expect(lines).toBeGreaterThan(20);
+    expect(lines).toBeLessThan(50);
+  });
 });

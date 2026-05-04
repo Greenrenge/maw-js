@@ -8,6 +8,9 @@
  */
 
 import { writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 interface ComposeService {
   build?: { context: string; dockerfile: string };
@@ -119,8 +122,29 @@ export async function cmdFleetCompose(args: string[]): Promise<void> {
   const outputPath = outputIdx >= 0 ? args[outputIdx + 1] : undefined;
   const portIdx = args.indexOf("--port");
   const port = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : undefined;
+  const validate = args.includes("--validate");
 
   const { yaml } = generateServeCompose({ port });
+
+  // --validate: write to temp file, run `docker compose config --quiet`
+  if (validate) {
+    const tmpFile = join(tmpdir(), `maw-compose-validate-${Date.now()}.yml`);
+    writeFileSync(tmpFile, yaml);
+    const result = spawnSync("docker", ["compose", "-f", tmpFile, "config", "--quiet"], {
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
+    if (result.status === 0) {
+      console.log(`\x1b[32m✓\x1b[0m generated YAML validates with docker compose`);
+      console.log(`\x1b[90m  schema: docker compose v3, ${yaml.split("\n").length} lines\x1b[0m`);
+    } else {
+      console.error(`\x1b[31m✗\x1b[0m docker compose config rejected the YAML:`);
+      if (result.stderr) console.error(result.stderr);
+      if (result.error) console.error(`  ${result.error.message}`);
+      process.exit(1);
+    }
+    return;
+  }
 
   if (outputPath) {
     writeFileSync(outputPath, yaml);
@@ -130,5 +154,6 @@ export async function cmdFleetCompose(args: string[]): Promise<void> {
     console.log(yaml);
     console.log(`\n\x1b[90m# pipe to file: maw fleet compose --output docker-compose.yml\x1b[0m`);
     console.log(`\x1b[90m# then run:    docker compose up -d\x1b[0m`);
+    console.log(`\x1b[90m# validate:    maw fleet compose --validate\x1b[0m`);
   }
 }
