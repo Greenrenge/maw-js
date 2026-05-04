@@ -49,6 +49,30 @@ export function getChannelEnv(oracleStem: string, fleetEnvOverride?: Record<stri
     }
   }
   if (fleetEnvOverride) Object.assign(env, fleetEnvOverride);
+
+  // Expand tilde in env values
+  const home = homedir();
+  for (const [k, v] of Object.entries(env)) {
+    if (v.startsWith("~/")) env[k] = join(home, v.slice(2));
+  }
+
+  // Resolve pass: token source → inject as env var
+  if (config?.token_source?.startsWith("pass:")) {
+    const passKey = config.token_source.slice(5);
+    try {
+      const { execSync } = require("child_process");
+      const token = execSync(`pass show ${passKey}`, { encoding: "utf8", timeout: 5000 }).trim();
+      if (token) {
+        // Detect token type from plugin IDs
+        const hasDiscord = config.plugins.some(p => p.id.includes("discord"));
+        const hasTelegram = config.plugins.some(p => p.id.includes("telegram"));
+        if (hasDiscord) env.DISCORD_BOT_TOKEN = token;
+        else if (hasTelegram) env.TELEGRAM_BOT_TOKEN = token;
+        else env.CHANNEL_TOKEN = token;
+      }
+    } catch { /* pass not available or key not found — skip silently */ }
+  }
+
   return env;
 }
 

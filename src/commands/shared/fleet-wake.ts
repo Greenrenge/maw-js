@@ -84,7 +84,16 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       if (!sess.skip_command) {
         await new Promise(r => setTimeout(r, 300));
-        try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name)); } catch { /* ok */ }
+        // #1096 — auto-inject channels for fleet sessions
+        const { getChannelPluginIds, getChannelEnv } = await import("./channel-loader");
+        const oracleStem = first.name.replace(/-oracle$/, "");
+        const chIds = getChannelPluginIds(oracleStem);
+        const chEnv = getChannelEnv(oracleStem);
+        for (const [k, v] of Object.entries(chEnv)) {
+          await tmux.setEnvironment(sess.name, k, v);
+        }
+        const wakeOpts = chIds.length ? { channels: chIds } : undefined;
+        try { await tmux.sendText(`${sess.name}:${first.name}`, buildCommand(first.name, wakeOpts)); } catch { /* ok */ }
       }
       winCount++;
 
@@ -96,7 +105,11 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
           await pinWindowWide(`${sess.name}:${win.name}`);
           if (!sess.skip_command) {
             await new Promise(r => setTimeout(r, 300));
-            await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name));
+            const winStem = win.name.replace(/-oracle$/, "");
+            const { getChannelPluginIds: gcp } = await import("./channel-loader");
+            const winChIds = gcp(winStem);
+            const winOpts = winChIds.length ? { channels: winChIds } : undefined;
+            await tmux.sendText(`${sess.name}:${win.name}`, buildCommand(win.name, winOpts));
           }
           winCount++;
         } catch (e) {
