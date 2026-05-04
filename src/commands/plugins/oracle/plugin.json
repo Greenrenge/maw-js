@@ -9,7 +9,8 @@
     "aliases": [
       "oracles"
     ],
-    "help": "maw oracle [ls|scan|fleet|about <name>]"
+    "help": "maw oracle [ls|scan|search|prune|register|set-nickname|get-nickname|about <name>]",
+    "richHelp": true
   },
   "api": {
     "path": "/api/oracle",

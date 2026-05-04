@@ -6,7 +6,8 @@
   "description": "Agent reincarnation engine \u2014 create, spawn, send, shutdown, resume, lives.",
   "cli": {
     "command": "team",
-    "help": "maw team <create|spawn|send|shutdown|list|status|tasks>",
+    "help": "maw team <create|spawn|send|shutdown|list|status|tasks|delete|invite|members>",
+    "richHelp": true,
     "flags": {}
   },
   "api": {

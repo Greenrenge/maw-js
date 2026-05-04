@@ -46,6 +46,7 @@ export interface PluginManifest {
     aliases?: string[];                    // alternate command names
     help?: string;
     flags?: Record<string, string>;        // flag name → "boolean"|"string"|"number"
+    richHelp?: boolean;                    // #1116 — bypass plugin help interception so handler returns rich help
   };
   api?: { path: string; methods: ("GET" | "POST")[]; };
   description?: string;
