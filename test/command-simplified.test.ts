@@ -73,7 +73,7 @@ describe("buildCommand — post-#541 contract", () => {
 
   test("pattern-match wins over default", () => {
     fakeConfig.commands = { default: "claude", "foo-*": "echo hi" };
-    expect(buildCommand("foo-bar")).toBe("echo hi");
+    expect(buildCommand("foo-bar")).toBe(wrap("echo hi"));
   });
 
   test('pattern-match ignores the literal "default" key', () => {
@@ -90,7 +90,9 @@ describe("buildCommand — post-#541 contract", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     fakeSessionIds = { foo: "uuid-1" };
     const out = buildCommand("foo");
-    const [primary, fallback] = out.split(" || ");
+    // Strip outer { ... }; reset wrap to check primary/fallback
+    const inner = out.replace(/^\{ /, "").replace(/; \};.*$/, "");
+    const [primary, fallback] = inner.split(" || ");
     expect(primary).toContain('--resume "uuid-1"');
     expect(primary).not.toContain("--continue");
     expect(fallback).toContain('--session-id "uuid-1"');
@@ -102,39 +104,40 @@ describe("buildCommand — post-#541 contract", () => {
     fakeConfig.commands = { default: "claude" };
     fakeSessionIds = { foo: "uuid-2" };
     const out = buildCommand("foo");
-    const [primary, fallback] = out.split(" || ");
+    const inner = out.replace(/^\{ /, "").replace(/; \};.*$/, "");
+    const [primary, fallback] = inner.split(" || ");
     expect(primary).toContain('--resume "uuid-2"');
     expect(fallback).toContain('--session-id "uuid-2"');
     expect(fallback).not.toContain("--resume");
   });
 
-  test("buildCommandInDir returns buildCommand verbatim (no cd, no wrapper)", () => {
+  test("buildCommandInDir returns buildCommand verbatim (no cd preamble; #1091 reset is part of contract now)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     const direct = buildCommand("foo");
     const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
     expect(inDir).toBe(direct);
     expect(inDir).not.toContain("cd ");
-    expect(inDir).not.toContain("{ ");
+    // Note: { is present because of fallback wrap (#1091); only assert no cd.
   });
 
   test("engine param selects named command from config", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
-    expect(buildCommand("any-agent", "codex")).toBe("codex --search");
+    expect(buildCommand("any-agent", "codex")).toBe(wrap("codex --search"));
   });
 
   test("engine param falls back to default when engine not in config", () => {
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent", "gemini")).toBe("claude");
+    expect(buildCommand("any-agent", "gemini")).toBe(wrap("claude"));
   });
 
   test("engine param skips pattern matching", () => {
     fakeConfig.commands = { default: "claude", "foo-*": "echo pattern", codex: "codex --auto" };
-    expect(buildCommand("foo-bar", "codex")).toBe("codex --auto");
+    expect(buildCommand("foo-bar", "codex")).toBe(wrap("codex --auto"));
   });
 
   test("buildCommandInDir passes engine through", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
-    expect(buildCommandInDir("foo", "/tmp", "codex")).toBe("codex --search");
+    expect(buildCommandInDir("foo", "/tmp", "codex")).toBe(wrap("codex --search"));
   });
 
   test("no direnv / CLAUDECODE / cd preamble anywhere in output", () => {
