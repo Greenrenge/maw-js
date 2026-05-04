@@ -99,6 +99,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "adopt") {
       const { cmdFleetAdopt } = await import("./fleet-adopt");
       await cmdFleetAdopt(args.slice(1));
+    } else if (sub === "hibernate" || sub === "sleep") {
+      const { cmdHibernate } = await import("./fleet-hibernate");
+      await cmdHibernate(args.slice(1));
+    } else if (sub === "resume") {
+      const { cmdResume } = await import("./fleet-hibernate");
+      await cmdResume(args.slice(1));
+    } else if (sub === "status" || sub === "st") {
+      const { cmdFleetStatus } = await import("./fleet-hibernate");
+      await cmdFleetStatus();
     } else if (sub === "snapshot") {
       const { takeSnapshot } = await import("../../../core/fleet/snapshot");
       const trigger = args[1] || "manual";
