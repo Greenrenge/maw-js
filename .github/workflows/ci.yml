@@ -101,3 +101,8 @@ jobs:
           cmd=$(ls src/commands/*.ts 2>/dev/null | wc -l)
           echo "src/ root: $root (expect ≤2) | commands/ root: $cmd (expect 0)"
           [ "$root" -le 2 ] && [ "$cmd" -eq 0 ] || exit 1
+
+      # #1115 — validate generated docker-compose.yml passes docker schema
+      - name: Validate fleet compose YAML
+        run: |
+          bun src/cli.ts fleet compose --validate
