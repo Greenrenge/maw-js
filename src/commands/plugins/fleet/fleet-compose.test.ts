@@ -63,7 +63,9 @@ describe("fleet compose generator", () => {
 
   test("yaml is a single service (not per-oracle sidecars)", () => {
     const { yaml } = generateServeCompose();
-    const serviceCount = (yaml.match(/^  [a-z][a-z0-9-]+:$/gm) || []).length;
+    // Extract services section only (between 'services:' and 'volumes:')
+    const servicesBlock = yaml.split(/^volumes:/m)[0]!.replace(/^services:\n/m, "");
+    const serviceCount = (servicesBlock.match(/^  [a-z][a-z0-9-]+:$/gm) || []).length;
     expect(serviceCount).toBe(1);
   });
 
