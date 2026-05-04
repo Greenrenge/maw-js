@@ -76,7 +76,26 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     }
   }
 
-  // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
+  // 3.5 — #1107: fleet config window→session mapping is authoritative.
+  // "discord" → fleet window "discord-oracle" → session "24-discord-oracle".
+  // Must run BEFORE fleet-filename suffix match to prevent "discord" matching
+  // "18-hermes-discord" by suffix. Inline fleet check (sync, no import needed).
+  try {
+    const FLEET_DIR = join(homedir(), ".config", "maw", "fleet");
+    for (const f of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
+      const cfg = JSON.parse(readFileSync(join(FLEET_DIR, f), "utf-8"));
+      const win = (cfg.windows || []).find((w: any) => w.name === `${target}-oracle` || w.name === target);
+      if (win) {
+        const fleetSess = cfg.name;
+        const alive = listSessionNamesSync();
+        if (alive.includes(fleetSess)) {
+          return { resolved: fleetSess, source: `fleet-session (${fleetSess})` };
+        }
+      }
+    }
+  } catch { /* fleet dir may not exist */ }
+
+  // 3.6 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
   // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
   try {
     const sessions = loadFleetEntries().map(e => ({ name: e.file.replace(/\.json$/, "") }));
