@@ -40,7 +40,7 @@ export function generateServeCompose(opts: { port?: number } = {}): { yaml: stri
       "maw-serve": {
         build: { context: ".", dockerfile: "Dockerfile.serve" },
         container_name: "maw-serve",
-        command: `maw serve ${port}`,
+        command: `bun src/cli.ts serve ${port}`,
         ports: [`${port}:${port}`, `${tlsPort}:${tlsPort}`],
         volumes: [
           "claude-config:/root/.claude",
