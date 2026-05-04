@@ -38,6 +38,7 @@ export function parseCli(r: Record<string, unknown>): PluginManifest["cli"] {
     ...(Array.isArray(c.aliases) ? { aliases: c.aliases as string[] } : {}),
     ...(typeof c.help === "string" ? { help: c.help } : {}),
     ...(c.flags ? { flags: c.flags as Record<string, string> } : {}),
+    ...(c.richHelp === true ? { richHelp: true } : {}),
   };
 }
 
