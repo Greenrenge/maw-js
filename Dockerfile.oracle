@@ -1,0 +1,26 @@
+# Dockerfile.oracle — Oracle fleet container
+# Each oracle runs: tmux session + Claude Code + optional Discord channels
+#
+# Build:  docker build -f Dockerfile.oracle -t claude-oracle:latest .
+# Usage:  maw fleet compose > docker-compose.yml && docker-compose up
+
+FROM oven/bun:1.3-alpine
+
+# System deps: tmux + git + curl + pass (for token resolution)
+RUN apk add --no-cache tmux git curl gnupg pass openssh-client
+
+# Install Claude Code CLI
+RUN bun add -g @anthropic-ai/claude-code
+
+# Install maw-js from alpha
+RUN bun add -g maw-js@github:Soul-Brews-Studio/maw-js#alpha
+
+# Default working directory
+WORKDIR /root
+
+# Health check: is tmux alive?
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD tmux has-session 2>/dev/null || exit 1
+
+# Keep container alive — tmux runs in background, tail keeps foreground
+CMD ["bash", "-c", "tmux new-session -d -s oracle && tail -f /dev/null"]

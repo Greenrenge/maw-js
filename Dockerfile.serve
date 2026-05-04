@@ -1,0 +1,21 @@
+# Dockerfile.serve — maw-serve API container
+# Central fleet management API on port 3456
+#
+# Build:  docker build -f Dockerfile.serve -t maw-js:latest .
+# Usage:  docker run -p 3456:3456 maw-js:latest
+
+FROM oven/bun:1.3-alpine
+
+RUN apk add --no-cache tmux git curl gnupg
+
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile 2>/dev/null || bun install
+COPY . .
+
+EXPOSE 3456 3457
+
+HEALTHCHECK --interval=15s --timeout=5s \
+  CMD curl -sf http://localhost:3456/api/health || exit 1
+
+CMD ["bun", "src/cli.ts", "serve", "--host", "0.0.0.0"]
