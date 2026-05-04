@@ -8,6 +8,9 @@
  * (Checked by scripts/check-mock-export-sync.sh — #435)
  */
 import type { MawConfig, MawIntervals, MawTimeouts, MawLimits } from "../../src/config";
+// #1126 — Use real buildCommand. The stub returning "echo test" was clobbering
+// command-simplified.test.ts when it ran after any test mocking '../src/config'.
+import { buildCommand as realBuildCommand, buildCommandInDir as realBuildCommandInDir } from "../../src/config/command";
 
 const INTERVALS: Record<keyof MawIntervals, number> = {
   capture: 50, sessions: 5000, status: 3000, teams: 3000,
@@ -40,8 +43,8 @@ export function mockConfigModule(loadConfig: () => Partial<MawConfig>) {
     saveConfig: () => {},
     validateConfigShape: (c: any) => c,
     configForDisplay: () => ({}),
-    buildCommand: (_name: string) => "echo test",
-    buildCommandInDir: (_name: string, cwd: string) => `cd '${cwd}' && echo test`,
+    buildCommand: realBuildCommand,
+    buildCommandInDir: realBuildCommandInDir,
     getEnvVars: () => ({}),
     D: TEST_D,
     cfgInterval: (k: keyof MawIntervals) => INTERVALS[k],
