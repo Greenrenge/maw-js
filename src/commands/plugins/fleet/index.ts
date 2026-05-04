@@ -22,6 +22,32 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const sub = args[0];
 
+    if (sub === "--help" || sub === "-h") {
+      return {
+        ok: true,
+        output: `usage: maw fleet <subcommand> [args]
+
+subcommands:
+  ls                       list fleet configs
+  init [--agents]          initialize fleet (or agents-only)
+  hibernate [name]         hibernate idle session(s)
+  resume [name]            resume hibernated session(s)
+  status                   show hibernate state
+  adopt --scan             scan ghq repos for orphan oracles
+  compose [--output <p>]   generate docker-compose.yml for maw serve
+  health                   fleet health check
+  doctor [--fix]           diagnose fleet issues
+  validate                 validate fleet configs
+  sync                     sync fleet configs
+  sync-windows             sync window names
+  renumber                 renumber fleet sessions
+  consolidate              consolidate duplicate configs
+  snapshot [trigger]       take fleet snapshot
+  snapshots                list snapshots
+  restore <id>             restore from snapshot`,
+      };
+    }
+
     if (sub === "init") {
       if (args.includes("--agents")) {
         const { cmdFleetInitAgents } = await import("./fleet-init");

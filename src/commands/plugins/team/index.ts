@@ -68,6 +68,23 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const sub = args[0]?.toLowerCase();
 
+    if (sub === "--help" || sub === "-h") {
+      return {
+        ok: true,
+        output: `usage: maw team <subcommand> [args]
+
+subcommands:
+  create <name>            create a new team (alias: new)
+  delete <name>            delete a team
+  status                   show team status
+  invite <oracle>          invite oracle to team
+  members <name>           list team members
+  send <name> <message>    send message to team
+
+flags: --description <text>, --members <list>`,
+      };
+    }
+
     if (sub === "create" || sub === "new") {
       if (!args[1]) {
         logs.push("usage: maw team create <name> [--description <text>]");

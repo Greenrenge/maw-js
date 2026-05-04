@@ -38,6 +38,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
       const subcmd = args[0]?.toLowerCase();
+      if (subcmd === "--help" || subcmd === "-h") {
+        return {
+          ok: true,
+          output: `usage: maw oracle <subcommand> [args]
+
+subcommands:
+  ls [flags]               list oracles (--json, --awake, --scan, --stale, --org, --path)
+  search <query>           fuzzy search oracles
+  scan                     scan ghq for new oracles
+  prune                    prune missing/dead oracles
+  register <name>          register an oracle
+  set-nickname <name> <nick>  set display alias
+  get-nickname <name>      get display alias
+  about <name>             show oracle details`,
+        };
+      }
       if (!subcmd || subcmd === "ls" || subcmd === "list") {
         const flags = parseFlags(args, LS_FLAGS, 1);
         await cmdOracleList({

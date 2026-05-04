@@ -21,6 +21,24 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const sub = args[0]?.toLowerCase();
 
+    if (sub === "--help" || sub === "-h") {
+      return {
+        ok: true,
+        output: `usage: maw channel <subcommand> [args]
+
+subcommands:
+  ls [oracle]              list channels (all or for specific oracle)
+  add <oracle> <plugin>    add channel plugin to oracle
+  rm <oracle> <plugin>     remove channel plugin from oracle
+  providers                list available channel providers
+  setup <oracle>           interactive channel setup wizard
+  test <oracle>            test channel configuration
+
+shorthand: discord → plugin:discord@claude-plugins-official
+github: prefix → delegates to setup wizard`,
+      };
+    }
+
     if (sub === "add") {
       const oracle = args[1];
       const plugin = args[2];
