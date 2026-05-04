@@ -8,10 +8,24 @@ FROM oven/bun:1.3-alpine
 
 RUN apk add --no-cache tmux git curl gnupg
 
+# Pre-fetch maw-plugin-registry so all 78 plugins are available
+# (#1123: registry plugins must be present in container, not symlinks to host)
+RUN git clone --depth 1 https://github.com/Soul-Brews-Studio/maw-plugin-registry.git /opt/maw-plugin-registry
+RUN mkdir -p /root/.maw/plugins && \
+    for d in /opt/maw-plugin-registry/plugins/*; do \
+      [ -d "$d" ] && [ -f "$d/plugin.json" ] && ln -sf "$d" "/root/.maw/plugins/$(basename "$d")"; \
+    done
+
 WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile 2>/dev/null || bun install
 COPY . .
+
+# Expose maw-js as a package so registry plugins can `import "maw-js/..."`
+# Plugins resolve modules relative to their own location, so symlink in registry path too
+RUN mkdir -p node_modules && ln -sf /app node_modules/maw-js && \
+    mkdir -p /opt/maw-plugin-registry/node_modules && \
+    ln -sf /app /opt/maw-plugin-registry/node_modules/maw-js
 
 EXPOSE 3456 3457
 
