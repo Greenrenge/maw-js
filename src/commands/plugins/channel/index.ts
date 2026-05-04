@@ -31,6 +31,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: "oracle and plugin required" };
       }
 
+      // github: provider → delegate to setup wizard
+      if (plugin.startsWith("github:")) {
+        const { runSetup } = await import("./setup");
+        await runSetup(oracle, plugin, args.slice(3));
+        return { ok: true, output: logs.join("\n") };
+      }
+
       const pluginId = expandPluginId(plugin);
       const config = loadOracleChannels(oracle) || { plugins: [] };
 
@@ -150,14 +157,66 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log(`\n  Install: \x1b[36m/plugin install <provider>@claude-plugins-official\x1b[0m`);
       console.log(`  Custom:  \x1b[36mmaw channel add <oracle> server:<name>\x1b[0m (for .mcp.json servers)`);
 
+    } else if (sub === "setup") {
+      const { runSetup } = await import("./setup");
+      await runSetup(args[1], args[2], args.slice(3));
+
+    } else if (sub === "test") {
+      const target = args[1];
+      if (!target) {
+        console.log("  usage: maw channel test <oracle>");
+        return { ok: false, error: "oracle required" };
+      }
+      const config = loadOracleChannels(target);
+      if (!config?.plugins?.length) {
+        console.log(`  \x1b[31m✗\x1b[0m no channels for ${target}`);
+        return { ok: false, error: "no channels" };
+      }
+      console.log(`  \x1b[36;1mChannel Test: ${target}\x1b[0m\n`);
+      const { getChannelEnv } = await import("../../shared/channel-loader");
+      const env = getChannelEnv(target);
+      for (const p of config.plugins) {
+        const checks: string[] = [];
+        // Check plugin installed
+        if (p.id.startsWith("plugin:")) {
+          const name = p.id.split(":")[1]?.split("@")[0];
+          if (name && isPluginInstalled(name)) checks.push("\x1b[32m✓ plugin installed\x1b[0m");
+          else checks.push("\x1b[31m✗ plugin not installed\x1b[0m");
+        }
+        // Check state dir
+        if (p.env?.DISCORD_STATE_DIR || env.DISCORD_STATE_DIR) {
+          const dir = env.DISCORD_STATE_DIR || p.env?.DISCORD_STATE_DIR || "";
+          const { existsSync: ex } = require("fs");
+          if (ex(dir)) checks.push(`\x1b[32m✓ state dir exists\x1b[0m`);
+          else checks.push(`\x1b[31m✗ state dir missing: ${dir}\x1b[0m`);
+        }
+        // Check token
+        if (env.DISCORD_BOT_TOKEN) checks.push("\x1b[32m✓ token available\x1b[0m");
+        else if (env.TELEGRAM_BOT_TOKEN) checks.push("\x1b[32m✓ token available\x1b[0m");
+        else if (config.token_source) checks.push(`\x1b[32m✓ token source: ${config.token_source}\x1b[0m`);
+        else checks.push("\x1b[33m⚠ no token configured\x1b[0m");
+        // Check source (git channels)
+        if ((p as any).source) {
+          const { existsSync: ex } = require("fs");
+          if ((p as any).path && ex((p as any).path)) checks.push(`\x1b[32m✓ repo cloned\x1b[0m`);
+          else checks.push(`\x1b[31m✗ repo not cloned\x1b[0m`);
+        }
+
+        const devTag = (p as any).dev ? " \x1b[33m[dev]\x1b[0m" : "";
+        console.log(`  ${p.id}${devTag}`);
+        for (const c of checks) console.log(`    ${c}`);
+      }
+
     } else {
-      console.log("usage: maw channel <add|rm|ls|providers> [oracle] [plugin]\n");
-      console.log("  maw channel providers                       list available channel providers");
-      console.log("  maw channel ls                              list all oracle channels");
-      console.log("  maw channel ls hermes-discord                show one oracle's channels");
-      console.log("  maw channel add hermes-discord discord       register official channel");
-      console.log("  maw channel add myoracle server:webhook      register custom channel");
-      console.log("  maw channel rm hermes-discord discord        remove channel");
+      console.log("usage: maw channel <add|rm|ls|providers|setup|test> [oracle] [plugin]\n");
+      console.log("  maw channel providers                        list available providers");
+      console.log("  maw channel setup hermes-discord discord      interactive wizard");
+      console.log("  maw channel setup myoracle github:org/repo   git channel wizard");
+      console.log("  maw channel add hermes-discord discord        quick register");
+      console.log("  maw channel add myoracle github:org/repo     git channel");
+      console.log("  maw channel rm hermes-discord discord         remove channel");
+      console.log("  maw channel ls                                list all");
+      console.log("  maw channel test hermes-discord               verify connectivity");
       console.log("");
       console.log("  maw wake <oracle> auto-injects --channels when config exists");
     }
