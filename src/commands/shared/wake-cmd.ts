@@ -106,14 +106,13 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     await setSessionEnv(session);
     await new Promise(r => setTimeout(r, 300));
     // Auto-detect channel config for this oracle (#1096)
+    // Channel env vars are prepended to the command (not tmux set-environment)
+    // because tmux set-environment only affects NEW shells, not the existing one
     const { getChannelPluginIds, getChannelEnv } = await import("./channel-loader");
     const channelIds = getChannelPluginIds(oracle);
     const channelEnv = getChannelEnv(oracle);
-    for (const [k, v] of Object.entries(channelEnv)) {
-      await tmux.setEnvironment(session, k, v);
-    }
     const wakeOpts = channelIds.length
-      ? { engine: opts.engine, channels: channelIds }
+      ? { engine: opts.engine, channels: channelIds, channelEnv }
       : opts.engine;
     await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
