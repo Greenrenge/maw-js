@@ -40,11 +40,12 @@ export function generateServeCompose(opts: { port?: number } = {}): { yaml: stri
       "maw-serve": {
         build: { context: ".", dockerfile: "Dockerfile.serve" },
         container_name: "maw-serve",
-        command: `maw serve ${port} --host 0.0.0.0`,
+        command: `maw serve ${port}`,
         ports: [`${port}:${port}`, `${tlsPort}:${tlsPort}`],
         volumes: [
           "claude-config:/root/.claude",
           "maw-config:/root/.config/maw",
+          "maw-plugins:/root/.maw",
           "code-repos:/root/Code",
           "/var/run/docker.sock:/var/run/docker.sock",
         ],
@@ -66,6 +67,7 @@ export function generateServeCompose(opts: { port?: number } = {}): { yaml: stri
     volumes: {
       "claude-config": { driver: "local" },
       "maw-config": { driver: "local" },
+      "maw-plugins": { driver: "local" },
       "code-repos": { driver: "local" },
     },
   };
