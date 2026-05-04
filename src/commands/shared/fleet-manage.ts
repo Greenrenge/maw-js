@@ -3,11 +3,26 @@ import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
 import { loadFleetEntries, getSessionNames } from "./fleet-load";
 
-export async function cmdFleetLs() {
+export async function cmdFleetLs(opts: { json?: boolean } = {}) {
   const entries = loadFleetEntries();
   const disabled = readdirSync(FLEET_DIR).filter(f => f.endsWith(".disabled")).length;
 
   const runningSessions = await getSessionNames();
+
+  // #1118 — JSON output for tooling
+  if (opts.json) {
+    console.log(JSON.stringify({
+      active: entries.length,
+      disabled,
+      entries: entries.map(e => ({
+        num: e.num,
+        name: e.session.name,
+        windows: e.session.windows.length,
+        running: runningSessions.includes(e.session.name),
+      })),
+    }, null, 2));
+    return;
+  }
 
   // Detect conflicts (duplicate numbers)
   const numCount = new Map<number, string[]>();

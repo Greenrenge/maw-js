@@ -125,7 +125,16 @@ github: prefix → delegates to setup wizard`,
       }
 
     } else if (sub === "ls" || sub === "list" || !sub) {
-      const target = args[1];
+      const json = args.includes("--json");
+      const target = args.filter(a => !a.startsWith("--"))[1];
+
+      if (json) {
+        const data = target
+          ? { oracle: target, ...loadOracleChannels(target) }
+          : { oracles: listAllOracleChannels() };
+        console.log(JSON.stringify(data, null, 2));
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
 
       if (target) {
         const config = loadOracleChannels(target);

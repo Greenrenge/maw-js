@@ -58,7 +58,7 @@ subcommands:
       }
     } else if (sub === "ls") {
       const { cmdFleetLs } = await import("../../shared/fleet");
-      await cmdFleetLs();
+      await cmdFleetLs({ json: args.includes("--json") });
     } else if (sub === "renumber") {
       const { cmdFleetRenumber } = await import("../../shared/fleet");
       await cmdFleetRenumber();
@@ -144,7 +144,7 @@ subcommands:
       await cmdFleetCompose(args.slice(1));
     } else if (!sub) {
       const { cmdFleetLs } = await import("../../shared/fleet");
-      await cmdFleetLs();
+      await cmdFleetLs({ json: args.includes("--json") });
     } else {
       return {
         ok: false,
