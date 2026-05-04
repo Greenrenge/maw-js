@@ -280,7 +280,12 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // "discord" → fleet says "24-discord-oracle", use that. Don't let substring
   // matching grab "18-hermes-discord" first.
   const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+  if (fleetSession) {
+    if (sessions.find(s => s.name === fleetSession)) return fleetSession;
+    // Fleet knows this oracle but session is dead → return null so cmdWake
+    // creates a NEW session instead of substring-matching into the wrong one.
+    return null;
+  }
 
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
