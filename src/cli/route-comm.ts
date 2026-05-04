@@ -26,7 +26,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     // same "usage:" error. Now the missing-message case names the target
     // so the user sees their input got through.
     if (!target) {
-      console.error("usage: maw hey <target> <message> [--force]");
+      console.error("usage: maw hey <target> <message> [--force] [--approve] [--trust]");
       console.error("  target forms (#759 Phase 2 — bare names removed):");
       console.error("    local:<agent>                this node");
       console.error("    <node>:<session>             canonical cross-node form (window 1)");
