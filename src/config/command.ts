@@ -10,6 +10,7 @@ function matchGlob(pattern: string, name: string): boolean {
 export interface BuildCommandOpts {
   engine?: string;
   channels?: string[];
+  channelEnv?: Record<string, string>;
   devChannels?: boolean;
 }
 
@@ -28,6 +29,15 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
       if (pattern === "default") continue;
       if (matchGlob(pattern, agentName)) { cmd = command; break; }
     }
+  }
+
+  // Prepend channel env vars directly to command (not tmux set-environment)
+  // because tmux set-environment only affects NEW shells, not the existing one
+  if (opts.channelEnv && Object.keys(opts.channelEnv).length > 0) {
+    const envPrefix = Object.entries(opts.channelEnv)
+      .map(([k, v]) => `${k}='${v.replace(/'/g, "'\\''")}'`)
+      .join(" ");
+    cmd = `${envPrefix} ${cmd}`;
   }
 
   if (opts.channels?.length) {
