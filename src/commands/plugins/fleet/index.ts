@@ -113,6 +113,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const trigger = args[1] || "manual";
       const path = await takeSnapshot(trigger);
       console.log(`\x1b[32m📸\x1b[0m snapshot saved: ${path} (trigger: ${trigger})`);
+    } else if (sub === "compose" || sub === "to-compose") {
+      const { cmdFleetCompose } = await import("./fleet-compose");
+      await cmdFleetCompose(args.slice(1));
     } else if (!sub) {
       const { cmdFleetLs } = await import("../../shared/fleet");
       await cmdFleetLs();
