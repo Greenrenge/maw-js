@@ -15,7 +15,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
   // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
   // and (without this guard) get sanitized into session names like `26---help`.
   if (oracle.startsWith("-")) {
-    throw new UserError(`invalid oracle name: "${oracle}" — did you mean 'maw --help'?`);
+    console.error(`\x1b[31m✗\x1b[0m invalid oracle name: "${oracle}" — did you mean 'maw --help'?`);
+    throw new UserError(`invalid oracle name: "${oracle}"`);
   }
 
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`

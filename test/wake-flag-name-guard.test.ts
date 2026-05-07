@@ -22,7 +22,7 @@ describe("cmdWake — flag-shaped name guard (#1151)", () => {
     await expect(cmdWake("-e", {})).rejects.toThrow(UserError);
   });
 
-  test("error message suggests 'maw --help'", async () => {
-    await expect(cmdWake("--help", {})).rejects.toThrow(/maw --help/);
+  test("error message mentions the invalid name", async () => {
+    await expect(cmdWake("--help", {})).rejects.toThrow(/invalid oracle name/);
   });
 });
