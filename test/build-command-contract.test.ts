@@ -60,9 +60,15 @@ const wrap = (cmd: string) => cmd + RESET;
 const wrapFallback = (primary: string, fallback: string) => `{ ${primary} || ${fallback}; }${RESET}`;
 
 describe("buildCommand — post-#541 contract", () => {
-  test("returns bare default when no --continue (#1091 reset suffix)", () => {
+  test("auto-injects --continue + fallback when default is bare 'claude' (#1174)", () => {
+    // #1174 — `--continue` is the default for ALL claude wakes (engine-aware).
+    // Bare "claude" config now produces the wrapped fallback form so a fresh
+    // wake resumes the prior conversation in that oracle's cwd, falling back
+    // to bare claude when no prior session exists.
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent")).toBe(wrap("claude"));
+    expect(buildCommand("any-agent")).toBe(
+      wrapFallback("claude --continue", "claude"),
+    );
   });
 
   test("emits || fallback when default has --continue (#1091 reset suffix)", () => {
@@ -122,9 +128,12 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("any-agent", "codex")).toBe(wrap("codex --search"));
   });
 
-  test("engine param falls back to default when engine not in config", () => {
+  test("engine param falls back to default when engine not in config (#1174 fallback for claude)", () => {
     fakeConfig.commands = { default: "claude" };
-    expect(buildCommand("any-agent", "gemini")).toBe(wrap("claude"));
+    // Falls back to default "claude" → #1174 auto-injects --continue.
+    expect(buildCommand("any-agent", "gemini")).toBe(
+      wrapFallback("claude --continue", "claude"),
+    );
   });
 
   test("engine param skips pattern matching", () => {
@@ -135,6 +144,44 @@ describe("buildCommand — post-#541 contract", () => {
   test("buildCommandInDir passes engine through", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
     expect(buildCommandInDir("foo", "/tmp", "codex")).toBe(wrap("codex --search"));
+  });
+
+  // #1174 — engine-aware --continue auto-inject for claude wakes.
+
+  test("#1174: non-channel claude wake auto-injects --continue (positive case)", () => {
+    fakeConfig.commands = { default: "claude --dangerously-skip-permissions" };
+    const out = buildCommand("any-agent");
+    expect(out).toContain("--continue");
+    expect(out).toContain("||"); // wrapped with fallback
+    expect(out).toBe(
+      wrapFallback(
+        "claude --dangerously-skip-permissions --continue",
+        "claude --dangerously-skip-permissions",
+      ),
+    );
+  });
+
+  test("#1174: codex (non-claude) engine does NOT get --continue (engine-aware guard)", () => {
+    // codex doesn't recognize --continue, and its silent-ignore behavior
+    // would defeat the || fallback. Guard ensures only `claude` cmds get it.
+    fakeConfig.commands = { default: "claude", codex: "codex --search" };
+    expect(buildCommand("any-agent", "codex")).toBe(wrap("codex --search"));
+    expect(buildCommand("any-agent", "codex")).not.toContain("--continue");
+  });
+
+  test("#1174: pattern-matched non-claude command does NOT get --continue", () => {
+    // Pattern `foo-*` resolves to `echo hi` — not claude, no --continue.
+    fakeConfig.commands = { default: "claude", "foo-*": "echo hi" };
+    expect(buildCommand("foo-bar")).toBe(wrap("echo hi"));
+    expect(buildCommand("foo-bar")).not.toContain("--continue");
+  });
+
+  test("#1174: claude command with channelEnv prefix still gets --continue", () => {
+    // Env-var prefix shouldn't fool the engine detector (e.g. via channelEnv).
+    fakeConfig.commands = { default: "claude" };
+    const out = buildCommand("any-agent", { channelEnv: { DISCORD_STATE_DIR: "~/.claude/channels/foo" } });
+    expect(out).toContain("DISCORD_STATE_DIR=");
+    expect(out).toContain("--continue");
   });
 
   test("no direnv / CLAUDECODE / cd preamble anywhere in output", () => {

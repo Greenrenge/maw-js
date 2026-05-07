@@ -86,12 +86,29 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
     if (opts.permissionMode !== "relay" && !cmd.includes("--dangerously-skip-permissions")) {
       cmd += " --dangerously-skip-permissions";
     }
-    if (!cmd.includes("--continue") && !cmd.includes("--resume")) {
-      cmd += " --continue";
-    }
   }
   if (opts.devChannels) {
     cmd += " --dangerously-load-development-channels";
+  }
+
+  // #1174 — `--continue` is the default for ALL claude wakes (not just
+  // channel-enabled bots), so `maw wake <oracle>` resumes the prior
+  // conversation in that oracle's cwd instead of starting fresh.
+  //
+  // Engine-aware guard: only inject for `claude` commands. `codex` (and any
+  // other non-claude engine in `commands.<engine>`) doesn't recognize
+  // `--continue`, and the `||` fallback below only fires on non-zero exit —
+  // codex may silently ignore unknown flags, never tripping the fallback.
+  // The simplest safe rule: cmd must start with `claude` (after optional env-
+  // var prefix from `channelEnv`).
+  const cmdPart = cmd.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|\S*)\s+)+/, "");
+  const isClaudeEngine = cmdPart.startsWith("claude");
+  if (
+    isClaudeEngine &&
+    !cmd.includes("--continue") &&
+    !cmd.includes("--resume")
+  ) {
+    cmd += " --continue";
   }
 
   // Strip --dangerously-skip-permissions when running as root (#181)
