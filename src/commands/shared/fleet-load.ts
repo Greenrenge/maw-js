@@ -40,15 +40,20 @@ export function loadFleetEntries(): FleetEntry[] {
   const files = readdirSync(FLEET_DIR)
     .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
     .sort();
-  return files.map(f => {
+  // #1175 — parity with loadFleet's #1133 filter: skip malformed configs
+  // (missing `name`) so downstream `entry.session.name.replace(...)` doesn't
+  // crash. Test fixtures from #484 (`{"writer":0}`, `{"a":1}`) were the
+  // re-trigger surfaced via maw bud → bud-init.ts:87 + bud-wake.ts:64.
+  return files.flatMap(f => {
     const raw = require(join(FLEET_DIR, f));
+    if (!raw || typeof raw.name !== "string") return [];
     const match = f.match(/^(\d+)-(.+)\.json$/);
-    return {
+    return [{
       file: f,
       num: match ? parseInt(match[1], 10) : 0,
       groupName: match ? match[2] : f.replace(".json", ""),
       session: raw as FleetSession,
-    };
+    }];
   });
 }
 
