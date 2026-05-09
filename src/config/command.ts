@@ -244,6 +244,7 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
   const scriptPath = join(SESSIONS_DIR, `${agentName}.sh`);
   const content = formatScriptHeader(agentName, cwd, opts) + formatScriptBody(agentName, opts) + "\n";
   writeFileSync(scriptPath, content, { mode: 0o755 });
+
   return scriptPath;
 }
 
@@ -257,6 +258,7 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
     const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
+    console.log(`\x1b[90m📜 ${scriptPath}\x1b[0m`);
     return `bash ${scriptPath}`;
   } catch {
     return buildCommand(agentName, optsOrEngine);
