@@ -7,6 +7,7 @@
  * Split from command-simplified.test.ts (2026-05-07) per modular-tests memory.
  */
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { homedir } from "os";
 
 let fakeConfig: any = {
   host: "local",
@@ -88,7 +89,7 @@ describe("buildCommand — permissionMode (#1146)", () => {
 
   test('permissionMode "relay" with channelEnv — env still prepended, skip flag still omitted', () => {
     fakeConfig.commands = { default: "claude" };
-    const home = require("os").homedir();
+    const home = homedir();
     const out = buildCommand("bot", {
       channels: ["plugin:discord@claude-plugins-official"],
       channelEnv: { DISCORD_STATE_DIR: "~/.claude/channels/mybot" },

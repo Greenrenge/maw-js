@@ -7,6 +7,7 @@
  * Split from command-simplified.test.ts (2026-05-07) per modular-tests memory.
  */
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { homedir } from "os";
 
 let fakeConfig: any = {
   host: "local",
@@ -61,7 +62,7 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
       channelEnv: { DISCORD_STATE_DIR: "~/.claude/channels/mybot" },
       channels: ["plugin:discord@claude-plugins-official"],
     });
-    const home = require("os").homedir();
+    const home = homedir();
     expect(out).toContain(`DISCORD_STATE_DIR='${home}/.claude/channels/mybot'`);
     expect(out).not.toContain("'~/.claude/channels/mybot'");
   });
@@ -77,7 +78,7 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
 
   test("absolute path env value is preserved verbatim (already-fixed configs)", () => {
     fakeConfig.commands = { default: "claude" };
-    const home = require("os").homedir();
+    const home = homedir();
     const out = buildCommand("bot", {
       channelEnv: { DISCORD_STATE_DIR: `${home}/.claude/channels/mybot` },
       channels: ["plugin:discord@claude-plugins-official"],
@@ -91,13 +92,13 @@ describe("buildCommand — channelEnv tilde expansion (#1135)", () => {
       channelEnv: { TRICKY: "~/path with 'quotes'" },
       channels: ["plugin:discord@claude-plugins-official"],
     });
-    const home = require("os").homedir();
+    const home = homedir();
     expect(out).toContain(`TRICKY='${home}/path with '\\''quotes'\\'''`);
   });
 
   test("bare tilde (~ alone, no slash) also expands", () => {
     fakeConfig.commands = { default: "claude" };
-    const home = require("os").homedir();
+    const home = homedir();
     const out = buildCommand("bot", {
       channelEnv: { JUST_TILDE: "~" },
       channels: ["plugin:discord@claude-plugins-official"],
