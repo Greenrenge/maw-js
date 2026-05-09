@@ -115,11 +115,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(fallback).not.toContain("--resume");
   });
 
-  test("buildCommandInDir returns buildCommand verbatim (no cd preamble; #1091 reset is part of contract now)", () => {
+  test("buildCommandInDir returns script path (#1188 — replaces inline blob with session script)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
-    const direct = buildCommand("foo");
     const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
-    expect(inDir).toBe(direct);
+    expect(inDir).toStartWith("bash ");
+    expect(inDir).toContain("sessions/foo.sh");
     expect(inDir).not.toContain("cd ");
   });
 
@@ -141,9 +141,11 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("foo-bar", "codex")).toBe(wrap("codex --auto"));
   });
 
-  test("buildCommandInDir passes engine through", () => {
+  test("buildCommandInDir returns bash script path (#1188)", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
-    expect(buildCommandInDir("foo", "/tmp", "codex")).toBe(wrap("codex --search"));
+    const result = buildCommandInDir("foo", "/tmp", "codex");
+    expect(result).toStartWith("bash ");
+    expect(result).toContain("sessions/foo.sh");
   });
 
   // #1174 — engine-aware --continue auto-inject for claude wakes.
@@ -198,9 +200,8 @@ describe("buildCommand — post-#541 contract", () => {
         expect(out).not.toContain("CLAUDECODE");
         expect(out.startsWith("cd ")).toBe(false);
         const inDir = buildCommandInDir(name, "/tmp/x");
-        expect(inDir).not.toContain("direnv");
-        expect(inDir).not.toContain("CLAUDECODE");
-        expect(inDir.startsWith("cd ")).toBe(false);
+        expect(inDir).toStartWith("bash ");
+        expect(inDir).toContain("sessions/");
       }
     }
   });

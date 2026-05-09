@@ -1,5 +1,8 @@
 import { loadConfig } from "./load";
 import { homedir } from "os";
+import { writeFileSync, mkdirSync, chmodSync } from "fs";
+import { join } from "path";
+import { resolveHome } from "../core/paths";
 
 /**
  * Expand a leading `~` to the user's home directory.
@@ -142,14 +145,122 @@ export function buildCommand(agentName: string, optsOrEngine?: string | BuildCom
   return `${cmd}; ${reset}`;
 }
 
+const SESSIONS_DIR = join(resolveHome(), "sessions");
+
+function formatScriptHeader(agentName: string, cwd: string, opts: BuildCommandOpts): string {
+  const lines = [
+    `#!/usr/bin/env bash`,
+    `# maw-session: ${agentName}`,
+    `# Generated: ${new Date().toISOString()}`,
+    `# Repo: ${cwd}`,
+  ];
+  if (opts.channels?.length) lines.push(`# Channel: ${opts.channels.join(", ")}`);
+  if (opts.permissionMode) lines.push(`# Permission: ${opts.permissionMode}`);
+  if (opts.engine) lines.push(`# Engine: ${opts.engine}`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
+  const config = loadConfig();
+  const lines: string[] = [];
+
+  if (opts.channelEnv && Object.keys(opts.channelEnv).length > 0) {
+    const envEntries = Object.entries(opts.channelEnv)
+      .filter(([k]) => process.env[k] === undefined || process.env[k] === "");
+    if (envEntries.length) {
+      for (const [k, v] of envEntries) {
+        lines.push(`export ${k}='${expandTilde(v).replace(/'/g, "'\\''")}'`);
+      }
+      lines.push("");
+    }
+  }
+
+  let cmd: string;
+  if (opts.engine && config.commands[opts.engine]) {
+    cmd = config.commands[opts.engine];
+  } else {
+    cmd = config.commands.default || "claude";
+    for (const [pattern, command] of Object.entries(config.commands)) {
+      if (pattern === "default") continue;
+      if (matchGlob(pattern, agentName)) { cmd = command; break; }
+    }
+  }
+
+  const flags: string[] = [];
+  if (opts.channels?.length) {
+    flags.push(`--channels ${opts.channels.join(" ")}`);
+    if (opts.permissionMode !== "relay" && !cmd.includes("--dangerously-skip-permissions")) {
+      flags.push("--dangerously-skip-permissions");
+    }
+  }
+  if (opts.devChannels) flags.push("--dangerously-load-development-channels");
+
+  const cmdPart = cmd;
+  const isClaudeEngine = cmdPart.startsWith("claude");
+
+  if (process.getuid?.() === 0) {
+    const idx = flags.indexOf("--dangerously-skip-permissions");
+    if (idx !== -1) flags.splice(idx, 1);
+  }
+
+  const sessionIds: Record<string, string> = (config as any).sessionIds || {};
+  const sessionId = sessionIds[agentName]
+    || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
+
+  const fullCmd = [cmd, ...flags].join(" \\\n    ");
+
+  if (isClaudeEngine && !sessionId) {
+    let fallbackFlags = flags.filter(f => f !== "--continue");
+    const fallbackCmd = [cmd, ...fallbackFlags].join(" \\\n    ");
+    lines.push(`{ ${fullCmd} \\`);
+    lines.push(`    --continue \\`);
+    lines.push(`  || ${fallbackCmd}; }`);
+  } else if (sessionId) {
+    let fallbackFlags = [...flags];
+    lines.push(`{ ${fullCmd} \\`);
+    lines.push(`    --resume "${sessionId}" \\`);
+    lines.push(`  || ${fullCmd} \\`);
+    lines.push(`    --session-id "${sessionId}"; }`);
+  } else {
+    lines.push(fullCmd);
+  }
+
+  lines.push("");
+  lines.push(`# Terminal reset — fixes Claude TUI raw mode + alternate screen (#1091)`);
+  lines.push(`printf "\\e[?1049l\\e[0m"`);
+  lines.push(`stty sane 2>/dev/null`);
+  lines.push(`clear`);
+
+  return lines.join("\n");
+}
+
+export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
+  const opts: BuildCommandOpts = typeof optsOrEngine === "string"
+    ? { engine: optsOrEngine }
+    : (optsOrEngine || {});
+
+  mkdirSync(SESSIONS_DIR, { recursive: true });
+  const scriptPath = join(SESSIONS_DIR, `${agentName}.sh`);
+  const content = formatScriptHeader(agentName, cwd, opts) + formatScriptBody(agentName, opts) + "\n";
+  writeFileSync(scriptPath, content, { mode: 0o755 });
+  return scriptPath;
+}
+
 /**
- * Previously wrapped buildCommand with `cd '<cwd>' && { ... }` to survive tmux
- * server reboots that reset pane pwd. Dropped in #541 — tmux newWindow(cwd:)
- * already sets the initial pane cwd, and the scrollback noise wasn't worth
- * the reboot-recovery edge case. `cwd` param kept for API compat + future use.
+ * Build the command string for a wake pane. Writes a session script to
+ * ~/.maw/sessions/<agent>.sh and returns `bash <path>` so the tmux pane
+ * shows a clean one-liner instead of a 200-char inline blob (#1188).
+ *
+ * Falls back to inline buildCommand() if script write fails.
  */
-export function buildCommandInDir(agentName: string, _cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
-  return buildCommand(agentName, optsOrEngine);
+export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
+  try {
+    const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
+    return `bash ${scriptPath}`;
+  } catch {
+    return buildCommand(agentName, optsOrEngine);
+  }
 }
 
 export function getEnvVars(): Record<string, string> {
