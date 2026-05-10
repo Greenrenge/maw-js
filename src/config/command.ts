@@ -258,7 +258,6 @@ export function writeSessionScript(agentName: string, cwd: string, optsOrEngine?
 export function buildCommandInDir(agentName: string, cwd: string, optsOrEngine?: string | BuildCommandOpts): string {
   try {
     const scriptPath = writeSessionScript(agentName, cwd, optsOrEngine);
-    console.log(`\x1b[90m📜 ${scriptPath}\x1b[0m`);
     return `bash ${scriptPath}`;
   } catch {
     return buildCommand(agentName, optsOrEngine);

@@ -22,6 +22,7 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
+import { cmdShow } from "../commands/shared/wake-show";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { parseFlags } from "./parse-args";
@@ -48,6 +49,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   stall: "Detect stalled panes — notify-only (#976A)",
+  show: "Print session launch script to stdout (pipe-able)",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -76,6 +78,8 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
+
+  show: { kind: "direct", handler: "../commands/shared/wake-show:cmdShow" },
 };
 
 /**
@@ -224,6 +228,16 @@ export async function invokeDirectHandler(
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     await cmdPreflight({ fix: !!flags["--fix"] });
+    return;
+  }
+
+  if (exportName === "cmdShow") {
+    const oracle = argv[0];
+    if (!oracle) {
+      console.error("usage: maw show <oracle>");
+      process.exit(1);
+    }
+    await cmdShow(oracle);
     return;
   }
 
