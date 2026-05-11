@@ -137,8 +137,6 @@ export interface MawConfig {
   psiPath?: string;
   /** TLS cert/key paths */
   tls?: { cert: string; key: string };
-  /** Zenoh transport — pub/sub via zenohd remote-api */
-  zenoh?: { locator: string };
   /** Polling intervals (ms) */
   intervals?: MawIntervals;
   /** HTTP/operation timeouts (ms) */
