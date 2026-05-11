@@ -66,12 +66,13 @@ github: prefix → delegates to setup wizard`,
 
       const newPlugin: ChannelPlugin = { id: pluginId };
 
-      // Auto-set DISCORD_STATE_DIR for discord plugins. Use absolute path —
-      // Bun/Node don't expand `~` in JSON values; storing a literal tilde
-      // here would fail at exec time (#1135).
+      // Auto-set DISCORD_STATE_DIR for discord plugins. Use tilde-prefix
+      // (#1135 added expandTilde() in buildCommand, #1193: absolute paths
+      // break cross-user fleet migration — tilde resolves at exec time
+      // relative to the running user, which is what we want).
+      // Matches setup.ts:248 — keep these two write sites consistent.
       if (pluginId.includes("discord")) {
-        const home = require("os").homedir();
-        newPlugin.env = { DISCORD_STATE_DIR: `${home}/.claude/channels/${oracle}` };
+        newPlugin.env = { DISCORD_STATE_DIR: `~/.claude/channels/${oracle}` };
       }
 
       // --env KEY=VAL
