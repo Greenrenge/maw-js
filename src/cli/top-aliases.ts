@@ -50,6 +50,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   stall: "Detect stalled panes — notify-only (#976A)",
   show: "Print session launch script to stdout (pipe-able)",
+  new: "Create a new oracle (alias for awaken — friendly door)",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -66,6 +67,12 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
   stall: ["tmux", "detect-stalls"],
+
+  // `maw new <name>` — the friendly door for creating an oracle.
+  // Routes to the awaken plugin (bud + wake + fire /awaken). Plain alias —
+  // all awaken flags pass through. New users learn `new`; the `bud`/`awaken`
+  // metaphors stay for those who want them.
+  new: ["awaken"],
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
