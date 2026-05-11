@@ -1,8 +1,43 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
 const CHANNELS_BASE = join(homedir(), ".claude", "channels");
+
+/**
+ * Per-repo channel config path (#1195 Phase 1).
+ * Lives at <repoPath>/.claude/channel.json — config travels with the repo,
+ * eliminating cross-user/cross-machine migration pain.
+ */
+function repoConfigPath(repoPath: string): string {
+  return join(repoPath, ".claude", "channel.json");
+}
+
+/** Save channel config to a repo's .claude/channel.json instead of global. */
+export function saveRepoChannels(repoPath: string, config: OracleChannelConfig): void {
+  const dir = join(repoPath, ".claude");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(repoConfigPath(repoPath), JSON.stringify(config, null, 2) + "\n");
+
+  // Auto-add .claude/.env to .gitignore (tokens never get committed)
+  const gitignore = join(repoPath, ".gitignore");
+  const entry = ".claude/.env";
+  let needsAdd = true;
+  if (existsSync(gitignore)) {
+    const content = readFileSync(gitignore, "utf8");
+    if (content.split("\n").some(l => l.trim() === entry)) needsAdd = false;
+  }
+  if (needsAdd) {
+    appendFileSync(gitignore, `\n# Channel bot token — never commit\n${entry}\n`);
+  }
+}
+
+/** Read channel config from repo's .claude/channel.json. Returns null if missing. */
+export function loadRepoChannels(repoPath: string): OracleChannelConfig | null {
+  const p = repoConfigPath(repoPath);
+  if (!existsSync(p)) return null;
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
+}
 
 export interface ChannelPlugin {
   id: string;

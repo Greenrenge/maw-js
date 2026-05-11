@@ -1,8 +1,10 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import {
   loadOracleChannels, saveOracleChannels, listAllOracleChannels,
+  loadRepoChannels, saveRepoChannels,
   type OracleChannelConfig, type ChannelPlugin,
 } from "../../shared/channel-loader";
+import { resolve } from "path";
 
 export const command = {
   name: "channel",
@@ -56,8 +58,18 @@ github: prefix → delegates to setup wizard`,
         return { ok: true, output: logs.join("\n") };
       }
 
+      // #1195 Phase 1: --repo <path> writes to <repo>/.claude/channel.json
+      // instead of ~/.claude/channels/<oracle>/config.json
+      let repoPath: string | null = null;
+      for (let i = 3; i < args.length; i++) {
+        if (args[i] === "--repo" && args[i + 1]) {
+          repoPath = resolve(args[i + 1]);
+          break;
+        }
+      }
+
       const pluginId = expandPluginId(plugin);
-      const config = loadOracleChannels(oracle) || { plugins: [] };
+      const config = (repoPath ? loadRepoChannels(repoPath) : loadOracleChannels(oracle)) || { plugins: [] };
 
       if (config.plugins.some(p => p.id === pluginId)) {
         console.log(`  \x1b[33m⚠\x1b[0m '${pluginId}' already registered for ${oracle}`);
@@ -66,16 +78,19 @@ github: prefix → delegates to setup wizard`,
 
       const newPlugin: ChannelPlugin = { id: pluginId };
 
-      // Auto-set DISCORD_STATE_DIR for discord plugins. Use tilde-prefix
-      // (#1135 added expandTilde() in buildCommand, #1193: absolute paths
-      // break cross-user fleet migration — tilde resolves at exec time
-      // relative to the running user, which is what we want).
-      // Matches setup.ts:248 — keep these two write sites consistent.
+      // Auto-set DISCORD_STATE_DIR for discord plugins.
+      // Per-repo (--repo): use .claude/channel-state/ relative to repo
+      //                    (no homedir coupling, travels with the repo).
+      // Global default:    use ~/.claude/channels/<oracle> (tilde for cross-user).
       if (pluginId.includes("discord")) {
-        newPlugin.env = { DISCORD_STATE_DIR: `~/.claude/channels/${oracle}` };
+        if (repoPath) {
+          newPlugin.env = { DISCORD_STATE_DIR: ".claude/channel-state" };
+        } else {
+          newPlugin.env = { DISCORD_STATE_DIR: `~/.claude/channels/${oracle}` };
+        }
       }
 
-      // --env KEY=VAL
+      // --env KEY=VAL, --pass, --repo (already consumed above)
       for (let i = 3; i < args.length; i++) {
         if (args[i] === "--env" && args[i + 1]?.includes("=")) {
           const [k, ...v] = args[i + 1].split("=");
@@ -87,10 +102,18 @@ github: prefix → delegates to setup wizard`,
           config.token_source = `pass:${args[i + 1]}`;
           i++;
         }
+        if (args[i] === "--repo") {
+          i++; // skip the value, already consumed
+        }
       }
 
       config.plugins.push(newPlugin);
-      saveOracleChannels(oracle, config);
+      if (repoPath) {
+        saveRepoChannels(repoPath, config);
+        console.log(`  \x1b[36m📁\x1b[0m repo mode — wrote ${repoPath}/.claude/channel.json`);
+      } else {
+        saveOracleChannels(oracle, config);
+      }
 
       console.log(`  \x1b[32m✅\x1b[0m channel added: ${oracle} → ${pluginId}`);
       if (newPlugin.env) {
