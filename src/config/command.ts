@@ -208,19 +208,31 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
   const sessionId = sessionIds[agentName]
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
 
+  // Idempotency: don't double-append --continue/--resume if config.commands.default
+  // already includes them. buildCommand() has the same guard; mirror it here.
+  const alreadyHasContinue = cmd.includes("--continue") || cmd.includes("--resume");
   const fullCmd = [cmd, ...flags].join(" \\\n    ");
 
   if (isClaudeEngine && !sessionId) {
-    let fallbackFlags = flags.filter(f => f !== "--continue");
-    const fallbackCmd = [cmd, ...fallbackFlags].join(" \\\n    ");
-    lines.push(`{ ${fullCmd} \\`);
-    lines.push(`    --continue \\`);
-    lines.push(`  || ${fallbackCmd}; }`);
+    if (alreadyHasContinue) {
+      // cmd already has --continue; build a fallback that strips it.
+      const cmdNoCont = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+\S+/, "");
+      const fallbackCmd = [cmdNoCont, ...flags].join(" \\\n    ");
+      lines.push(`{ ${fullCmd} \\`);
+      lines.push(`  || ${fallbackCmd}; }`);
+    } else {
+      const fallbackCmd = [cmd, ...flags].join(" \\\n    ");
+      lines.push(`{ ${fullCmd} \\`);
+      lines.push(`    --continue \\`);
+      lines.push(`  || ${fallbackCmd}; }`);
+    }
   } else if (sessionId) {
-    let fallbackFlags = [...flags];
-    lines.push(`{ ${fullCmd} \\`);
+    // sessionId pin: replace --continue with --resume in the primary, fallback uses --session-id
+    const cmdNoCont = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+\S+/, "");
+    const primary = [cmdNoCont, ...flags].join(" \\\n    ");
+    lines.push(`{ ${primary} \\`);
     lines.push(`    --resume "${sessionId}" \\`);
-    lines.push(`  || ${fullCmd} \\`);
+    lines.push(`  || ${primary} \\`);
     lines.push(`    --session-id "${sessionId}"; }`);
   } else {
     lines.push(fullCmd);
