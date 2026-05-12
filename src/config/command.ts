@@ -173,6 +173,8 @@ function formatScriptHeader(agentName: string, cwd: string, opts: BuildCommandOp
   lines.push("");
   lines.push(`clear`);
   lines.push(`printf '\\033]2;${agentName}\\033\\\\'`);
+  lines.push(`date "+🕐 %H:%M %Z — ${agentName}"`);
+  lines.push(`echo`);
   lines.push("");
   return lines.join("\n");
 }
