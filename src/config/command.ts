@@ -198,6 +198,8 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
       const e = ENGINE_DEFS[opts.engine as keyof typeof ENGINE_DEFS];
       if (e && e.binary !== "claude") {
         const perm = e.permissionFlag ? ` ${e.permissionFlag}` : "";
+        lines.push(`which ${e.binary}`);
+        lines.push("");
         lines.push(`${e.binary}${perm}`);
         lines.push("");
         lines.push("# Terminal reset");
@@ -241,6 +243,15 @@ function formatScriptBody(agentName: string, opts: BuildCommandOpts): string {
   // already includes them. buildCommand() has the same guard; mirror it here.
   const alreadyHasContinue = cmd.includes("--continue") || cmd.includes("--resume");
   const fullCmd = [cmd, ...flags].join(" \\\n    ");
+
+  // Surface which binary the pane is about to invoke — the shellenv wrapper
+  // for `claude`, or the resolved PATH entry for codex/gemini/etc. Helps
+  // debug shadowing, missing wrappers, and stale installs.
+  const whichBinary = cmd.replace(/^(?:[A-Z_][A-Z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+)+/, "").split(/\s+/)[0];
+  if (whichBinary) {
+    lines.push(`which ${whichBinary}`);
+    lines.push("");
+  }
 
   if (isClaudeEngine && !sessionId) {
     if (alreadyHasContinue) {
