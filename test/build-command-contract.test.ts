@@ -115,7 +115,7 @@ describe("buildCommand — post-#541 contract", () => {
     expect(fallback).not.toContain("--resume");
   });
 
-  test("buildCommandInDir returns script path (#1188 — replaces inline blob with session script)", () => {
+  test("buildCommandInDir returns session script path (#1188)", () => {
     fakeConfig.commands = { default: "claude --continue --dangerously-skip-permissions" };
     const inDir = buildCommandInDir("foo", "/tmp/some where/nested");
     expect(inDir).toStartWith(" bash ");
@@ -140,7 +140,7 @@ describe("buildCommand — post-#541 contract", () => {
     expect(buildCommand("foo-bar", "codex")).toBe(wrap("codex --auto"));
   });
 
-  test("buildCommandInDir returns bash script path (#1188)", () => {
+  test("buildCommandInDir returns session script path with engine (#1188)", () => {
     fakeConfig.commands = { default: "claude", codex: "codex --search" };
     const result = buildCommandInDir("foo", "/tmp", "codex");
     expect(result).toStartWith(" bash ");
