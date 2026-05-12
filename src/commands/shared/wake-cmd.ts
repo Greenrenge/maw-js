@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { ghqFind } from "../../core/ghq";
-import { buildCommandInDir, buildRespawnCommand, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { buildCommandInDir, buildShellFunction, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
@@ -149,7 +149,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
       ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode }
       : opts.engine;
     const paneTarget = `${session}:${mainWindowName}`;
-    await tmux.respawnPane(paneTarget, buildRespawnCommand(mainWindowName, wakeOpts));
+    await tmux.sendText(paneTarget, buildShellFunction(mainWindowName, wakeOpts));
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)
@@ -178,7 +178,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
         usedNames.add(wtWindowName);
         await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
+        await tmux.sendText(`${session}:${wtWindowName}`, buildShellFunction(wtWindowName, wakeOpts));
         console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
       }
     }
@@ -204,7 +204,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, wakeOpts));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildShellFunction(wtWindowName, opts.engine));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
@@ -289,7 +289,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
 
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        await tmux.sendText(target, buildShellFunction(existingWindow, opts.engine));
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
@@ -310,12 +310,12 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
-  const cmd = buildCommandInDir(windowName, targetPath, opts.engine);
   if (opts.prompt) {
+    const cmd = buildCommandInDir(windowName, targetPath, opts.engine);
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);
   } else {
-    await tmux.sendText(`${session}:${windowName}`, cmd);
+    await tmux.sendText(`${session}:${windowName}`, buildShellFunction(windowName, opts.engine));
   }
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
