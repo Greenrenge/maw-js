@@ -50,8 +50,14 @@ jobs:
   # --shard=N/M + --isolate flags. --isolate is essential — 31 of the 102
   # files use mock.module() which is process-global, so without per-file
   # isolation a shard's tests can leak mocks into siblings. (#1278)
+  #
+  # #1348 — timeout-minutes guards against Bun --isolate crashes that hang
+  # the runner indefinitely (panic: Option::unwrap() on None). Normal shard
+  # completes in <30s; 5 min is generous enough to catch real slowdowns
+  # while failing fast on hung shards. Rerun --failed usually passes.
   test-unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +85,12 @@ jobs:
       - name: Run unit tests (shard ${{ matrix.shard }}/8)
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bun test --shard=${{ matrix.shard }}/8 --isolate
+          MAW_TEST_MODE: "1"
+        run: |
+          bun test --shard=${{ matrix.shard }}/8 --isolate \
+            --path-ignore-patterns '**/test/isolated/**' \
+            --path-ignore-patterns '**/zz-mock-tmux-smoke*' \
+            --path-ignore-patterns '**/agents/**'
 
   # test-isolated is the slowest CI job — 79 test files × bun startup, all
   # sequential because Bun's mock.module is process-global. Each subprocess
@@ -87,6 +98,7 @@ jobs:
   # (#1257)
   test-isolated:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
