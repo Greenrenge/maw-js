@@ -7,6 +7,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
+import { mkdirSync, rmSync } from "fs";
 
 let commands: string[] = [];
 let nextPane = 1;
@@ -58,6 +59,7 @@ beforeEach(() => {
   nextPane = 1;
   paneList = "";
   worktreeList = "";
+  rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
   process.env.TMUX_PANE = "%lead";
 });
 
@@ -153,6 +155,31 @@ describe("tile clean", () => {
     expect(commands).toContain("tmux kill-pane -t '%p3'");
     expect(commands).not.toContain("tmux kill-pane -t '%p2'");
     expect(commands).not.toContain("tmux kill-pane -t '%lead'");
+  });
+
+  test("removes tile worktrees and safely deletes matching tile branches", async () => {
+    mkdirSync("/tmp/maw-js.wt-1-tile-1", { recursive: true });
+    worktreeList = [
+      "worktree /tmp/maw-js",
+      "HEAD 1111111111111111111111111111111111111111",
+      "branch refs/heads/main",
+      "",
+      "worktree /tmp/maw-js.wt-1-tile-1",
+      "HEAD 2222222222222222222222222222222222222222",
+      "branch refs/heads/agents/1-tile-1",
+      "",
+      "worktree /tmp/maw-js.wt-2-task",
+      "HEAD 3333333333333333333333333333333333333333",
+      "branch refs/heads/agents/2-task",
+    ].join("\n");
+
+    await cmdTileClean();
+
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree remove '/tmp/maw-js.wt-1-tile-1' --force 2>/dev/null");
+    expect(commands).toContain("git -C '/tmp/maw-js' branch -d 'agents/1-tile-1' 2>/dev/null");
+    expect(commands.some(cmd => cmd.includes("agents/2-task"))).toBe(false);
+
+    rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
   });
 });
 
