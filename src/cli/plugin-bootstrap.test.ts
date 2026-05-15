@@ -69,6 +69,20 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     return dir;
   }
 
+  /** Helper: create a previous maw-js package root with a bundled plugin. */
+  function makeStaleMawJsBundledPlugin(name: string, lane: "commands" | "vendor" = "commands") {
+    const root = join(workDir, `old-maw-js-${lane}-${name}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "maw-js", version: "0.0.0-old" }));
+    const dir = lane === "commands"
+      ? join(root, "src", "commands", "plugins", name)
+      : join(root, "src", "vendor", "mpr-plugins", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ stale: true });\n`);
+    return dir;
+  }
+
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
     makeBundledPlugin("beta");
@@ -123,6 +137,50 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
     expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+  });
+
+  it("#1491 — stale symlink to an older maw-js bundled plugin is healed to current package", async () => {
+    const currentFleet = makeBundledPlugin("fleet");
+    const staleFleet = makeStaleMawJsBundledPlugin("fleet");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(staleFleet, join(pluginDir, "fleet"));
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(staleFleet);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(currentFleet);
+  });
+
+  it("#1491 — stale symlink to an older vendored maw-js plugin is healed to current vendor", async () => {
+    const currentWake = makeVendoredPlugin("wake");
+    const staleWake = makeStaleMawJsBundledPlugin("wake", "vendor");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(staleWake, join(pluginDir, "wake"));
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(staleWake);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "wake")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(currentWake);
+  });
+
+  it("#1491 — symlinked user plugin override is not treated as stale maw-js bundle", async () => {
+    makeBundledPlugin("fleet");
+    const userFleet = join(workDir, "user-plugins", "fleet");
+    mkdirSync(userFleet, { recursive: true });
+    writeFileSync(join(userFleet, "plugin.json"), JSON.stringify({ name: "fleet" }));
+    writeFileSync(join(userFleet, "index.ts"), `export default async () => ({ user: true });\n`);
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(userFleet, join(pluginDir, "fleet"));
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "fleet")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "fleet"))).toBe(userFleet);
   });
 
   it("#1339 — user plugin dirs override vendored plugin names", async () => {

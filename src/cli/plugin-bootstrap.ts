@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync } from "fs";
+import { mkdirSync, existsSync, readdirSync, symlinkSync, cpSync, readFileSync, lstatSync, unlinkSync, realpathSync } from "fs";
 import { join } from "path";
 
 /** Allowlist: only http/https URLs may be used as plugin sources */
@@ -22,6 +22,45 @@ function linkBundledPlugins(pluginDir: string, bundled: string): number {
   return linked;
 }
 
+function replacementForPlugin(entry: string, bundledRoots: string[]): string | undefined {
+  return bundledRoots
+    .map((root) => join(root, entry))
+    .find((candidate) => existsSync(candidate) && isPluginDir(candidate));
+}
+
+function bundledMawJsRoot(target: string, entry: string): string | undefined {
+  const normalized = target.replace(/\\/g, "/");
+  const suffixes = [
+    `/src/commands/plugins/${entry}`,
+    `/src/vendor/mpr-plugins/${entry}`,
+  ];
+  for (const suffix of suffixes) {
+    if (!normalized.endsWith(suffix)) continue;
+    return target.slice(0, target.length - suffix.length);
+  }
+}
+
+function isMawJsPackageRoot(root: string | undefined): boolean {
+  if (!root) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
+    return pkg?.name === "maw-js";
+  } catch {
+    return false;
+  }
+}
+
+function pointsAtStaleMawJsBundledPlugin(symlinkPath: string, entry: string, replacement: string): boolean {
+  try {
+    const currentTarget = realpathSync(replacement);
+    const existingTarget = realpathSync(symlinkPath);
+    if (existingTarget === currentTarget) return false;
+    return isMawJsPackageRoot(bundledMawJsRoot(existingTarget, entry));
+  } catch {
+    return false;
+  }
+}
+
 function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): { healed: number; pruned: number } {
   let healed = 0;
   let pruned = 0;
@@ -29,11 +68,9 @@ function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): {
     const p = join(pluginDir, entry);
     try {
       if (!lstatSync(p).isSymbolicLink()) continue;
+      const replacement = replacementForPlugin(entry, bundledRoots);
       const targetIsValidPlugin = existsSync(p) && isPluginDir(p);
-      if (targetIsValidPlugin) continue;
-      const replacement = bundledRoots
-        .map((root) => join(root, entry))
-        .find((candidate) => existsSync(candidate) && isPluginDir(candidate));
+      if (targetIsValidPlugin && (!replacement || !pointsAtStaleMawJsBundledPlugin(p, entry, replacement))) continue;
       unlinkSync(p);
       if (replacement) {
         symlinkSync(replacement, p);
