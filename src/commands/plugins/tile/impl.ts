@@ -226,19 +226,37 @@ export async function cmdTileClean(): Promise<void> {
     const parentDir = dirname(repoPath);
     const repoName = basename(repoPath).replace(/\.wt-.*$/, "");
     const mainRepo = `${parentDir}/${repoName}`;
-    const wtRaw = await hostExec(`git -C '${mainRepo}' worktree list --porcelain 2>/dev/null`);
-    const tileWts = wtRaw.split("\n")
-      .filter(l => l.startsWith("worktree "))
-      .map(l => l.replace("worktree ", ""))
-      .filter(p => /\.wt-\d+-tile-\d+$/.test(p));
+    const wtRaw = await hostExec(`git -C ${shellArg(mainRepo)} worktree list --porcelain 2>/dev/null`);
+    const tileWts: { path: string; branch?: string }[] = [];
+    let current: { path: string; branch?: string } | null = null;
+    for (const line of wtRaw.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        if (current) tileWts.push(current);
+        current = { path: line.replace("worktree ", "") };
+      } else if (line.startsWith("branch ") && current) {
+        current.branch = line.replace("branch refs/heads/", "").replace("branch ", "");
+      }
+    }
+    if (current) tileWts.push(current);
 
-    for (const wt of tileWts) {
+    for (const wtInfo of tileWts.filter(w => /\.wt-\d+-tile-\d+$/.test(w.path))) {
+      const wt = wtInfo.path;
       if (!existsSync(wt)) continue;
       try {
-        await hostExec(`git -C '${mainRepo}' worktree remove '${wt}' --force 2>/dev/null`);
+        await hostExec(`git -C ${shellArg(mainRepo)} worktree remove ${shellArg(wt)} --force 2>/dev/null`);
         console.log(`  \x1b[31m✗\x1b[0m worktree ${wt}`);
         killed++;
       } catch { /* ok */ }
+      const branch = wtInfo.branch;
+      if (branch && /^agents\/\d+-tile-\d+$/.test(branch)) {
+        try {
+          await hostExec(`git -C ${shellArg(mainRepo)} branch -d ${shellArg(branch)} 2>/dev/null`);
+          console.log(`  \x1b[31m✗\x1b[0m branch ${branch}`);
+          killed++;
+        } catch {
+          console.log(`  \x1b[33m⚠\x1b[0m kept branch ${branch} (not fully merged)`);
+        }
+      }
     }
   } catch { /* not in a git repo */ }
 

@@ -70,15 +70,39 @@ export async function createWorktree(
   existingWorktrees: { name: string; path: string }[],
 ): Promise<{ wtPath: string; windowName: string }> {
   const nums = existingWorktrees.map(w => parseInt(w.name) || 0);
-  const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
-  const wtName = `${nextNum}-${name}`;
-  const wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
-  const branch = `agents/${wtName}`;
+  let nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
   const safe = (s: string) => s.replace(/'/g, "'\\''");
   try { await hostExec(`git -C '${safe(repoPath)}' rev-parse HEAD 2>/dev/null`); } catch {
     await hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
   }
-  try { await hostExec(`git -C '${safe(repoPath)}' branch -D '${safe(branch)}' 2>/dev/null`); } catch { /* ok */ }
+
+  let wtName = "";
+  let wtPath = "";
+  let branch = "";
+  let allocated = false;
+  for (let attempts = 0; attempts < 1000; attempts++) {
+    wtName = `${nextNum}-${name}`;
+    wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
+    branch = `agents/${wtName}`;
+    const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
+    if (knownWorktree) {
+      nextNum++;
+      continue;
+    }
+    try {
+      await hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
+      nextNum++;
+      continue;
+    } catch {
+      allocated = true;
+      break;
+    }
+  }
+
+  if (!allocated || !wtName || !wtPath || !branch) {
+    throw new Error(`could not allocate worktree for ${name}`);
+  }
+
   await hostExec(`git -C '${safe(repoPath)}' worktree add '${safe(wtPath)}' -b '${safe(branch)}'`);
   console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
   return { wtPath, windowName: `${oracle}-${name}` };
