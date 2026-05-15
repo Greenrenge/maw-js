@@ -108,6 +108,28 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     await cmdAudit(args.slice(1));
     return true;
   }
+  if (cmd === "tmux") {
+    // #1315 — tmux moved from plugin to core. Invokes the same default
+    // handler that previously sat behind the plugin registry, with a
+    // CLI InvokeContext so output streams to process.stdout.
+    const { default: tmuxHandler } = await import("../commands/core/tmux/index");
+    const result = await tmuxHandler({
+      source: "cli",
+      args: args.slice(1),
+      // Do not pass `console.log` here. The core tmux handler temporarily
+      // wraps console.log so command implementations can keep using it; a
+      // writer that calls console.log re-enters that wrapper and recurses
+      // until "Maximum call stack size exceeded" (#1459).
+      writer: (...a: unknown[]) => {
+        process.stdout.write(`${a.map(String).join(" ")}\n`);
+      },
+    });
+    if (!result.ok) {
+      if (result.error) console.error(result.error);
+      process.exit(result.exitCode ?? 1);
+    }
+    return true;
+  }
   if (cmd === "serve") {
     // Strip `--as <name>` from the flag check — already consumed by
     // applyInstancePreset() in cli.ts. Any OTHER flag is still a typo.
