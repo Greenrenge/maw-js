@@ -4,6 +4,22 @@ import { join } from "path";
 /** Allowlist: only http/https URLs may be used as plugin sources */
 const URL_SCHEME_RE = /^https?:\/\//;
 
+function linkBundledPlugins(pluginDir: string, bundled: string): number {
+  if (!existsSync(bundled)) return 0;
+  let linked = 0;
+  for (const d of readdirSync(bundled)) {
+    const src = join(bundled, d);
+    const dest = join(pluginDir, d);
+    const isPlugin =
+      existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
+    if (!isPlugin) continue;
+    if (existsSync(dest)) continue; // already linked / user dir / valid symlink
+    symlinkSync(src, dest);
+    linked++;
+  }
+  return linked;
+}
+
 /**
  * Auto-bootstrap plugins into pluginDir.
  *
@@ -48,18 +64,13 @@ export async function runBootstrap(pluginDir: string, srcDir: string): Promise<v
 
   // 1. Symlink any bundled plugin missing from pluginDir — IDEMPOTENT,
   //    runs every boot. Cheap (fs stat + symlink), no network.
-  const bundled = join(srcDir, "commands", "plugins");
-  if (existsSync(bundled)) {
-    for (const d of readdirSync(bundled)) {
-      const src = join(bundled, d);
-      const dest = join(pluginDir, d);
-      const isPlugin =
-        existsSync(join(src, "plugin.json")) || existsSync(join(src, "index.ts"));
-      if (!isPlugin) continue;
-      if (existsSync(dest)) continue; // already linked / user dir / valid symlink
-      symlinkSync(src, dest);
-    }
-  }
+  linkBundledPlugins(pluginDir, join(srcDir, "commands", "plugins"));
+
+  // #1339 — fresh installs must also get the maw-plugin-registry command
+  // surface (`wake`, `attach`, `done`, `send-enter`, ...). The vendored copy is
+  // source-only and intentionally uses the same pluginDir symlink mechanism as
+  // in-tree plugins so user-installed plugins keep precedence.
+  linkBundledPlugins(pluginDir, join(srcDir, "vendor", "mpr-plugins"));
 
   // 2. Install from pluginSources URLs — first-install only (network calls,
   //    should not retry every boot).
