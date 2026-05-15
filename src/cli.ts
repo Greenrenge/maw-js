@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 
   // Auto-bootstrap: if ~/.maw/plugins/ is empty, symlink bundled + install from pluginSources.
   // import.meta.dir must resolve to src/ — keep the call here, not in a child module.
-  const pluginDir = join(homedir(), ".maw", "plugins");
+  const pluginDir = process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins");
   await runBootstrap(pluginDir, import.meta.dir);
 
   // Load plugins from ~/.maw/plugins/ — the single source of truth

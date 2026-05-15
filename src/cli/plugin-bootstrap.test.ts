@@ -30,6 +30,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
   let srcDir: string;
   let pluginDir: string;
   let bundledDir: string;
+  let vendoredDir: string;
 
   beforeEach(() => {
     // mkdtempSync is atomic — appends 6 random chars + creates the dir in one
@@ -39,6 +40,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     srcDir = join(workDir, "src");
     pluginDir = join(workDir, "plugins");
     bundledDir = join(srcDir, "commands", "plugins");
+    vendoredDir = join(srcDir, "vendor", "mpr-plugins");
     mkdirSync(bundledDir, { recursive: true });
   });
 
@@ -58,6 +60,15 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     return dir;
   }
 
+  /** Helper: create a vendored mpr plugin dir recognized by runBootstrap. */
+  function makeVendoredPlugin(name: string) {
+    const dir = join(vendoredDir, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name }));
+    writeFileSync(join(dir, "index.ts"), `export default async () => ({ ok: true });\n`);
+    return dir;
+  }
+
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
     makeBundledPlugin("beta", "index");
@@ -72,6 +83,32 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
       expect(lstatSync(dest).isSymbolicLink()).toBe(true);
       expect(readlinkSync(dest)).toBe(join(bundledDir, name));
     }
+  });
+
+  it("#1339 — empty pluginDir also symlinks vendored maw-plugin-registry plugins", async () => {
+    makeBundledPlugin("tile");
+    makeVendoredPlugin("wake");
+    makeVendoredPlugin("attach");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["attach", "tile", "wake"]);
+    expect(readlinkSync(join(pluginDir, "tile"))).toBe(join(bundledDir, "tile"));
+    expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
+    expect(readlinkSync(join(pluginDir, "attach"))).toBe(join(vendoredDir, "attach"));
+  });
+
+  it("#1339 — user plugin dirs override vendored plugin names", async () => {
+    makeVendoredPlugin("wake");
+    mkdirSync(pluginDir, { recursive: true });
+    const userWake = join(pluginDir, "wake");
+    mkdirSync(userWake, { recursive: true });
+    writeFileSync(join(userWake, "plugin.json"), JSON.stringify({ name: "wake" }));
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(userWake).isDirectory()).toBe(true);
+    expect(lstatSync(userWake).isSymbolicLink()).toBe(false);
   });
 
   it("non-empty pluginDir with N-1 of N plugins → 1 new symlink, others untouched", async () => {
