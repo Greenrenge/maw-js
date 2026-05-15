@@ -118,11 +118,7 @@ export function parseBringArgs(argv: string[]): {
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
-    console.error("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
-    console.error("  Default: split the current pane and attach (v1).");
-    console.error("  --split is accepted as an explicit alias of the default.");
-    console.error("  Use --tab for the top-right tile/bg-tab form.");
-    console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
+    printBringUsage(console.error);
     throw new UserError("bring: missing oracle name");
   }
   const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
@@ -130,6 +126,15 @@ export function parseBringArgs(argv: string[]): {
     : { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
+}
+
+function printBringUsage(write: (line: string) => void = console.log): void {
+  write("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
+  write("       maw b <oracle> [--split|--tab] [-e|--engine <name>]");
+  write("  Default: split the current pane and attach (v1).");
+  write("  --split is accepted as an explicit alias of the default.");
+  write("  Use --tab for the top-right tile/bg-tab form.");
+  write("  Symmetric with `maw a` (attach goes there, bring comes here).");
 }
 
 /**
@@ -232,6 +237,10 @@ export async function invokeDirectHandler(
   if (exportName === "cmdBring") {
     // `maw bring <oracle>` defaults to the v1 current-pane split path.
     // `--tab` opts into the later top-right/bg-tab path.
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printBringUsage();
+      return;
+    }
     const { oracle, opts } = parseBringArgs(argv);
     await cmdWake(oracle, opts);
     return;

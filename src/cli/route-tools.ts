@@ -109,10 +109,9 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     return true;
   }
   if (cmd === "tmux") {
-    // #1315 — tmux moved from plugin to core. Invokes the same default
-    // handler that previously sat behind the plugin registry, with a
+    // #1459 — route the tmux command through its handler directly, with a
     // CLI InvokeContext so output streams to process.stdout.
-    const { default: tmuxHandler } = await import("../commands/core/tmux/index");
+    const { default: tmuxHandler } = await import("../commands/plugins/tmux/index");
     const result = await tmuxHandler({
       source: "cli",
       args: args.slice(1),
