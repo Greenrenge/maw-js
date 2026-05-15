@@ -243,9 +243,9 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`bring neo` defaults to bring-pane mode, not split", () => {
+  test("`bring neo` defaults to v1 split-and-attach mode", () => {
     const parsed = parseBringArgs(["neo"]);
-    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
   });
 
   test("`b neo` is a direct shorthand for bring", () => {
@@ -260,14 +260,14 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.b).toContain("short form of `bring`");
   });
 
-  test("`bring neo --split` opts into split mode", () => {
+  test("`bring neo --split` remains an explicit alias of split mode", () => {
     const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
   });
 
-  test("`bring neo --tab` forces the old background tab mode", () => {
+  test("`bring neo --tab` opts into the top-right/bg-tab mode", () => {
     const parsed = parseBringArgs(["neo", "--tab"]);
-    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true, tab: true } });
+    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

@@ -44,7 +44,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
-  bring: "Bring an oracle HERE — symmetric with `a` (go there)",
+  bring: "Bring an oracle HERE — split current pane and attach",
   b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
@@ -108,9 +108,9 @@ export function parseBringArgs(argv: string[]): {
   oracle: string;
   opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
 } {
-  // `maw bring <oracle>` replaces the top-right pane when possible. `--split`
-  // remains available as the opt-in layout-mutating form, while `--tab`
-  // preserves the old background-tab behavior explicitly.
+  // v1 default (#1398, locked by #1430): `maw bring <oracle>` splits the
+  // current pane and attaches there. `--split` is kept as a no-op alias for
+  // muscle memory, while `--tab` opts into the later top-right/bg-tab path.
   const flags = parseFlags(argv, {
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
@@ -119,15 +119,15 @@ export function parseBringArgs(argv: string[]): {
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
     console.error("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
-    console.error("  Replaces the top-right pane by default when one exists.");
-    console.error("  Use --split to split the current pane instead.");
-    console.error("  Use --tab to force a background tmux tab.");
+    console.error("  Default: split the current pane and attach (v1).");
+    console.error("  --split is accepted as an explicit alias of the default.");
+    console.error("  Use --tab for the top-right tile/bg-tab form.");
     console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--split"]
-    ? { split: true }
-    : { bring: true, ...(flags["--tab"] ? { tab: true } : {}) };
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
+    ? { bring: true }
+    : { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
 }
@@ -230,8 +230,8 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdBring") {
-    // `maw bring <oracle>` — show oracle here in a new tab by default.
-    // `--split` opts into current-pane splitting.
+    // `maw bring <oracle>` defaults to the v1 current-pane split path.
+    // `--tab` opts into the later top-right/bg-tab path.
     const { oracle, opts } = parseBringArgs(argv);
     await cmdWake(oracle, opts);
     return;

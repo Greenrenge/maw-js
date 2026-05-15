@@ -91,7 +91,7 @@ describe("wake maybeSplit", () => {
     expect(pane).toBe("%43");
   });
 
-  test("replaces the top-right pane for bring default mode", async () => {
+  test("replaces the top-right pane for explicit bring mode", async () => {
     await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
 
     expect(hostExecCalls).toHaveLength(2);
@@ -101,7 +101,7 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[1]).toContain("20-homekeeper:homekeeper-oracle");
   });
 
-  test("falls back to a background tab when no replacement pane exists", async () => {
+  test("falls back to a background tab when explicit bring mode has no replacement pane", async () => {
     paneGeometryResponse = "%42|0|0|\n";
 
     await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true });
