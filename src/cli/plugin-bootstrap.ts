@@ -5,7 +5,7 @@ import { join } from "path";
 const URL_SCHEME_RE = /^https?:\/\//;
 
 function isPluginDir(dir: string): boolean {
-  return existsSync(join(dir, "plugin.json")) || existsSync(join(dir, "index.ts"));
+  return existsSync(join(dir, "plugin.json"));
 }
 
 function linkBundledPlugins(pluginDir: string, bundled: string): number {
@@ -28,7 +28,9 @@ function healOrPruneBrokenSymlinks(pluginDir: string, bundledRoots: string[]): {
   for (const entry of readdirSync(pluginDir)) {
     const p = join(pluginDir, entry);
     try {
-      if (!lstatSync(p).isSymbolicLink() || existsSync(p)) continue;
+      if (!lstatSync(p).isSymbolicLink()) continue;
+      const targetIsValidPlugin = existsSync(p) && isPluginDir(p);
+      if (targetIsValidPlugin) continue;
       const replacement = bundledRoots
         .map((root) => join(root, entry))
         .find((candidate) => existsSync(candidate) && isPluginDir(candidate));
