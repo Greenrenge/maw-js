@@ -110,13 +110,18 @@ export function findWindow(sessions: Session[], query: string): string | null {
   if (sub.size === 1) return [...sub][0];
   if (sub.size > 1) throw new AmbiguousMatchError(query, [...sub]);
   // If query has ":" and the SESSION part matched a real session but the
-  // WINDOW part didn't → return raw query (user may mean index, e.g. "08-mawjs:1").
-  // If the SESSION part didn't match anything local → return null so cmdSend
-  // falls through to federation routing (node:agent like "oracle-world:mawjs").
+  // WINDOW part didn't → only return raw query when winPart is empty
+  // (first window), numeric (literal tmux window index like "08-mawjs:1"),
+  // or pane-specific (literal tmux pane address like "47-mawjs:1.0").
+  // Otherwise return null so resolveTarget Step 2 can try peer routing
+  // (e.g. "oracle-world:100-pulse" → peer namedPeer, not local tmux).
   if (query.includes(":")) {
-    const [sessPart] = query.toLowerCase().split(":", 2);
+    const [sessPart, winPart] = query.toLowerCase().split(":", 2);
     const sessExists = matchSession(sessions, sessPart, true);
-    return sessExists ? query : null;
+    if (!sessExists) return null;
+    if (!winPart) return query;
+    if (/^\d+(?:\.\d+)?$/.test(winPart)) return query;
+    return null;
   }
   return null;
 }

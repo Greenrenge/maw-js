@@ -93,17 +93,21 @@ export function resolveTarget(
     const agentName = query.slice(colonIdx + 1);
     if (!nodeName || !agentName) return { type: "error", reason: "empty_node_or_agent", detail: `invalid format: '${query}'`, hint: "use node:agent format (e.g. mba:homekeeper)" };
 
-    // Self-node check: "white:mawjs" from white, or advertised
-    // "local:mawjs" alias from any configured node → resolve locally.
+    // Self-node check: "m5:discord" from m5 → resolve locally.
+    // "local:" is an advertised same-host alias and must not fall through
+    // to peer lookup (e.g. #1450: host config uses "local" but node is "m5").
+    // #1107: fleet config first to prevent substring collision
     if (nodeName === selfNode || nodeName === "local") {
-      const selfTarget = findWindow(writable, agentName);
-      if (selfTarget) return { type: "self-node", target: selfTarget };
-      // Try fleet config resolution (#281)
       const selfFleet = resolveFleetSession(agentName) || resolveFleetSession(agentName.replace(/-oracle$/, ""));
       if (selfFleet) {
+        const fleetTarget = findWindow(writable.filter(s => s.name === selfFleet), agentName)
+          || findWindow(writable.filter(s => s.name === selfFleet), agentName.replace(/-oracle$/, ""));
+        if (fleetTarget) return { type: "self-node", target: fleetTarget };
         const fleetSess = writable.find(s => s.name === selfFleet);
         if (fleetSess?.windows.length) return { type: "self-node", target: `${selfFleet}:${fleetSess.windows[0].index}` };
       }
+      const selfTarget = findWindow(writable, agentName);
+      if (selfTarget) return { type: "self-node", target: selfTarget };
       return { type: "error", reason: "self_not_running", detail: `'${agentName}' not found in local sessions on ${selfNode}`, hint: `maw wake ${agentName}` };
     }
 
