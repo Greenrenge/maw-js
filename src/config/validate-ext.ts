@@ -70,12 +70,23 @@ function validateExtFields(
     }
   }
 
-  // zenoh: { locator: string }
+  // zenoh: { locator?: string, scout?: { enabled?: boolean, locator?: string, timeoutMs?: number, keyPrefix?: string } }
   if ("zenoh" in raw && raw.zenoh && typeof raw.zenoh === "object") {
     const z = raw.zenoh as Record<string, unknown>;
+    const zenoh: NonNullable<MawConfig["zenoh"]> = {};
     if (typeof z.locator === "string") {
-      result.zenoh = { locator: z.locator };
+      zenoh.locator = z.locator;
     }
+    if (z.scout && typeof z.scout === "object" && !Array.isArray(z.scout)) {
+      const s = z.scout as Record<string, unknown>;
+      const scout: NonNullable<NonNullable<MawConfig["zenoh"]>["scout"]> = {};
+      if (typeof s.enabled === "boolean") scout.enabled = s.enabled;
+      if (typeof s.locator === "string") scout.locator = s.locator;
+      if (typeof s.timeoutMs === "number" && Number.isFinite(s.timeoutMs) && s.timeoutMs > 0) scout.timeoutMs = s.timeoutMs;
+      if (typeof s.keyPrefix === "string" && s.keyPrefix) scout.keyPrefix = s.keyPrefix;
+      if (Object.keys(scout).length > 0) zenoh.scout = scout;
+    }
+    if (Object.keys(zenoh).length > 0) result.zenoh = zenoh;
   }
 
   // pluginSources: string[] of URLs
