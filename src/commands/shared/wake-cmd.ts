@@ -17,6 +17,81 @@ export function shouldOfferExistingSessionAttach(
   return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY);
 }
 
+const FRESH_SESSION_READY_ATTEMPTS = 8;
+const FRESH_SESSION_READY_DELAY_MS = 150;
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as { cause?: unknown }).cause;
+    return cause ? `${error.message}\n${errorMessage(cause)}` : error.message;
+  }
+  return String(error);
+}
+
+function isFreshSessionLookupRace(error: unknown, session: string): boolean {
+  const message = errorMessage(error);
+  return message.includes(session) && /can't find (session|window|pane)/i.test(message);
+}
+
+export async function waitForTmuxSessionReady(
+  session: string,
+  deps: {
+    hasSession?: (session: string) => Promise<boolean>;
+    sleep?: (ms: number) => Promise<void>;
+    attempts?: number;
+    delayMs?: number;
+  } = {},
+): Promise<void> {
+  const hasSession = deps.hasSession ?? tmux.hasSession.bind(tmux);
+  const wait = deps.sleep ?? sleep;
+  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
+  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (await hasSession(session)) return;
+    if (attempt < attempts) await wait(delayMs);
+  }
+
+  throw new Error(`tmux did not report fresh session '${session}' ready after ${attempts} checks`);
+}
+
+export async function retryFreshSessionTmuxStep<T>(
+  session: string,
+  label: string,
+  step: () => Promise<T>,
+  deps: {
+    sleep?: (ms: number) => Promise<void>;
+    attempts?: number;
+    delayMs?: number;
+    hasSession?: (session: string) => Promise<boolean>;
+  } = {},
+): Promise<T> {
+  const wait = deps.sleep ?? sleep;
+  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
+  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await step();
+    } catch (error) {
+      if (!isFreshSessionLookupRace(error, session) || attempt === attempts) {
+        throw error;
+      }
+      await wait(delayMs);
+      await waitForTmuxSessionReady(session, {
+        hasSession: deps.hasSession,
+        sleep: wait,
+        attempts: 2,
+        delayMs,
+      });
+    }
+  }
+
+  throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
+}
+
 export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; bring?: boolean; tab?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
@@ -115,9 +190,12 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     session = session_;
     const mainWindowName = `${oracle}-oracle`;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
-    await setSessionEnv(session);
+    await waitForTmuxSessionReady(session);
+    await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session));
     await new Promise(r => setTimeout(r, 300));
-    await tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, opts.engine));
+    await retryFreshSessionTmuxStep(session, "launch main window", () =>
+      tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, opts.engine))
+    );
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)
