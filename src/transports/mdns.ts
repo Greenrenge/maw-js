@@ -21,9 +21,6 @@ import type {
   TransportTarget,
   TransportMessage,
   TransportPresence,
-  MessageHandler,
-  PresenceHandler,
-  FeedHandler,
 } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
@@ -52,9 +49,9 @@ export class MdnsTransport implements Transport {
   private socket: Socket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private peers = new Map<string, DiscoveredPeer>();
-  private msgHandlers = new Set<MessageHandler>();
-  private presenceHandlers = new Set<PresenceHandler>();
-  private feedHandlers = new Set<FeedHandler>();
+  private msgHandlers = new Set<(msg: TransportMessage) => void>();
+  private presenceHandlers = new Set<(p: TransportPresence) => void>();
+  private feedHandlers = new Set<(e: FeedEvent) => void>();
 
   constructor(config: MdnsTransportConfig) {
     this.config = config;
@@ -164,14 +161,14 @@ export class MdnsTransport implements Transport {
       });
 
       if (res.ok) {
-        const data = (await res.json()) as Record<string, unknown>;
+        const data = (await res.json()) as any;
         if (data.ok) {
           const msg: TransportMessage = {
             from: this.config.node,
             to: target.oracle,
             body: message,
             timestamp: Date.now(),
-            transport: "http" as const,
+            transport: "http" as any,
           };
           for (const h of this.msgHandlers) h(msg);
           return true;
@@ -201,15 +198,15 @@ export class MdnsTransport implements Transport {
     }
   }
 
-  onMessage(handler: MessageHandler) {
+  onMessage(handler: (msg: TransportMessage) => void) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: PresenceHandler) {
+  onPresence(handler: (p: TransportPresence) => void) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: FeedHandler) {
+  onFeed(handler: (e: FeedEvent) => void) {
     this.feedHandlers.add(handler);
   }
 

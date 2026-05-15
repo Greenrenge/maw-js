@@ -51,16 +51,6 @@ export type ResolveResult =
 /**
  * Resolve a query to a local target, remote peer, or null.
  * Pure + sync — no network calls, no side effects. Testable without mocks.
- *
- * Step ordering rationale (and open design question):
- *   Step 1 (local findWindow) runs BEFORE Step 2 (node:prefix peer route).
- *   This causes "local wins" when a query like `oracle-world:agent` has a
- *   local session that strip-prefix-matches `oracle-world` (e.g.
- *   `30-oracle-world`). PR #1322 patched the bottom of findWindow to
- *   return null in that case so Step 2 can take over — but the deeper
- *   question (should Step 2 run FIRST when the prefix matches a known
- *   `namedPeer`?) is still open. See docs/federation/routing-syntax.md
- *   § Footgun #2 and § Future Work for the Step 0 reorder proposal.
  */
 export function resolveTarget(
   query: string,
@@ -80,22 +70,20 @@ export function resolveTarget(
 
   const selfNode = config.node ?? "local";
 
-  // --- Step 1: Fleet config first, then local findWindow (#1107) ---
-  // Fleet config is authoritative — check it BEFORE substring matching
-  // to prevent "discord" matching "hermes-discord" when fleet says
-  // discord → 24-discord-oracle.
+  // --- Step 1: Local findWindow + fleet config ---
+  const localTarget = findWindow(writable, query);
+  if (localTarget) {
+    return { type: "local", target: localTarget };
+  }
+  // Fleet config: oracle name → session name → findWindow (#281)
   const fleetSession = resolveFleetSession(query) || resolveFleetSession(query.replace(/-oracle$/, ""));
   if (fleetSession) {
     const fleetTarget = findWindow(writable.filter(s => s.name === fleetSession), query)
       || findWindow(writable.filter(s => s.name === fleetSession), query.replace(/-oracle$/, ""));
     if (fleetTarget) return { type: "local", target: fleetTarget };
+    // Fleet config matched but session not running — try first window of fleet session
     const fleetSess = writable.find(s => s.name === fleetSession);
     if (fleetSess?.windows.length) return { type: "local", target: `${fleetSession}:${fleetSess.windows[0].index}` };
-  }
-  // Fallback to general findWindow (catches non-fleet sessions)
-  const localTarget = findWindow(writable, query);
-  if (localTarget) {
-    return { type: "local", target: localTarget };
   }
 
   // --- Step 2: Node:prefix syntax (e.g. "mba:homekeeper") ---

@@ -10,7 +10,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { resolvePluginMatch } from "../../src/cli/dispatch-match";
-import { resolveTopAlias } from "../../src/cli/top-aliases";
+import { ALIAS_DESCRIPTIONS, parseBringArgs, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
@@ -118,6 +118,33 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     }
   });
 
+  test("canonical exact command beats another plugin's exact alias", () => {
+    // #1339 vendored mpr plugins include both:
+    // - attach: canonical command "attach"
+    // - view: alias "attach"
+    // The canonical command must win so bundling both does not make
+    // `maw attach ...` ambiguous.
+    const view = plugin("view", "view", ["attach", "a"]);
+    const attach = plugin("attach", "attach");
+    const out = resolvePluginMatch([view, attach], "attach");
+    expect(out.kind).toBe("match");
+    if (out.kind === "match") {
+      expect(out.plugin.manifest.name).toBe("attach");
+      expect(out.matchedName).toBe("attach");
+    }
+  });
+
+  test("canonical prefix command beats another plugin's prefix alias", () => {
+    const view = plugin("view", "view", ["attach", "a"]);
+    const attach = plugin("attach", "attach");
+    const out = resolvePluginMatch([view, attach], "attach homekeeper");
+    expect(out.kind).toBe("match");
+    if (out.kind === "match") {
+      expect(out.plugin.manifest.name).toBe("attach");
+      expect(out.matchedName).toBe("attach");
+    }
+  });
+
   test("two plugins sharing same exact command (no args) → ambiguous on exact pass", () => {
     const a = plugin("first", "dup");
     const b = plugin("second", "dup");
@@ -187,15 +214,16 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     }
   });
 
-  test("`a neo` → argv rewrite to ['attach', 'neo']", () => {
-    // The alias rewrites to the top-level `attach` plugin (in maw-plugin-registry).
-    // The previous `["tmux", "attach"]` form was stale — the tmux/attach
-    // subcommand was extracted to a top-level plugin, but the alias was not
-    // updated. Same shape as the #1244 cleanup alias bug.
+  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["attach", "neo"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+  });
+
+  test("`peek` is not a tmux top-alias; top-level peek is handled by routeComm", () => {
+    const out = resolveTopAlias(["peek", "m5:mawjs"]);
+    expect(out).toBeNull();
   });
 
   test("`attach` is not a registered alias (removed — use `a`)", () => {
@@ -213,6 +241,33 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       // argv passed to handler is everything AFTER the verb
       expect(out!.argv).toEqual(["neo", "--task", "X"]);
     }
+  });
+
+  test("`bring neo` defaults to v1 split-and-attach mode", () => {
+    const parsed = parseBringArgs(["neo"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
+  });
+
+  test("`b neo` is a direct shorthand for bring", () => {
+    const out = resolveTopAlias(["b", "neo"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("direct");
+    if (out!.kind === "direct") {
+      expect(out!.handler).toContain("wake-cmd");
+      expect(out!.handler).toContain("cmdBring");
+      expect(out!.argv).toEqual(["neo"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.b).toContain("short form of `bring`");
+  });
+
+  test("`bring neo --split` remains an explicit alias of split mode", () => {
+    const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
+  });
+
+  test("`bring neo --tab` opts into the top-right/bg-tab mode", () => {
+    const parsed = parseBringArgs(["neo", "--tab"]);
+    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

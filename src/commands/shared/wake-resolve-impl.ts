@@ -1,4 +1,3 @@
-import { execFileSync } from "child_process";
 import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind } from "../../core/ghq";
@@ -55,56 +54,10 @@ export async function resolveFromWorktrees(
   };
 }
 
-/**
- * Match an oracle alias to a fleet window name.
- *
- * #1282 — When `maw a <oracle>` (or any caller running inside a numbered tmux
- * session like "20-homekeeper") forwards the session name as the oracle alias,
- * the bare name carries a `^\d+-` prefix while fleet window names do not. So
- * `"20-homekeeper-oracle" !== "homekeeper-oracle"` always missed and waking
- * silently fell through to fleet-clone. Strip the numeric prefix before
- * comparing; keep the raw form for backward compat with un-prefixed callers.
- *
- * #1302 — Add a permissive suffix check so a bare query like `phd` matches a
- * fleet window named `dustboy-phd-oracle` (ends with `-phd-oracle`). This
- * intentionally allows a 2nd path beyond exact equality; if 2+ windows match
- * the same bare query, callers' ambiguity handling bails. Case-insensitive
- * so `phd` matches `DustBoy-PHD-Oracle` too.
- *
- * @internal — exported for tests.
- */
-export function matchOracleWindow(oracle: string, windowName: string): boolean {
-  const bare = oracle.replace(/^\d+-/, "");
-  const bareLower = bare.toLowerCase();
-  return (
-    windowName === `${bare}-oracle` ||
-    windowName === bare ||
-    windowName === `${oracle}-oracle` ||
-    windowName === oracle ||
-    windowName.toLowerCase().endsWith(`-${bareLower}-oracle`)
-  );
-}
-
 export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
 ): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
-  // #1104 — fleet pin wins over ghq scan. When fleet config specifies a full
-  // org/repo slug, use it for an org-qualified ghq lookup so duplicate repo
-  // names across orgs resolve correctly.
-  try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => matchOracleWindow(oracle, w.name));
-      if (win?.repo && win.repo.includes("/")) {
-        const fleetHit = await ghqFind(`/${win.repo}`);
-        if (fleetHit) {
-          return { repoPath: fleetHit, repoName: fleetHit.split("/").pop()!, parentDir: fleetHit.replace(/\/[^/]+$/, "") };
-        }
-      }
-    }
-  } catch { /* fleet dir may not exist */ }
-
   const ghqHit = await ghqFind(`/${oracle}-oracle`);
   if (ghqHit) {
     const repoPath = ghqHit;
@@ -117,13 +70,11 @@ export async function resolveOracle(
     const { ghqList } = await import("../../core/ghq");
     const repos = await ghqList();
     const oracleLower = oracle.toLowerCase();
-    // #997 — case-insensitive endsWith so DustBoy-Phd-Oracle matches
-    // alongside foo-oracle. Also strip -oracle case-insensitively.
     const candidates = repos
-      .filter(p => p.toLowerCase().endsWith("-oracle"))
+      .filter(p => p.endsWith("-oracle"))
       .map(p => p.split("/").pop()!)
       .filter(name => {
-        const bare = name.toLowerCase().replace(/-oracle$/, "");
+        const bare = name.replace(/-oracle$/, "");
         return bare.includes(oracleLower) || oracleLower.includes(bare);
       });
     if (candidates.length === 1) {
@@ -145,7 +96,7 @@ export async function resolveOracle(
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => matchOracleWindow(oracle, w.name));
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
       if (win?.repo) {
         const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
@@ -230,13 +181,9 @@ export async function resolveOracle(
   } catch { /* probe/clone best-effort — fall through to federation */ }
 
   // Federation fallback: check peers
-  // #1290: read namedPeers (modern fleet config) AND legacy peers — same shape as
-  // #1282, different field. `maw a` already does this via getAggregatedSessions.
   try {
     const config = loadConfig();
-    const namedPeerUrls = (config.namedPeers ?? []).map(p => p.url).filter(Boolean);
-    const legacyPeerUrls = config.peers ?? [];
-    const peers = [...new Set([...namedPeerUrls, ...legacyPeerUrls])];
+    const peers = config.peers || [];
     for (const peer of peers) {
       try {
         const res = await curlFetch(`${peer}/api/sessions`, { timeout: 10000 });
@@ -250,17 +197,9 @@ export async function resolveOracle(
             w.name === `${oracle}-oracle` || w.name === oracle || w.name.toLowerCase().startsWith(oracleLower)
           ) || (sessionMatch ? (s.windows || [])[0] : null);
           if (found) {
-            // #1290-followup: SSH+tmux nudge (matches original wake.ts @ 4cc891ed
-            // + src/core/transport/ssh-attach.ts pattern). No HTTP /api/send.
-            const namedPeer = config.namedPeers?.find(p => p.url === peer);
-            const sshAlias = namedPeer?.ssh || namedPeer?.name || new URL(peer).hostname;
-            console.log(`\x1b[36m⚡\x1b[0m ${oracle} on ${sshAlias} — wake keystroke via tmux`);
-            execFileSync(
-              "ssh",
-              ["-tt", sshAlias, `tmux send-keys -t '${s.name}:${found.index}' '' Enter`],
-              { stdio: "inherit" },
-            );
-            console.log(`\x1b[32m✓\x1b[0m ${oracle} woken on ${sshAlias} (session ${s.name}:${found.index})`);
+            console.log(`\x1b[36m⚡\x1b[0m ${oracle} found on peer ${peer} — waking remotely`);
+            await curlFetch(`${peer}/api/send`, { method: "POST", body: JSON.stringify({ target: `${s.name}:${found.index}`, text: "" }), from: "auto" /* #804 Step 4 SIGN — sign cross-node remote-wake /api/send */ });
+            console.log(`\x1b[32m✓\x1b[0m ${oracle} is running on ${peer} (session ${s.name}:${found.name})`);
             process.exit(0);
           }
         }
@@ -291,7 +230,7 @@ export function resolveFleetSession(oracle: string): string | null {
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      if ((config.windows || []).some((w: FleetWindow) => matchOracleWindow(oracle, w.name))) return config.name;
+      if ((config.windows || []).some((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle)) return config.name;
     }
   } catch { /* fleet dir may not exist */ }
   return null;
@@ -302,16 +241,15 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
 
-  // #1340 — all comparisons below are case-insensitive. tmux session names are
-  // case-sensitive (01-Somwind ≠ 01-somwind) but users aren't. Manually-created
-  // mixed-case sessions must be discoverable by maw's lowercase oracle names.
-  const oracleLc = oracle.toLowerCase();
-
+  // #769 — URL/slug input expresses the FULL repo intent (e.g. "m5-oracle").
+  // The bare `oracle` is the stripped form ("m5"), and falling through to the
+  // generic suffix match would greedily hit unrelated `*-m5` sessions
+  // (`01-maw-m5`, `04-ollama-m5`). Match strictly on the full repo name; if
+  // none, return null so the caller auto-creates a session named after it.
   if (urlRepoName) {
-    const urlLc = urlRepoName.toLowerCase();
-    const exact = sessions.find(s => s.name.toLowerCase() === urlLc || s.name.toLowerCase() === oracleLc);
+    const exact = sessions.find(s => s.name === urlRepoName || s.name === oracle);
     if (exact) return exact.name;
-    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.toLowerCase().endsWith(`-${urlLc}`));
+    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
     if (numbered.length === 1) return numbered[0]!.name;
     if (numbered.length > 1) {
       console.error(`\x1b[31merror\x1b[0m: '${urlRepoName}' is ambiguous — matches ${numbered.length} fleet sessions:`);
@@ -322,15 +260,10 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     return null;
   }
 
-  const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession) {
-    const fleetLc = fleetSession.toLowerCase();
-    if (sessions.find(s => s.name.toLowerCase() === fleetLc)) return fleetSession;
-    return null;
-  }
-
-  // #1340 — case-insensitive suffix match for numeric-prefixed fleet sessions.
-  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.toLowerCase().endsWith(`-${oracleLc}`));
+  // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
+  // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
+  // fleet sessions suffix-match, surface loudly rather than silently picking one.
+  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`));
   if (numeric.length === 1) return numeric[0]!.name;
   if (numeric.length > 1) {
     console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numeric.length} fleet sessions:`);
@@ -340,6 +273,8 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   }
 
   // No fleet match — defer to the canonical resolver on non-ephemeral sessions
+  // (wake shouldn't treat a *-view clone as "the oracle is running"). Exact
+  // wins; ambiguous non-numeric matches surface loudly.
   const candidates = sessions.filter(s => !s.name.endsWith("-view") && !s.name.startsWith("maw-pty-"));
   const r = resolveSessionTarget(oracle, candidates);
   if (r.kind === "exact" || r.kind === "fuzzy") return r.match.name;
@@ -350,6 +285,8 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
+  const fleetSession = resolveFleetSession(oracle);
+  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
   return null;
 }
 

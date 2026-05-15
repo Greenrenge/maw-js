@@ -10,7 +10,7 @@
  * following the same pattern as wake.test.ts.
  */
 import { describe, test, expect } from "bun:test";
-import { resolveFromWorktrees, matchOracleWindow } from "../src/commands/shared/wake-resolve-impl";
+import { resolveFromWorktrees } from "../src/commands/shared/wake-resolve-impl";
 import type { WorktreeInfo } from "../src/core/fleet/worktrees-scan";
 
 const MAIN_PATH = "/home/user/ghq/github.com/Soul-Brews-Studio/wireboy-oracle";
@@ -126,98 +126,5 @@ describe("resolveFromWorktrees — worktree fallback", () => {
       () => true,
     );
     expect(result).toBeNull();
-  });
-});
-
-/**
- * Tests for matchOracleWindow — fleet window name comparator that tolerates
- * the `^\d+-` tmux session prefix that callers like `maw a <oracle>` carry in.
- *
- * #1282 — oracle="20-homekeeper" must match window.name="homekeeper-oracle".
- * Without the strip, every `maw a` invocation from a numbered fleet session
- * silently fell through fleet-pin lookup into fleet-clone.
- */
-describe("matchOracleWindow — #1282 numeric prefix strip", () => {
-  test("strips numeric prefix: oracle='20-homekeeper' matches 'homekeeper-oracle'", () => {
-    expect(matchOracleWindow("20-homekeeper", "homekeeper-oracle")).toBe(true);
-  });
-
-  test("strips numeric prefix: oracle='20-homekeeper' matches bare 'homekeeper'", () => {
-    expect(matchOracleWindow("20-homekeeper", "homekeeper")).toBe(true);
-  });
-
-  test("backward compat: oracle='homekeeper' still matches 'homekeeper-oracle'", () => {
-    expect(matchOracleWindow("homekeeper", "homekeeper-oracle")).toBe(true);
-  });
-
-  test("backward compat: oracle='mawjs' matches 'mawjs-oracle'", () => {
-    expect(matchOracleWindow("mawjs", "mawjs-oracle")).toBe(true);
-  });
-
-  test("backward compat: oracle='mawjs' matches bare 'mawjs'", () => {
-    expect(matchOracleWindow("mawjs", "mawjs")).toBe(true);
-  });
-
-  test("preserves prefixed form too: oracle='20-homekeeper' matches '20-homekeeper-oracle'", () => {
-    // Some configs may genuinely name a window with the numeric prefix — don't lose that path.
-    expect(matchOracleWindow("20-homekeeper", "20-homekeeper-oracle")).toBe(true);
-  });
-
-  test("multi-digit prefix: oracle='110-yeast' matches 'yeast-oracle'", () => {
-    expect(matchOracleWindow("110-yeast", "yeast-oracle")).toBe(true);
-  });
-
-  test("non-numeric prefix is NOT stripped: oracle='dev-homekeeper' does not match 'homekeeper-oracle'", () => {
-    expect(matchOracleWindow("dev-homekeeper", "homekeeper-oracle")).toBe(false);
-  });
-
-  test("mismatched name returns false: oracle='20-homekeeper' does not match 'wireboy-oracle'", () => {
-    expect(matchOracleWindow("20-homekeeper", "wireboy-oracle")).toBe(false);
-  });
-
-  test("empty window name returns false", () => {
-    expect(matchOracleWindow("homekeeper", "")).toBe(false);
-  });
-});
-
-/**
- * Tests for matchOracleWindow — #1302 permissive suffix match.
- *
- * A bare query like `phd` should match a fleet window named `dustboy-phd-oracle`
- * (ends with `-phd-oracle`). Over-match risk is handled by callers' ambiguity
- * detection — if 2+ windows match, they bail loudly.
- */
-describe("matchOracleWindow — #1302 permissive suffix match", () => {
-  test("bare query 'phd' matches fleet window 'dustboy-phd-oracle'", () => {
-    expect(matchOracleWindow("phd", "dustboy-phd-oracle")).toBe(true);
-  });
-
-  test("bare query 'bar' matches 'foo-bar-oracle'", () => {
-    expect(matchOracleWindow("bar", "foo-bar-oracle")).toBe(true);
-  });
-
-  test("bare query 'bar' does NOT match 'other-oracle' (no -bar- segment)", () => {
-    expect(matchOracleWindow("bar", "other-oracle")).toBe(false);
-  });
-
-  test("case-insensitive: query 'phd' matches 'DustBoy-PHD-Oracle'", () => {
-    expect(matchOracleWindow("phd", "DustBoy-PHD-Oracle")).toBe(true);
-  });
-
-  test("does not over-match a bare substring without -oracle suffix: 'phd' vs 'dustboy-phd-dev'", () => {
-    expect(matchOracleWindow("phd", "dustboy-phd-dev")).toBe(false);
-  });
-
-  test("does not match when bare appears without dash boundary: 'phd' vs 'superphd-oracle'", () => {
-    expect(matchOracleWindow("phd", "superphd-oracle")).toBe(false);
-  });
-
-  test("backward compat: whole-name match still works (existing check #1) — 'phd' matches 'phd-oracle'", () => {
-    expect(matchOracleWindow("phd", "phd-oracle")).toBe(true);
-  });
-
-  test("numeric-prefix + permissive suffix combine: '20-phd' matches 'dustboy-phd-oracle'", () => {
-    // After ^\d+- strip, bare='phd' → suffix '-phd-oracle' matches.
-    expect(matchOracleWindow("20-phd", "dustboy-phd-oracle")).toBe(true);
   });
 });

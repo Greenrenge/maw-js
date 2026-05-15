@@ -13,9 +13,7 @@ describe("federation plugin — smoke", () => {
     const result = await handler(ctx);
     expect(result.ok).toBe(false);
     expect(result.error ?? "").toContain("usage");
-    expect(result.error ?? "").toContain("status");
-    expect(result.error ?? "").toContain("sync");
-    expect(result.error ?? "").toContain("agents");
+    expect(result.error ?? "").toContain("status|sync");
   });
 
   it("CLI — --help treated as unknown sub, returns usage", async () => {

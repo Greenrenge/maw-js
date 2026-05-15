@@ -7,7 +7,7 @@ export const command = {
 };
 
 const USAGE =
-  "usage: maw plugin <init|build|dev|install|sync|pin|unpin|registry|search|info> [args]\n" +
+  "usage: maw plugin <init|build|dev|install|pin|unpin|registry|search|info> [args]\n" +
   "  init <name> --ts                    scaffold a TS plugin\n" +
   "  build [dir] [--watch] [--types]     bundle + pack a plugin\n" +
   "                                        --types: emit dist/<name>.d.ts\n" +
@@ -16,17 +16,11 @@ const USAGE =
   "                                      plain name → registry lookup (plugin or package)\n" +
   "                                      e.g. 'maw plugin install standard' installs the standard bundle\n" +
   "                                        --pin: add to plugins.lock on first install\n" +
-  "                                        --all: reinstall every entry in plugins.lock (#1277)\n" +
-  "                                        --dry-run: with --all, list without installing\n" +
-  "                                        --tier <core|standard|extra>: bulk-install every plugin at that tier from mpr (#1338)\n" +
-  "                                          [--from <owner/repo>]: defaults to Soul-Brews-Studio/maw-plugin-registry\n" +
   "  install <owner/repo>[/<name>][@<ref>]   install from GitHub (Vercel-style)\n" +
   "    install owner/repo                  whole repo (single-plugin repo)\n" +
   "    install owner/repo/bg               subdir from monorepo (auto plugins/ prefix)\n" +
   "    install owner/repo/sub/dir          literal subpath\n" +
   "    install owner/repo@v1.2.3           pinned tag (or branch / sha)\n" +
-  "  sync [--dry-run]                    reconcile ~/.maw/plugins/ from plugins.lock (#1277)\n" +
-  "                                        non-destructive: recreates missing symlinks only\n" +
   "  pin <name> <tarball> [--version V]  add/update plugins.lock entry (#487)\n" +
   "  unpin <name>                        remove a plugins.lock entry\n" +
   "  registry                            show registry URL + entry count\n" +
@@ -235,46 +229,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       await runSearchCmd(args.slice(1));
     } else if (sub === "info") {
       await runInfoCmd(args.slice(1));
-    } else if (sub === "sync") {
-      const { cmdPluginSync } = await import("./sync-impl");
-      const dryRun = args.includes("--dry-run");
-      await cmdPluginSync({ dryRun });
     } else if (sub === "install") {
-      // #1277 — `install --all` is a batch-reinstall shortcut that loops
-      // over plugins.lock and dispatches the existing install flow per
-      // entry. Lives here (not sync-impl) because the underlying network
-      // gesture IS install — sync stays purely local + non-destructive.
-      if (args.includes("--all")) {
-        const { cmdPluginInstallAll } = await import("./install-all-impl");
-        const dryRun = args.includes("--dry-run");
-        const force = args.includes("--force");
-        await cmdPluginInstallAll({ dryRun, force });
-        return { ok: true, output: logs.join("\n") || undefined };
-      }
-      // #1338 — `install --tier <core|standard|extra> [--from <owner/repo>]`
-      // bulk-installs every plugin at that tier from a maw-plugin-registry.
-      // Same family as --all: enumerate a set, dispatch existing install per
-      // name, summary at end. Source-of-truth differs (registry vs lockfile)
-      // but the loop shape is identical — see install-tier-impl.ts.
-      if (args.includes("--tier")) {
-        const { cmdPluginInstallTier, isValidTier } = await import("./install-tier-impl");
-        const tierIdx = args.indexOf("--tier");
-        const tier = args[tierIdx + 1];
-        if (!tier || !isValidTier(tier)) {
-          return {
-            ok: false,
-            error: `--tier must be one of: core, standard, extra (got ${JSON.stringify(tier ?? "")})`,
-          };
-        }
-        const fromIdx = args.indexOf("--from");
-        const from = fromIdx >= 0 ? args[fromIdx + 1] : undefined;
-        if (fromIdx >= 0 && (!from || from.startsWith("-"))) {
-          return { ok: false, error: "--from requires a value (owner/repo)" };
-        }
-        const force = args.includes("--force");
-        await cmdPluginInstallTier({ tier, ...(from ? { from } : {}), force });
-        return { ok: true, output: logs.join("\n") || undefined };
-      }
       try {
         await runInstallCmd(args.slice(1));
       } catch (e: unknown) {

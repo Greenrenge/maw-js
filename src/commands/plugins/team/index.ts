@@ -1,5 +1,4 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import type { AgentColor } from "../../core/tmux/layout-manager";
 import { readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -9,7 +8,6 @@ import {
 } from "./impl";
 import { parseFlags } from "../../../cli/parse-args";
 import { hostExec } from "../../../sdk";
-import { PANE_INIT_PRELUDE } from "../../shared/pane-prelude";
 
 export const command = {
   name: "team",
@@ -57,44 +55,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
-  console.log = (...a: unknown[]) => {
+  console.log = (...a: any[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
-  console.error = (...a: unknown[]) => {
+  console.error = (...a: any[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     const sub = args[0]?.toLowerCase();
-
-    if (sub === "--help" || sub === "-h") {
-      return {
-        ok: true,
-        output: `usage: maw team <subcommand> [args]
-
-subcommands:
-  create <name>            create a new team (alias: new)
-  spawn <team> <role>      spawn agent into team
-  save <name>              save current session state to JSONL
-  resume <name>            restore dead panes (JSONL snapshot) or reincarnate from vault
-  delete <name>            delete a team
-  status                   show team status
-  invite <oracle>          invite oracle to team
-  members <name>           list team members
-  send <name> <message>    send message to team
-
-spawn flags:
-  --model <model>          model to use (e.g. opus, sonnet)
-  --type <type>            agent capability tier: Explore | general-purpose | Plan (default: general-purpose)
-  --color <color>          agent terminal color: yellow | green | blue | red | cyan (default: auto-rotate)
-  --exec                   execute agent immediately
-  --prompt <text>          initial prompt (greedy — consumes rest of args)
-
-general flags: --description <text>, --members <list>`,
-      };
-    }
 
     if (sub === "create" || sub === "new") {
       if (!args[1]) {
@@ -106,42 +77,39 @@ general flags: --description <text>, --members <list>`,
       cmdTeamCreate(args[1], { description });
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
-        logs.push("usage: maw team spawn <team> <role> [--engine <e>] [--model <m>] [--type <t>] [--color <c>] [--exec] [--prompt <p>]");
+        logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
         return { ok: false, error: "team and role required", output: logs.join("\n") };
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
-      const typeIdx = args.indexOf("--type");
-      const type = typeIdx !== -1 ? args[typeIdx + 1] : undefined;
-      const colorIdx = args.indexOf("--color");
-      const color = colorIdx !== -1 ? args[colorIdx + 1] : undefined;
+      const cwdIdx = args.indexOf("--cwd");
+      const worktreeIdx = args.indexOf("--worktree");
+      const cwd = cwdIdx !== -1 ? args[cwdIdx + 1] : (worktreeIdx !== -1 ? args[worktreeIdx + 1] : undefined);
       const promptIdx = args.indexOf("--prompt");
       const exec = args.includes("--exec");
-      // --engine <name> or --codex shorthand (#1202)
-      const engineIdx = args.indexOf("--engine");
-      let engine = engineIdx !== -1 ? args[engineIdx + 1] : undefined;
-      if (args.includes("--codex")) engine = "codex";
-      // --prompt is greedy to end-of-argv; strip known flags if they appear in the tail
+      // --prompt is greedy to end-of-argv; strip --exec if it appears in the tail
       let prompt: string | undefined;
       if (promptIdx !== -1) {
-        const tail = args.slice(promptIdx + 1).filter(a => a !== "--exec" && a !== "--codex");
+        const rawTail = args.slice(promptIdx + 1);
+        const tail: string[] = [];
+        for (let i = 0; i < rawTail.length; i++) {
+          const a = rawTail[i];
+          if (a === "--exec") continue;
+          if (a === "--model" || a === "--cwd" || a === "--worktree") {
+            i++;
+            continue;
+          }
+          tail.push(a);
+        }
         prompt = tail.join(" ") || undefined;
       }
-      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, engine, type, color });
+      await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd });
     } else if (sub === "send" || sub === "msg") {
       if (!args[1] || !args[2] || !args[3]) {
         logs.push("usage: maw team send <team> <agent> <message>");
         return { ok: false, error: "team, agent, and message required", output: logs.join("\n") };
       }
       cmdTeamSend(args[1], args[2], args.slice(3).join(" "));
-    } else if (sub === "save") {
-      if (!args[1]) {
-        logs.push("usage: maw team save <name>");
-        return { ok: false, error: "name required", output: logs.join("\n") };
-      }
-      const { cmdTeamSave } = await import("./team-recovery");
-      await cmdTeamSave(args[1]);
-
     } else if (sub === "resume") {
       if (!args[1]) {
         logs.push("usage: maw team resume <name> [--model <model>]");
@@ -149,13 +117,7 @@ general flags: --description <text>, --members <list>`,
       }
       const modelIdx = args.indexOf("--model");
       const model = modelIdx !== -1 ? args[modelIdx + 1] : undefined;
-      // Prefer JSONL-based session recovery when a snapshot exists; fall back to vault reincarnation.
-      const { hasSavedSession, cmdTeamSessionResume } = await import("./team-recovery");
-      if (hasSavedSession(args[1])) {
-        await cmdTeamSessionResume(args[1], { model });
-      } else {
-        cmdTeamResume(args[1], { model });
-      }
+      cmdTeamResume(args[1], { model });
     } else if (sub === "lives" || sub === "history") {
       if (!args[1]) {
         logs.push("usage: maw team lives <agent>");
@@ -323,7 +285,7 @@ general flags: --description <text>, --members <list>`,
 
     } else if (sub === "peek") {
       // maw team peek <target>
-      const { cmdTmuxPeek } = await import("../../core/tmux/impl");
+      const { cmdTmuxPeek } = await import("../tmux/impl");
       const target = args[1];
       if (!target) {
         logs.push("usage: maw team peek <session|agent>");
@@ -346,7 +308,7 @@ general flags: --description <text>, --members <list>`,
       const {
         nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
         applyTeamLayout, applyTiledLayout, getWindowTarget,
-      } = await import("../../core/tmux/layout-manager");
+      } = await import("../tmux/layout-manager");
       const { hostExec, withPaneLock } = await import("../../../sdk");
       const { TEAMS_DIR, loadTeam } = await import("./team-helpers");
       const { readFileSync, writeFileSync, existsSync } = await import("fs");
@@ -365,7 +327,7 @@ general flags: --description <text>, --members <list>`,
         let paneId = "";
         await withPaneLock(async () => {
           paneId = (await hostExec(
-            `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' '${PANE_INIT_PRELUDE}; echo "\\x1b[${colorAnsi(color)}m${name} ready\\x1b[0m" && exec zsh'`,
+            `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'echo "\\x1b[${colorAnsi(color)}m${name} ready\\x1b[0m" && exec zsh'`,
           )).trim();
           await new Promise(r => setTimeout(r, 200));
         });
@@ -375,7 +337,7 @@ general flags: --description <text>, --members <list>`,
         if (existsSync(teamConfigPath)) {
           try {
             const cfg = JSON.parse(readFileSync(teamConfigPath, "utf-8"));
-            const existing = cfg.members.findIndex((m: { name: string }) => m.name === name);
+            const existing = cfg.members.findIndex((m: any) => m.name === name);
             const entry = { name, agentId, tmuxPaneId: paneId, color, model: "shell" };
             if (existing >= 0) cfg.members[existing] = entry;
             else cfg.members.push(entry);
@@ -409,18 +371,49 @@ general flags: --description <text>, --members <list>`,
         return { ok: false, error: "team not found" };
       }
       const { hostExec: exec } = await import("../../../sdk");
-      const { colorAnsi } = await import("../../core/tmux/layout-manager");
+      const { colorAnsi } = await import("../tmux/layout-manager");
       const withPanes = team.members.filter(m => m.tmuxPaneId && m.agentType !== "team-lead");
       let sent = 0;
       for (const m of withPanes) {
         try {
           await exec(`tmux send-keys -t '${m.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
-          const color = (m.color || "white") as AgentColor;
+          const color = (m.color || "white") as any;
           console.log(`  \x1b[${colorAnsi(color)}m→\x1b[0m ${m.agentId || m.name}`);
           sent++;
         } catch { /* pane may be dead */ }
       }
       console.log(`\x1b[32m✓\x1b[0m broadcast to ${sent}/${withPanes.length} agents: ${message}`);
+
+    } else if (sub === "enter" || sub === "send-enter") {
+      // maw team enter <agent|all> — submit pending input in agent pane(s)
+      const agent = args[1];
+      if (!agent) {
+        logs.push("usage: maw team enter <agent|all>");
+        return { ok: false, error: "agent required", output: logs.join("\n") };
+      }
+      const teamName = resolveTeamFromContext();
+      const { loadTeam } = await import("./team-helpers");
+      const team = loadTeam(teamName);
+      if (!team) {
+        logs.push(`\x1b[33m⚠\x1b[0m team '${teamName}' not found`);
+        return { ok: false, error: "team not found" };
+      }
+      const members = team.members.filter(m =>
+        m.tmuxPaneId && m.agentType !== "team-lead" &&
+        (agent === "all" || m.name === agent || m.agentId === agent || m.agentId === `${agent}@${teamName}`)
+      );
+      if (!members.length) {
+        logs.push(`\x1b[33m⚠\x1b[0m agent '${agent}' not found or no pane ID`);
+        logs.push(`Available: ${team.members.filter(m => m.tmuxPaneId).map(m => m.name).join(", ") || "none"}`);
+        return { ok: false, error: "agent not found" };
+      }
+      const { hostExec: exec } = await import("../../../sdk");
+      const { colorAnsi } = await import("../tmux/layout-manager");
+      for (const m of members) {
+        await exec(`tmux send-keys -t '${m.tmuxPaneId}' Enter`);
+        const color = (m.color || "white") as any;
+        console.log(`\x1b[${colorAnsi(color)}m↵\x1b[0m enter sent to ${m.agentId || m.name}`);
+      }
 
     } else if (sub === "hey") {
       // maw team hey <agent> <message> — send keystrokes to agent's tmux pane
@@ -448,8 +441,8 @@ general flags: --description <text>, --members <list>`,
       }
       const { hostExec: exec } = await import("../../../sdk");
       await exec(`tmux send-keys -t '${member.tmuxPaneId}' '${message.replace(/'/g, "'\\''")}' Enter`);
-      const { colorAnsi } = await import("../../core/tmux/layout-manager");
-      const color = (member.color || "white") as AgentColor;
+      const { colorAnsi } = await import("../tmux/layout-manager");
+      const color = (member.color || "white") as any;
       console.log(`\x1b[${colorAnsi(color)}m→\x1b[0m sent to ${member.agentId || member.name}: ${message}`);
 
     } else if (sub === "layout") {
@@ -458,7 +451,7 @@ general flags: --description <text>, --members <list>`,
         logs.push("\x1b[33m⚠\x1b[0m layout requires tmux");
         return { ok: false, error: "not in tmux" };
       }
-      const { applyTeamLayout, applyTiledLayout, getWindowTarget } = await import("../../core/tmux/layout-manager");
+      const { applyTeamLayout, applyTiledLayout, getWindowTarget } = await import("../tmux/layout-manager");
       const preset = args[1] || "main-vertical";
       const window = await getWindowTarget();
       const anchor = process.env.TMUX_PANE ?? "";
@@ -483,7 +476,7 @@ general flags: --description <text>, --members <list>`,
       if (messages.length === 0) {
         console.log(`\x1b[90mno ${doMark ? "" : "unread "}messages for ${agent}@${teamName}\x1b[0m`);
       } else {
-        const { colorAnsi } = await import("../../core/tmux/layout-manager");
+        const { colorAnsi } = await import("../tmux/layout-manager");
         for (const m of messages) {
           const ts = new Date(m.timestamp).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit" });
           const typeColor = m.type === "done" ? "32" : m.type === "stuck" ? "31" : m.type === "progress" ? "36" : "33";
@@ -502,7 +495,7 @@ general flags: --description <text>, --members <list>`,
       const { loadLayoutSnapshot } = await import("./layout-snapshot");
       const {
         stylePaneBorder, enableBorderStatus, applyTeamLayout, getWindowTarget, colorAnsi,
-      } = await import("../../core/tmux/layout-manager");
+      } = await import("../tmux/layout-manager");
       const teamName = args[1] || resolveTeamFromContext();
       const snapshot = loadLayoutSnapshot(teamName);
       if (!snapshot) {
@@ -542,13 +535,13 @@ general flags: --description <text>, --members <list>`,
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|save|resume|send|shutdown|split|peek|hey|inbox|layout|prep|recover|lives|list|status|add|tasks|done|assign|delete>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|split|peek|hey|enter|inbox|layout|prep|recover|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: unknown) {
-    return { ok: false, error: logs.join("\n") || (e instanceof Error ? e.message : String(e)), output: logs.join("\n") || undefined };
+  } catch (e: any) {
+    return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
     console.error = origError;

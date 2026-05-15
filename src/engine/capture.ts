@@ -1,7 +1,8 @@
 import { capture, isAgentCommand } from "../core/transport/ssh";
 import { tmux } from "../core/transport/tmux";
 import type { MawWS } from "../core/types";
-import type { SessionInfo } from "./types";
+
+type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
 /** Push terminal capture to a subscribed WebSocket client. */
 export async function pushCapture(
@@ -16,9 +17,8 @@ export async function pushCapture(
       lastContent.set(ws, content);
       ws.send(JSON.stringify({ type: "capture", target: ws.data.target, content }));
     }
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    ws.send(JSON.stringify({ type: "error", error: msg }));
+  } catch (e: any) {
+    ws.send(JSON.stringify({ type: "error", error: e.message }));
   }
 }
 

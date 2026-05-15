@@ -63,23 +63,39 @@ export function resolvePluginMatch(
   cmdName: string,
 ): DispatchMatch {
   type Hit = { plugin: LoadedPlugin; matchedName: string };
-  const exact: Hit[] = [];
-  const prefix: Hit[] = [];
+  const exactCommand: Hit[] = [];
+  const exactAlias: Hit[] = [];
+  const prefixCommand: Hit[] = [];
+  const prefixAlias: Hit[] = [];
   for (const p of plugins) {
     const cliNames = pluginCliNames(p);
     if (!cliNames) continue;
-    const names = [cliNames.command, ...cliNames.aliases];
-    let exactHit: string | null = null;
-    let prefixHit: string | null = null;
-    for (const n of names) {
-      const lower = n.toLowerCase();
-      if (cmdName === lower) { exactHit = lower; break; }
-      if (!prefixHit && cmdName.startsWith(lower + " ")) prefixHit = lower;
+
+    const command = cliNames.command.toLowerCase();
+    if (cmdName === command) {
+      exactCommand.push({ plugin: p, matchedName: command });
+      continue;
     }
-    if (exactHit) exact.push({ plugin: p, matchedName: exactHit });
-    else if (prefixHit) prefix.push({ plugin: p, matchedName: prefixHit });
+    if (cmdName.startsWith(command + " ")) {
+      prefixCommand.push({ plugin: p, matchedName: command });
+      continue;
+    }
+
+    let aliasExactHit: string | null = null;
+    let aliasPrefixHit: string | null = null;
+    for (const alias of cliNames.aliases) {
+      const lower = alias.toLowerCase();
+      if (cmdName === lower) { aliasExactHit = lower; break; }
+      if (!aliasPrefixHit && cmdName.startsWith(lower + " ")) aliasPrefixHit = lower;
+    }
+    if (aliasExactHit) exactAlias.push({ plugin: p, matchedName: aliasExactHit });
+    else if (aliasPrefixHit) prefixAlias.push({ plugin: p, matchedName: aliasPrefixHit });
   }
-  const winners = exact.length > 0 ? exact : prefix;
+  const winners =
+    exactCommand.length > 0 ? exactCommand
+      : exactAlias.length > 0 ? exactAlias
+        : prefixCommand.length > 0 ? prefixCommand
+          : prefixAlias;
   if (winners.length === 0) return { kind: "none" };
   if (winners.length === 1) return { kind: "match", plugin: winners[0].plugin, matchedName: winners[0].matchedName };
   return {

@@ -77,16 +77,8 @@ export async function takeSnapshot(trigger: string): Promise<string> {
   return filepath;
 }
 
-export interface SnapshotListEntry {
-  file: string;
-  timestamp: string;
-  trigger: string;
-  sessionCount: number;
-  windowCount: number;
-}
-
 /** List all snapshots, newest first */
-export function listSnapshots(): SnapshotListEntry[] {
+export function listSnapshots(): { file: string; timestamp: string; trigger: string; sessionCount: number; windowCount: number }[] {
   const files = readdirSync(SNAPSHOT_DIR)
     .filter(f => f.endsWith(".json"))
     .sort()

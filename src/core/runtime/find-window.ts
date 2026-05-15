@@ -43,15 +43,6 @@ export class AmbiguousMatchError extends Error {
  *   2. Oracle-name match (strip leading `\d+-` from session name)
  *   3. Substring match
  * Returns the first session that matches, or null.
- *
- * Federation footgun #2 — strip-prefix shadows peer routing.
- * Strategy 2 below makes local session `30-oracle-world` claim the query
- * part `oracle-world`, even when `oracle-world` is a known peer. Strict
- * mode only suppresses strategy 3 (substring); strategies 1 and 2 still
- * fire. PR #1322 mitigates this in the findWindow bottom fallback at the
- * end of this file, returning null when the session matched but the window
- * didn't resolve, so resolveTarget Step 2 takes over peer routing.
- * See: docs/federation/routing-syntax.md § Footgun #2.
  */
 function matchSession(sessions: Session[], part: string, strict = false): Session | null {
   const p = part.toLowerCase();
@@ -106,21 +97,6 @@ export function findWindow(sessions: Session[], query: string): string | null {
   }
   if (exact.size === 1) return [...exact][0];
   if (exact.size > 1) throw new AmbiguousMatchError(query, [...exact]);
-
-  // Pass 1.5: suffix-segment match — window named `<query>-oracle` or session
-  // stem ending with `-<query>`. Resolves "discord" → window "discord-oracle"
-  // without falling to substring that also catches "hermes-discord" (#1107).
-  const suffixSeg = new Set<string>();
-  for (const s of sessions) {
-    for (const w of s.windows) {
-      const wn = w.name.toLowerCase();
-      if (wn === `${q}-oracle` || wn.replace(/-oracle$/, "") === q) {
-        suffixSeg.add(`${s.name}:${w.index}`);
-      }
-    }
-  }
-  if (suffixSeg.size === 1) return [...suffixSeg][0];
-  if (suffixSeg.size > 1) throw new AmbiguousMatchError(query, [...suffixSeg]);
 
   const sub = new Set<string>();
   for (const s of sessions) {

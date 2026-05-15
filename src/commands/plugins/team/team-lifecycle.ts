@@ -3,7 +3,6 @@ import { join } from "path";
 import { tmux } from "../../../sdk";
 import { assertValidOracleName } from "../../../core/fleet/validate";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
-import { formatError } from "../../../lib/format-error";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -88,7 +87,7 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
       sendShutdown(name, m.name, "team teardown via maw team shutdown");
       console.log(`  \x1b[90m↪ shutdown → ${m.name} (${m.tmuxPaneId})\x1b[0m`);
     } catch (e) {
-      console.error(formatError(`failed to send shutdown to ${m.name}: ${e}`));
+      console.error(`  \x1b[31m✗\x1b[0m failed to send shutdown to ${m.name}: ${e}`);
     }
   }
 
@@ -112,16 +111,13 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
       await tmux.killPane(m.tmuxPaneId!);
       console.log(`  \x1b[33m⚠\x1b[0m force-killed ${m.name} (${m.tmuxPaneId})`);
     } else {
-      console.error(formatError(
-        `${m.name} did not respond to shutdown_request`,
-        `use --force to kill`,
-      ));
+      console.error(`  \x1b[31m✗\x1b[0m ${m.name} did not respond to shutdown_request (use --force to kill)`);
     }
   }
 
   // Step 4: Clean up any remaining panes (hide or kill)
   try {
-    const { cleanupTeamPanes } = await import("../../core/tmux/layout-manager");
+    const { cleanupTeamPanes } = await import("../tmux/layout-manager");
     const leaderPane = process.env.TMUX_PANE ?? "";
     const allPaneIds = teammates.map(m => m.tmuxPaneId).filter(Boolean) as string[];
     const cleaned = await cleanupTeamPanes(leaderPane, allPaneIds, { hide: !opts.force });
@@ -180,7 +176,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
 export async function cmdTeamSpawn(
   teamName: string,
   role: string,
-  opts: { model?: string; prompt?: string; exec?: boolean; engine?: string; type?: string; color?: string } = {},
+  opts: { model?: string; prompt?: string; exec?: boolean; cwd?: string } = {},
 ) {
   const PSI = resolvePsi();
   const teamDir = join(PSI, "memory", "mailbox", "teams", teamName);
@@ -215,12 +211,10 @@ export async function cmdTeamSpawn(
     } catch { /* no findings */ }
   }
 
-  // Resolve engine (#1202) — defaults to claude, supports --engine codex etc.
-  const { resolveEngine, ENGINE_DEFS, buildEngineCommand } = await import("../../shared/engines");
-  const engineName = opts.engine ? resolveEngine(opts.engine) : "claude";
-  const engineConfig = ENGINE_DEFS[engineName];
-  const isClaudeEngine = engineName === "claude";
-  const model = opts.model || engineConfig.defaultModel;
+  // Build spawn prompt
+  const model = opts.model || "sonnet";
+  const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const cwdPrefix = opts.cwd ? `cd ${shellQuote(opts.cwd)} && ` : "";
   const parts: string[] = [];
   parts.push(`You are '${role}' on team '${teamName}'.`);
   if (opts.prompt) parts.push(opts.prompt);
@@ -246,8 +240,8 @@ export async function cmdTeamSpawn(
   if (existsSync(toolConfigPath)) {
     try {
       const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-      const member: TeamMember = { name: role, model, backendType: engineName };
-      if (!toolConfig.members.some((m: TeamMember) => m.name === role)) {
+      const member: TeamMember = { name: role, model };
+      if (!toolConfig.members.some((m: any) => m.name === role)) {
         toolConfig.members.push(member);
         // lgtm[js/file-system-race] — PRIVATE-PATH: tool config under ~/.maw/teams/<team>/ (#393), see docs/security/file-system-race-stance.md
         writeFileSync(toolConfigPath, JSON.stringify(toolConfig, null, 2));
@@ -257,58 +251,34 @@ export async function cmdTeamSpawn(
 
   console.log(`\x1b[32m✓\x1b[0m spawn prompt written for '${role}'`);
   console.log(`  \x1b[90mpast life: ${pastLife ? "yes" : "no"}\x1b[0m`);
-  console.log(`  \x1b[90mengine: ${engineName} (${engineConfig.binary})\x1b[0m`);
   console.log(`  \x1b[90mmodel: ${model}\x1b[0m`);
   console.log(`  \x1b[90mprompt: ${promptPath}\x1b[0m`);
 
-  // Capture parent session ID for agent-teams protocol
-  const parentSessionId = process.env.CLAUDE_SESSION_ID || "";
-
-  // Build the full agent-teams claude command
-  const teammateCount = manifest.members.filter((m: string) => m !== role).length;
-  const agentType = opts.type || "general-purpose";
-  const agentColor = opts.color || ["yellow", "green", "blue", "red", "cyan"][teammateCount % 5];
-  const agentId = `${role}@${teamName}`;
-  const envPrefix = "CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1";
-  const claudeCmd = [
-    envPrefix,
-    "claude",
-    `--agent-id '${agentId}'`,
-    `--agent-name '${role}'`,
-    `--team-name '${teamName}'`,
-    `--agent-color ${agentColor}`,
-    parentSessionId ? `--parent-session-id ${parentSessionId}` : "",
-    `--agent-type ${agentType}`,
-    "--dangerously-skip-permissions",
-    `--model ${model}`,
-    `--system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`,
-  ].filter(Boolean).join(" ");
-
-  // For non-claude engines, build the command from the registry (#1202).
-  // Claude keeps its agent-teams-aware command with --agent-id etc.
-  const escapedPromptPath = promptPath.replace(/'/g, "'\\''");
-  const agentCmd = isClaudeEngine
-    ? claudeCmd
-    : buildEngineCommand(engineName, { model, promptPath: escapedPromptPath });
-
+  // #393 Bug C — opt-in auto-spawn via splitWindowLocked. Default behavior
+  // (print-only) is unchanged. With --exec, we split the current pane and
+  // run the printed claude command inside it. Requires $TMUX (must be
+  // inside an active tmux session).
   if (opts.exec) {
     if (!process.env.TMUX) {
       console.log();
       console.log(`  \x1b[33m⚠\x1b[0m --exec requires an active tmux session ($TMUX not set).`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m ${agentCmd}`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
       return;
     }
     try {
-      const { spawnTeammatePane, colorAnsi } = await import("../../core/tmux/layout-manager");
+      const { spawnTeammatePane, colorAnsi } = await import("../tmux/layout-manager");
+      const claudeCmd = `${cwdPrefix}claude --model ${model} --system-prompt-file '${promptPath.replace(/'/g, "'\\''")}'`;
+      const teammateCount = manifest.members.filter((m: any) => m.name !== role).length;
+      const agentId = `${role}@${teamName}`;
 
-      const result = await spawnTeammatePane(role, agentCmd, { colorIndex: teammateCount });
+      const result = await spawnTeammatePane(role, claudeCmd, { colorIndex: teammateCount });
 
       // Persist pane state to tool store config (~/.claude/teams/)
       const toolConfigPath = join(TEAMS_DIR, teamName, "config.json");
       if (existsSync(toolConfigPath)) {
         try {
           const toolConfig = JSON.parse(readFileSync(toolConfigPath, "utf-8"));
-          const member = toolConfig.members?.find((m: TeamMember) => m.name === role);
+          const member = toolConfig.members?.find((m: any) => m.name === role);
           if (member) {
             member.tmuxPaneId = result.paneId;
             member.color = result.color;
@@ -324,14 +294,14 @@ export async function cmdTeamSpawn(
 
       console.log();
       console.log(`  \x1b[32m✓ --exec\x1b[0m spawned \x1b[${colorAnsi(result.color)}m${agentId}\x1b[0m in pane ${result.paneId}`);
-    } catch (e: unknown) {
+    } catch (e: any) {
       console.log();
-      console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e instanceof Error ? e.message : String(e)}`);
-      console.log(`  \x1b[36mRun manually:\x1b[0m ${claudeCmd}`);
+      console.log(`  \x1b[33m⚠\x1b[0m --exec split failed: ${e?.message || e}`);
+      console.log(`  \x1b[36mRun manually:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
     }
     return;
   }
 
   console.log();
-  console.log(`  \x1b[36mRun:\x1b[0m ${claudeCmd}`);
+  console.log(`  \x1b[36mRun:\x1b[0m ${cwdPrefix}claude --model ${model} --system-prompt-file "${promptPath}"`);
 }

@@ -1,57 +1,40 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { join } from "path";
+import { describe, it, expect, beforeEach } from "bun:test";
 import type { InvokeContext } from "../../../plugin/types";
-
-// Import real implementations that other test files depend on — mock.module
-// is process-global in bun, so our mock of ./impl persists into
-// prune-register.test.ts etc. Spreading the real functions prevents both
-// "export not found" SyntaxErrors AND preserves behavior for those tests.
-const realPrune = await import("./impl-prune");
-const realRegister = await import("./impl-register");
-const realHelpers = await import("./impl-helpers");
-
-// Use absolute paths so Bun's mock.module resolves the same physical file
-// regardless of the import path used by other modules (e.g. src/sdk/index.ts
-// imports "../commands/plugins/oracle/impl" which is a different module key
-// than "./impl" from this test file's perspective).
-mock.module(join(import.meta.dir, "./impl"), () => ({
-  cmdOracleList: async () => {
-    console.log("Oracle Fleet  (1/2 awake)");
-  },
-  cmdOracleScan: async (_opts: any) => {
-    console.log("Scanned 5 oracles locally");
-  },
-  cmdOracleScanStale: async (_opts: any) => {
-    console.log("Stale oracle scan  (DEAD 1  STALE 2)");
-  },
-  cmdOracleFleet: async (_opts: any) => {
-    console.log("Oracle Fleet  (5 oracles)");
-  },
-  cmdOracleAbout: async (name: string) => {
-    console.log(`Oracle — ${name}`);
-  },
-  cmdOraclePrune: realPrune.cmdOraclePrune,
-  cmdOracleRegister: realRegister.cmdOracleRegister,
-  resolveOracleSafe: realHelpers.resolveOracleSafe,
-  discoverOracles: realHelpers.discoverOracles,
-  timeSince: realHelpers.timeSince,
-}));
-
-mock.module(join(import.meta.dir, "./impl-nickname"), () => ({
-  cmdOracleSetNickname: (name: string, nickname: string) => {
-    console.log(`set-nickname ${name}=${nickname}`);
-  },
-  cmdOracleGetNickname: (name: string) => {
-    console.log(`get-nickname ${name}`);
-  },
-}));
+import { createOracleHandler } from "./index";
 
 describe("oracle plugin", () => {
   let handler: (ctx: InvokeContext) => Promise<any>;
 
-  beforeEach(async () => {
-    const mod = await import("./index");
-    handler = mod.default;
+  beforeEach(() => {
+    handler = createOracleHandler({
+      cmdOracleList: async () => {
+        console.log("Oracle Fleet  (1/2 awake)");
+      },
+      cmdOracleScan: async (_opts: any) => {
+        console.log("Scanned 5 oracles locally");
+      },
+      cmdOracleScanStale: async (_opts: any) => {
+        console.log("Stale oracle scan  (DEAD 1  STALE 2)");
+      },
+      cmdOracleFleet: async (_opts: any) => {
+        console.log("Oracle Fleet  (5 oracles)");
+      },
+      cmdOracleAbout: async (name: string) => {
+        console.log(`Oracle — ${name}`);
+      },
+      cmdOraclePrune: async () => {
+        console.log("pruned");
+      },
+      cmdOracleRegister: async (name: string) => {
+        console.log(`registered ${name}`);
+      },
+      cmdOracleSetNickname: (name: string, nickname: string) => {
+        console.log(`set-nickname ${name}=${nickname}`);
+      },
+      cmdOracleGetNickname: (name: string) => {
+        console.log(`get-nickname ${name}`);
+      },
+    });
   });
 
   it("cli: ls lists oracles", async () => {

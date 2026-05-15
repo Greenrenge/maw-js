@@ -140,17 +140,10 @@ maw wake <oracle> [task]         # wake oracle in tmux
 maw sleep <oracle>               # gracefully stop
 maw done <window>                # auto-save + clean up
 maw bud <name> [--from parent]   # spawn new oracle
-maw fleet ls [--json]            # list fleet configs
+maw fleet ls                     # list fleet configs
 maw fleet health                 # fleet health report
 maw fleet doctor                 # config doctor
-maw fleet hibernate [name]       # hibernate idle session(s)
-maw fleet resume [name]          # resume hibernated session(s)
-maw fleet compose [--validate]   # generate docker-compose.yml for maw serve
 maw oracle scan                  # discover oracles across nodes
-maw oracle ls [--json --awake]   # list all oracles with filters
-maw oracle rename <old> <new>    # full identity rename (repo + fleet + session + projects)
-maw channel ls [--json]          # list channels per oracle
-maw channel add <oracle> <plug>  # add channel plugin to oracle
 maw contacts                     # list oracle contacts
 maw soul-sync                    # sync memory across peers
 maw find <keyword>               # search memory across oracles
@@ -159,22 +152,6 @@ maw serve [port]                 # start API server (default: 3456)
 ```
 
 Full command reference: `maw --help`
-
-### Docker Compose
-
-Generate a `docker-compose.yml` for running `maw serve` containerized:
-
-```bash
-maw fleet compose --output docker-compose.yml
-docker compose up -d
-curl http://localhost:3456/api/health
-```
-
-The generated compose includes the `maw-serve` service with volumes for
-`~/.claude`, `~/.config/maw`, `~/Code`, plus a healthcheck on `/api/health`.
-Pre-clones `maw-plugin-registry` into the image so all 78 plugins work in-container.
-
-Validate the YAML before deploy: `maw fleet compose --validate`
 
 ## Federation API
 
@@ -236,3 +213,7 @@ Plugins can be discovered and installed peer-to-peer (Shape A, no central
 registry required). See
 [`docs/plugins/shape-a-demo.md`](docs/plugins/shape-a-demo.md) for a
 7-step walkthrough — peers, federated search, `@peer` install, consent.
+
+For fresh-install bootstrap, plugin source tiers, vendored registry plugins,
+and `maw plugin install` trust/lock behavior, see
+[`docs/plugins/install-architecture.md`](docs/plugins/install-architecture.md).

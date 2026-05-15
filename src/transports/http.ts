@@ -10,7 +10,7 @@ import { cfgTimeout } from "../config";
 import { listSessions } from "../core/transport/ssh";
 import { findWindow } from "../core/runtime/find-window";
 import { curlFetch } from "../core/transport/curl-fetch";
-import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
 export interface HttpTransportConfig {
@@ -23,9 +23,9 @@ export class HttpTransport implements Transport {
   readonly name = "http-federation";
   private _connected = false;
   private config: HttpTransportConfig;
-  private msgHandlers = new Set<MessageHandler>();
-  private presenceHandlers = new Set<PresenceHandler>();
-  private feedHandlers = new Set<FeedHandler>();
+  private msgHandlers = new Set<(msg: TransportMessage) => void>();
+  private presenceHandlers = new Set<(p: TransportPresence) => void>();
+  private feedHandlers = new Set<(e: FeedEvent) => void>();
 
   constructor(config: HttpTransportConfig) {
     this.config = config;
@@ -47,15 +47,14 @@ export class HttpTransport implements Transport {
     const allSessions = await getAggregatedSessions(localSessions);
 
     for (const session of allSessions) {
-      const sessionRecord = session as unknown as Record<string, unknown>;
-      const source = sessionRecord.source;
+      const source = (session as any).source;
       if (!source || source === "local") continue;
 
-      const match = (session as unknown as { windows: Array<{ name: string }> }).windows.some((w: { name: string }) => w.name.toLowerCase().includes(target.oracle.toLowerCase()));
+      const match = session.windows.some((w) => w.name.toLowerCase().includes(target.oracle.toLowerCase()));
       if (match) {
         const tmuxTarget = findWindow([session], target.oracle);
         if (tmuxTarget) {
-          return sendKeysToPeer(source as string, tmuxTarget, message);
+          return sendKeysToPeer(source, tmuxTarget, message);
         }
       }
     }
@@ -89,15 +88,15 @@ export class HttpTransport implements Transport {
     }
   }
 
-  onMessage(handler: MessageHandler) {
+  onMessage(handler: (msg: TransportMessage) => void) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: PresenceHandler) {
+  onPresence(handler: (p: TransportPresence) => void) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: FeedHandler) {
+  onFeed(handler: (e: FeedEvent) => void) {
     this.feedHandlers.add(handler);
   }
 

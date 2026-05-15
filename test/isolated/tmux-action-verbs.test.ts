@@ -1,66 +1,35 @@
 import { describe, test, expect } from "bun:test";
-import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/core/tmux/impl";
-import * as impl from "../../src/commands/core/tmux/impl";
+import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/plugins/tmux/impl";
+import * as impl from "../../src/commands/plugins/tmux/impl";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/core/tmux/impl.ts"), "utf-8");
+const implSrc = readFileSync(join(import.meta.dir, "../../src/commands/plugins/tmux/impl.ts"), "utf-8");
+
+const encode = (text: string) => new TextEncoder().encode(text);
+const spawnOk = (stdout = "") => ({
+  exitCode: 0,
+  stdout: encode(stdout),
+  stderr: new Uint8Array(),
+  success: true,
+});
+
+function mockTmuxSessions(aliveSessions: string[], calls: any[] = [], fallback = () => spawnOk()) {
+  const origSpawnSync = Bun.spawnSync;
+  (Bun as any).spawnSync = ((args: any, opts: any) => {
+    if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+      return spawnOk(aliveSessions.length ? `${aliveSessions.join("\n")}\n` : "");
+    }
+    calls.push({ args, opts });
+    return fallback();
+  }) as any;
+  return () => { (Bun as any).spawnSync = origSpawnSync; };
+}
+
 
 // Pure-validation tests for split, kill, layout, attach. These verbs call
 // hostExec under the hood — we test the input-validation paths that throw
 // BEFORE any tmux interaction. Live behavior was smoke-tested in iter 9.
-
-// ── helpers ─────────────────────────────────────────────────────────────────
-// cmdTmuxAttach pre-flights `tmux list-sessions` via Bun.spawnSync and bails
-// to suggestRecovery() (→ process.exit) if the session isn't alive. The
-// helpers below provide a smart spawnSync mock that:
-//   - intercepts `tmux list-sessions` and returns the configured alive list
-//   - records all OTHER spawns into `calls` for assertion
-// And a process.exit stub that throws a sentinel instead of killing the
-// test runner — used when we expect suggestRecovery() to be triggered.
-
-function makeSpawnSyncMock(opts: {
-  alive?: string[];
-  result?: { exitCode: number; success: boolean };
-} = {}) {
-  const calls: Array<{ args: any; opts: any }> = [];
-  const alive = opts.alive ?? [];
-  const result = opts.result ?? { exitCode: 0, success: true };
-  const mock = (args: any, options: any) => {
-    if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
-      return {
-        exitCode: 0,
-        stdout: new TextEncoder().encode(alive.join("\n")),
-        stderr: new Uint8Array(),
-        success: true,
-      };
-    }
-    calls.push({ args, opts: options });
-    return {
-      exitCode: result.exitCode,
-      stdout: new Uint8Array(),
-      stderr: new Uint8Array(),
-      success: result.success,
-    };
-  };
-  return { mock, calls };
-}
-
-class ExitCalled extends Error {
-  constructor(public code: number) {
-    super(`process.exit(${code})`);
-  }
-}
-function stubProcessExit(): { restore: () => void; calls: number[] } {
-  const orig = process.exit;
-  const calls: number[] = [];
-  (process as any).exit = (code?: number) => {
-    const c = code ?? 0;
-    calls.push(c);
-    throw new ExitCalled(c);
-  };
-  return { restore: () => { (process as any).exit = orig; }, calls };
-}
 
 describe("cmdTmuxLayout — input validation", () => {
   test("invalid preset → throws", async () => {
@@ -102,17 +71,15 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
-    // Pre-flight session-aliveness: report "%999" alive so we don't fall to recovery.
-    const { mock, calls } = makeSpawnSyncMock({ alive: ["%999"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["%999"], calls);
     try {
       cmdTmuxAttach("%999", { print: true });
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
+      restoreSpawn();
     }
-    expect(calls).toHaveLength(0); // --print → never spawns (list-sessions is filtered)
+    expect(calls).toHaveLength(0); // --print → never spawns attach/switch
     const joined = logs.join("\n");
     expect(joined).toContain("tmux attach -t");
     expect(joined).toContain("Ctrl-b d");
@@ -122,30 +89,26 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
-    const { mock } = makeSpawnSyncMock({ alive: ["some-session"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const restoreSpawn = mockTmuxSessions(["some-session"]);
     try {
       cmdTmuxAttach("some-session:0.1", { print: true });
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
+      restoreSpawn();
     }
     expect(logs.join("\n")).toContain("tmux attach -t some-session");
   });
 
   test("no TTY (and no --print) → falls back to 3-line print, no spawn", () => {
-    // Simulate non-TTY environment (script / pipe / CI).
+    // Simulate non-TTY environment (script / pipe / CI). Bun's test runner
+    // typically already has isTTY=undefined, but force it to be safe.
     const origIsTty = process.stdout.isTTY;
     Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
-    const origTmuxTTY = impl._tty.isStdoutTTY;
-    impl._tty.isStdoutTTY = () => false;
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
-    const { mock, calls } = makeSpawnSyncMock({ alive: ["%999"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["%999"], calls);
 
     const logs: string[] = [];
     const origLog = console.log;
@@ -154,13 +117,12 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
       cmdTmuxAttach("%999"); // no opts → relies on TTY/$TMUX detection
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
-      impl._tty.isStdoutTTY = origTmuxTTY;
+      restoreSpawn();
       Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
 
-    expect(calls).toHaveLength(0); // no TTY → never spawns (list-sessions is filtered)
+    expect(calls).toHaveLength(0); // no TTY → never spawns attach/switch
     const joined = logs.join("\n");
     expect(joined).toContain("tmux attach -t");
     expect(joined).toContain("Ctrl-b d");
@@ -174,9 +136,8 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     const origTmux = process.env.TMUX;
     process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
 
-    const { mock, calls } = makeSpawnSyncMock({ alive: ["some-session"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["some-session"], calls);
 
     const logs: string[] = [];
     const origLog = console.log;
@@ -185,7 +146,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
       cmdTmuxAttach("some-session:0.1");
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
+      restoreSpawn();
       impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
       else delete process.env.TMUX;
@@ -202,14 +163,13 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
-    const { mock, calls } = makeSpawnSyncMock({ alive: ["some-session"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["some-session"], calls);
 
     try {
       cmdTmuxAttach("some-session:0.1");
     } finally {
-      (Bun as any).spawnSync = origSpawnSync;
+      restoreSpawn();
       impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
@@ -218,47 +178,31 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session"]);
   });
 
-  test("non-zero exit → triggers suggestRecovery (process.exit)", () => {
-    // Pre-#1061 this threw `tmux attach failed: exit 1`. Smart-recovery now
-    // calls suggestRecovery() → process.exit (or maw wake auto-spawn). We
-    // assert the new behavior by stubbing process.exit so it throws instead
-    // of killing the test runner.
+  test("dead resolved session → prints recovery and exits non-zero", () => {
     const origTTY = impl._tty.isStdoutTTY;
     impl._tty.isStdoutTTY = () => true;
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
-    const { mock } = makeSpawnSyncMock({
-      alive: ["ghost-session"],
-      result: { exitCode: 1, success: false }, // attach (and any maw-wake follow-up) → fail
-    });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
-
-    const exitStub = stubProcessExit();
+    const restoreSpawn = mockTmuxSessions([]);
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...a: any[]) => logs.push(a.map(String).join(" "));
+    const origExit = process.exit;
+    (process as any).exit = ((code?: number) => {
+      throw new Error(`process.exit:${code ?? 0}`);
+    }) as any;
 
-    let threw: unknown = null;
     try {
-      try {
-        cmdTmuxAttach("ghost-session");
-      } catch (e) {
-        threw = e;
-      }
+      expect(() => cmdTmuxAttach("ghost-session")).toThrow(/process\.exit:1/);
+      expect(logs.join("\n")).toContain("No session matches 'ghost-session'");
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
+      (process as any).exit = origExit;
+      restoreSpawn();
       impl._tty.isStdoutTTY = origTTY;
-      exitStub.restore();
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
-
-    // suggestRecovery either calls process.exit directly or after maw-wake
-    // auto-spawn — either way process.exit must have fired.
-    expect(exitStub.calls.length).toBeGreaterThan(0);
-    expect(threw).toBeInstanceOf(ExitCalled);
   });
 
   test("--print overrides TTY detection — never spawns even in interactive shell", () => {
@@ -267,9 +211,8 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     const origTmux = process.env.TMUX;
     delete process.env.TMUX;
 
-    const { mock, calls } = makeSpawnSyncMock({ alive: ["%999"] });
-    const origSpawnSync = Bun.spawnSync;
-    (Bun as any).spawnSync = mock;
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["%999"], calls);
 
     const logs: string[] = [];
     const origLog = console.log;
@@ -278,7 +221,7 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
       cmdTmuxAttach("%999", { print: true });
     } finally {
       console.log = origLog;
-      (Bun as any).spawnSync = origSpawnSync;
+      restoreSpawn();
       impl._tty.isStdoutTTY = origTTY;
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }

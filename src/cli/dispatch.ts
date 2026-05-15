@@ -5,14 +5,12 @@ import { matchCommand, executeCommand } from "./command-registry";
 import { getVersionString } from "./cmd-version";
 import { runUpdate } from "./cmd-update";
 import { UserError } from "../core/util/user-error";
-import { formatError } from "../lib/format-error";
 
 /** Core route names that are not plugins but are still "known commands". */
 const CORE_ROUTES = [
-  "hey",
+  "hey", "send",
   "plugins", "plugin", "artifacts", "artifact",
-  "agents", "agent", "locate", "audit", "serve",
-  "tmux",
+  "agents", "agent", "audit", "serve",
   "update", "upgrade", "version",
 ];
 
@@ -41,9 +39,6 @@ export async function dispatchCommand(cmd: string, args: string[]): Promise<void
       return;
     }
     args.splice(0, args.length, ...aliasResult.argv);
-    // Alias may rewrite to a core verb (e.g. `maw open` → ["tmux", "open"]).
-    // Re-check routeTools so core handlers catch the post-splice argv.
-    if (await routeTools(args[0]!.toLowerCase(), args)) return;
   }
 
   // Try plugin commands (beta) — after core routes, before fallback
@@ -75,10 +70,8 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   const dispatch = resolvePluginMatch(plugins, cmdName);
 
   if (dispatch.kind === "ambiguous") {
-    console.error(formatError(
-      `ambiguous command: ${args[0]}`,
-      `candidates: ${dispatch.candidates.map(c => `${c.plugin} (${c.name})`).join(", ")}`,
-    ));
+    console.error(`\x1b[31m✗\x1b[0m ambiguous command: ${args[0]}`);
+    console.error(`  candidates: ${dispatch.candidates.map(c => `${c.plugin} (${c.name})`).join(", ")}`);
     throw new UserError(`ambiguous command: ${args[0]}`);
   }
   if (dispatch.kind === "match") {
@@ -159,10 +152,12 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       }
     }
     if (!isOracle) {
-      const hint = closeCandidates.length > 0
-        ? `did you mean: ${closeCandidates.join(", ")}?`
-        : `run 'maw --help' to see available commands`;
-      console.error(formatError(`unknown command: ${args[0]}`, hint));
+      console.error(`\x1b[31m✗\x1b[0m unknown command: ${args[0]}`);
+      if (closeCandidates.length > 0) {
+        console.error(`  did you mean: ${closeCandidates.join(", ")}?`);
+      } else {
+        console.error(`  run 'maw --help' to see available commands`);
+      }
       // UserError: output already printed above; top-level catch just
       // exits 1 without bun's default stack trace (alpha.66 polish).
       throw new UserError(`unknown command: ${args[0]}`);
@@ -171,9 +166,8 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
   // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
   if (args.length >= 2) {
     const f = args.includes("--force");
-    const noReply = args.includes("--no-reply");
-    const m = args.slice(1).filter(a => a !== "--force" && a !== "--no-reply");
-    await cmdSend(args[0], m.join(" "), f, { noReply });
+    const m = args.slice(1).filter(a => a !== "--force");
+    await cmdSend(args[0], m.join(" "), f);
   } else {
     await cmdPeek(args[0]);
   }

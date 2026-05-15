@@ -22,13 +22,8 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
-import { cmdShow } from "../commands/shared/wake-show";
-import { cmdWorktree } from "../commands/shared/worktree-cmd";
-import { cmdTmuxLs } from "../commands/core/tmux/impl";
+import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
-import { cmdOracleList } from "../commands/plugins/oracle/impl";
-import { preprocessNewFlag } from "../commands/plugins/oracle";
-import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -40,7 +35,6 @@ export type AliasResolution =
 export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   a: "Attach to a tmux session",
   kill: "Kill a tmux pane or session",
-  peek: "Read content of a tmux pane",
   split: "Split pane and attach to a session",
   open: "Bring back hidden panes (join-pane)",
   close: "Hide panes without killing (break-pane)",
@@ -49,47 +43,29 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
+  tile: "Tile current window or spawn N panes tiled",
+  bring: "Bring an oracle HERE — split current pane and attach",
+  b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (compact, -a roster, -v detail)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
-  stall: "Detect stalled panes — notify-only (#976A)",
-  show: "Print session launch script to stdout (pipe-able)",
-  new: "Create a new oracle (alias for awaken — friendly door)",
-  worktree: "Add/remove a code-repo worktree (workspace + tmux window)",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
-  // Argv-rewrite form — canonical handler lives in a top-level plugin in
-  // maw-plugin-registry. The previous `["tmux", X]` rewrites were stale —
-  // the `tmux` plugin was split into per-verb top-level plugins
-  // (attach/, kill/, peek/, zoom/, panes/) but the alias table was not
-  // updated. Result: `maw a flutter` rewrote to `maw tmux attach flutter`
-  // → "unknown command: tmux" → fell through to bare-name comm-send.
-  // Same shape as the #1244 cleanup alias bug. (#TBD)
-  a: ["attach"],
-  kill: ["kill"],
-  peek: ["peek"],
+  // Argv-rewrite form — canonical handler lives in a core plugin
+  a: ["tmux", "attach"],
+  kill: ["tmux", "kill"],
   split: ["split"],
-  open: ["tmux", "open"],     // tmux open/close/detect-stalls not yet extracted as top-level plugins
+  open: ["tmux", "open"],
   close: ["tmux", "close"],
   t: ["team"],
   layout: ["team", "layout"],
-  zoom: ["zoom"],
-  panes: ["panes"],
-  // `maw cleanup` → `maw cleanup --zombie-agents` (auto-inject flag for the
-  // top-level cleanup plugin in maw-plugin-registry). The previous rewrite
-  // `["team", "cleanup", ...]` was wrong — the `team` plugin has no `cleanup`
-  // subcommand; the cleanup plugin sits at the top level. Resolver runs once
-  // (dispatch.ts:36), so the self-reference doesn't loop. (#1244)
-  cleanup: ["cleanup", "--zombie-agents"],
-  stall: ["tmux", "detect-stalls"],   // detect-stalls not yet extracted as top-level plugin
-
-  // `maw new <name>` — the friendly door for creating an oracle.
-  // Routes through cmdNew (direct handler) which wraps the awaken plugin
-  // with a TTY-aware "Attach now? [Y/n]" prompt (#1272). cmdNew strips its
-  // own flags (--no-attach, --auto-attach, -y) and passes everything else
-  // through to awaken, then handles the attach step.
-  new: { kind: "direct", handler: "./cmd-new:cmdNew" },
+  zoom: ["tmux", "zoom"],
+  panes: ["tmux", "ls", "--all", "--verbose"],
+  cleanup: ["team", "cleanup", "--zombie-agents"],
+  tile: ["tile"],
+  bring: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
+  b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
   //   maw ls      → compact, live sessions only
@@ -102,14 +78,6 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
-
-  show: { kind: "direct", handler: "../commands/shared/wake-show:cmdShow" },
-
-  // `maw worktree add/remove` — code-repo workspace primitive (#1331).
-  // Sibling verb to `maw wake`: wake is for oracles, worktree is for arbitrary
-  // code repos. Routes the whole argv (including subcommand) to cmdWorktree
-  // which parses `add` vs `remove` itself.
-  worktree: { kind: "direct", handler: "../commands/shared/worktree-cmd:cmdWorktree" },
 };
 
 /**
@@ -136,6 +104,39 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
 }
 
+export function parseBringArgs(argv: string[]): {
+  oracle: string;
+  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
+} {
+  // v1 default (#1398, locked by #1430): `maw bring <oracle>` splits the
+  // current pane and attaches there. `--split` is kept as a no-op alias for
+  // muscle memory, while `--tab` opts into the later top-right/bg-tab path.
+  const flags = parseFlags(argv, {
+    "--engine": String, "-e": "--engine",
+    "--split": Boolean,
+    "--tab": Boolean,
+  }, 0);
+  const oracle = (flags._ as string[])[0];
+  if (!oracle) {
+    printBringUsage(console.error);
+    throw new UserError("bring: missing oracle name");
+  }
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
+    ? { bring: true }
+    : { split: true };
+  if (flags["--engine"]) opts.engine = flags["--engine"];
+  return { oracle, opts };
+}
+
+function printBringUsage(write: (line: string) => void = console.log): void {
+  write("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
+  write("       maw b <oracle> [--split|--tab] [-e|--engine <name>]");
+  write("  Default: split the current pane and attach (v1).");
+  write("  --split is accepted as an explicit alias of the default.");
+  write("  Use --tab for the top-right tile/bg-tab form.");
+  write("  Symmetric with `maw a` (attach goes there, bring comes here).");
+}
+
 /**
  * Invoke a direct-handler alias. Used by `wake` and `ls`.
  *
@@ -156,55 +157,12 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdLs") {
-    // `maw ls --new` pivots to the oracle lister — "new" makes no sense for
-    // tmux panes anyway, and surfacing recently-created oracles is the
-    // friendly door we want at the top level (#1273). All other --new
-    // flags (--new=24h, --since=...) pivot too. Org/awake/path/json fall
-    // through to the oracle path so users can combine.
-    if (argv.includes("--new") || argv.some((a) => a.startsWith("--new=") || a.startsWith("--since="))) {
-      const lsFlags = parseFlags(preprocessNewFlag(argv), {
-        "--json": Boolean,
-        "--awake": Boolean,
-        "--scan": Boolean,
-        "--stale": Boolean,
-        "--org": String,
-        "--path": Boolean,
-        "-p": "--path",
-        "--new": String,
-        "--since": String,
-      }, 0);
-      await cmdOracleList({
-        awake: lsFlags["--awake"],
-        org: lsFlags["--org"],
-        json: lsFlags["--json"],
-        scan: lsFlags["--scan"],
-        stale: lsFlags["--stale"],
-        path: lsFlags["--path"],
-        new: lsFlags["--new"],
-        since: lsFlags["--since"],
-      });
-      return;
-    }
-
     const flags = parseFlags(argv, {
       "--all": Boolean, "-a": "--all",
       "--verbose": Boolean, "-v": "--verbose",
       "--fix": Boolean,
       "--json": Boolean,
     }, 0);
-    // Cross-node delegation: when a positional is present it names a federation
-    // peer (e.g. `maw ls oracle-world`) — route to the mpr ls plugin which
-    // owns peer resolution + /api/sessions calls. Local `maw ls` (no positional)
-    // keeps the existing cmdTmuxLs behavior so flags/output stay identical.
-    if (flags._.length > 0) {
-      const { discoverPackages, invokePlugin } = await import("../plugin/registry");
-      const plugin = discoverPackages().find(p => p.manifest.name === "ls");
-      if (!plugin) throw new UserError("ls plugin not found in registry");
-      const result = await invokePlugin(plugin, { source: "cli", args: argv });
-      if (result.ok && result.output) console.log(result.output);
-      else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
-      return;
-    }
     await cmdTmuxLs({
       all: true,
       compact: !flags["--verbose"],
@@ -223,94 +181,17 @@ export async function invokeDirectHandler(
       "--incubate": String,
       "--fresh": Boolean,
       "--attach": Boolean, "-a": "--attach",
-      "--no-attach": Boolean,
       "--list": Boolean,
       "--split": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
-      "--dry-run": Boolean,
-      // #1346 — bypass the refuse-to-spawn guard when session exists but
-      // no oracle window is detected (e.g. user really wants to re-create).
-      "--force": Boolean,
     }, 0);
-
-    // #1332 — intercept -h/--help before oracle extraction. parseFlags puts
-    // unrecognized flags in `_`, so --help lands as positional[0] and hits
-    // the oracle-name validator. Print help and return instead.
-    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
-      const help = [
-        "maw wake <oracle> [flags]",
-        "",
-        "  Wake (or attach to) an oracle session in tmux.",
-        "",
-        "  flags:",
-        "    --task <s>        Create a worktree for the given task",
-        "    --wt <s>          Worktree name override",
-        "    -p, --prompt <s>  Prompt to inject after attach",
-        "    --incubate <slug> Clone from GitHub before waking",
-        "    --fresh           Force a fresh session (skip existing)",
-        "    -a, --attach      Attach to pane after wake",
-        "    --no-attach       Wake without attaching",
-        "    --list            List worktrees for this oracle",
-        "    --split           Split pane instead of new window",
-        "    --all-local       Resolve all local repos (no peer)",
-        "    -e, --engine <s>  AI engine override",
-        "    --force           Bypass refuse-to-spawn guard",
-        "    --dry-run         Show what would happen, don't act",
-        "",
-        "  examples:",
-        "    maw wake homekeeper          # wake or attach to homekeeper",
-        "    maw wake neo --task fix-123   # wake in a worktree",
-        "    maw wake all                  # wake entire fleet",
-        "",
-      ];
-      console.log(help.join("\n"));
-      return;
-    }
 
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--no-attach] [--list] [--split] [--all-local] [-e|--engine <name>] [--dry-run]\n       maw wake all [--kill] [--all] [--resume]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
       throw new UserError("wake: missing oracle name");
-    }
-
-    // Pre-#918 the wake/ plugin handled `maw wake all` by routing to cmdWakeAll.
-    // When wake routing moved to top-aliases the early-route was lost, so "all"
-    // started resolving as a literal oracle name (#918 regression surfaced via
-    // pulse-oracle 2026-05-06 maw-boot incident). Restore the routing here.
-    if (oracle.toLowerCase() === "all") {
-      const allFlags = parseFlags(argv, {
-        "--kill": Boolean,
-        "--all": Boolean,
-        "--resume": Boolean,
-      }, 0);
-      const { cmdWakeAll } = await import("../commands/shared/fleet-wake");
-      await cmdWakeAll({
-        kill: !!allFlags["--kill"],
-        all: !!allFlags["--all"],
-        resume: !!allFlags["--resume"],
-      });
-      return;
-    }
-
-    if (flags["--dry-run"]) {
-      const { resolveOracle } = await import("../commands/shared/wake-resolve-impl");
-      const { detectSession } = await import("../commands/shared/wake-resolve-impl");
-      try {
-        const repo = await resolveOracle(oracle);
-        const session = await detectSession(oracle);
-        console.log(`\x1b[36m⚡\x1b[0m [dry-run] resolved: ${oracle}`);
-        console.log(`\x1b[36m→\x1b[0m [dry-run] would use repo: ${repo.repoPath}`);
-        console.log(session
-          ? `\x1b[36m→\x1b[0m [dry-run] would attach to session: ${session}`
-          : `\x1b[36m→\x1b[0m [dry-run] would create new session for: ${oracle}`);
-        console.log(`\x1b[90m  no changes made.\x1b[0m`);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`\x1b[31m✗\x1b[0m [dry-run] resolution failed: ${msg}`);
-      }
-      return;
     }
 
     const opts: {
@@ -320,12 +201,10 @@ export async function invokeDirectHandler(
       incubate?: string;
       fresh?: boolean;
       attach?: boolean;
-      noAttach?: boolean;
       listWt?: boolean;
       split?: boolean;
       allLocal?: boolean;
       engine?: string;
-      force?: boolean;
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
@@ -333,12 +212,10 @@ export async function invokeDirectHandler(
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
     if (flags["--attach"]) opts.attach = true;
-    if (flags["--no-attach"]) opts.noAttach = true;
     if (flags["--list"]) opts.listWt = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
-    if (flags["--force"]) opts.force = true;
 
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
@@ -357,32 +234,21 @@ export async function invokeDirectHandler(
     return;
   }
 
+  if (exportName === "cmdBring") {
+    // `maw bring <oracle>` defaults to the v1 current-pane split path.
+    // `--tab` opts into the later top-right/bg-tab path.
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printBringUsage();
+      return;
+    }
+    const { oracle, opts } = parseBringArgs(argv);
+    await cmdWake(oracle, opts);
+    return;
+  }
+
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
     await cmdPreflight({ fix: !!flags["--fix"] });
-    return;
-  }
-
-  if (exportName === "cmdNew") {
-    await cmdNew(argv);
-    return;
-  }
-
-  if (exportName === "cmdWorktree") {
-    // cmdWorktree owns its own subcommand + flag parsing (add vs remove).
-    await cmdWorktree(argv);
-    return;
-  }
-
-  if (exportName === "cmdShow") {
-    const oracle = argv[0];
-    if (!oracle) {
-      console.error("usage: maw show <oracle> [--engine <name>]");
-      process.exit(1);
-    }
-    const engineIdx = argv.indexOf("--engine");
-    const engine = engineIdx !== -1 ? argv[engineIdx + 1] : undefined;
-    await cmdShow(oracle, { engine });
     return;
   }
 

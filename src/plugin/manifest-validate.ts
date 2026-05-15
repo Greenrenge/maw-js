@@ -5,6 +5,7 @@
 
 import type { PluginManifest, PluginTier } from "./types";
 import { KNOWN_CAPABILITY_NAMESPACES } from "./manifest-constants";
+import { getRuntimeVersionString } from "../core/runtime/build-info";
 
 const VALID_TIERS = new Set<PluginTier>(["core", "standard", "extra"]);
 
@@ -38,7 +39,6 @@ export function parseCli(r: Record<string, unknown>): PluginManifest["cli"] {
     ...(Array.isArray(c.aliases) ? { aliases: c.aliases as string[] } : {}),
     ...(typeof c.help === "string" ? { help: c.help } : {}),
     ...(c.flags ? { flags: c.flags as Record<string, string> } : {}),
-    ...(c.richHelp === true ? { richHelp: true } : {}),
   };
 }
 
@@ -170,7 +170,9 @@ export function parseCapabilities(r: Record<string, unknown>): PluginManifest["c
     if (!KNOWN_CAPABILITY_NAMESPACES.has(ns)) {
       console.warn(
         `plugin.json: unknown capability namespace "${ns}" in "${cap}" ` +
-          `(known: ${[...KNOWN_CAPABILITY_NAMESPACES].join(", ")})`,
+          `(known: ${[...KNOWN_CAPABILITY_NAMESPACES].join(", ")})\n` +
+          `  ↳ runtime: ${getRuntimeVersionString()} — if this namespace is expected, update maw: ` +
+          `bun add -g github:Soul-Brews-Studio/maw-js#alpha`,
       );
     }
   }

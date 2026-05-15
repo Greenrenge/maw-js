@@ -21,7 +21,7 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
   for (const plugin of plugins) {
     if (!plugin.manifest.hooks || plugin.kind !== "ts" || !plugin.entryPath) continue;
 
-    let mod: Record<string, unknown>;
+    let mod: any;
     try { mod = await import(plugin.entryPath); } catch { continue; }
 
     const hooks = plugin.manifest.hooks;
@@ -30,12 +30,11 @@ export async function registerManifestHooks(system: PluginSystem): Promise<numbe
       const events = hooks[phase as keyof typeof hooks];
       if (!events) continue;
 
-      const fn = exportNames.reduce((f: unknown, name: string) => f ?? mod[name], null);
+      const fn = exportNames.reduce((f: any, name: string) => f ?? mod[name], null);
       if (typeof fn !== "function") continue;
 
       for (const event of events) {
-        const hookRegistry = system.hooks as unknown as Record<string, (event: string, fn: (e: unknown) => void) => void>;
-        hookRegistry[phase](event, fn as (e: unknown) => void);
+        (system.hooks as any)[phase](event, fn);
         registered++;
       }
     }

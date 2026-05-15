@@ -79,13 +79,6 @@ export function resolveByName<T extends { name: string }>(
   const exact = items.find(it => it.name.toLowerCase() === lc);
   if (exact) return { kind: "exact", match: exact };
 
-  // Tier 1.5 — exact stem match (strip NN- fleet prefix, compare remainder).
-  // "discord" matches "16-discord" exactly but NOT "18-hermes-discord" (#1102).
-  // Multiple stem matches → ambiguous (e.g. 101-mawjs and 102-mawjs).
-  const exactStem = items.filter(it => it.name.replace(/^\d+-/, "").toLowerCase() === lc);
-  if (exactStem.length === 1) return { kind: "exact", match: exactStem[0]! };
-  if (exactStem.length >= 2) return { kind: "ambiguous", candidates: exactStem };
-
   // Tier 2a — suffix-match preferred (`*-target`). Matches oracle session
   // convention `NN-<name>` where user types `<name>` and wants the session.
   const suffix = items.filter(it => it.name.toLowerCase().endsWith(`-${lc}`));

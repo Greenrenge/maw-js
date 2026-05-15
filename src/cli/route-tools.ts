@@ -8,10 +8,8 @@ const CORE_HELP: Record<string, string> = {
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
   agent: "usage: maw agent [--json] [--all] [--node <node>]",
-  locate: "usage: maw locate <oracle> [--json]",
   audit: "usage: maw audit [limit]",
   serve: "usage: maw serve [port] [--as <name>]",
-  tmux: "usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach|zoom|detect-stalls> [args]",
 };
 
 function hasHelpFlag(args: string[]): boolean {
@@ -105,28 +103,15 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     await cmdAgents({ json: flags["--json"], all: flags["--all"], node: flags["--node"] });
     return true;
   }
-  if (cmd === "locate") {
-    const { cmdLocate } = await import("../commands/shared/locate");
-    const { parseFlags } = await import("./parse-args");
-    const flags = parseFlags(args, { "--json": Boolean }, 1);
-    const query = flags._[0];
-    if (!query) {
-      console.error("usage: maw locate <oracle> [--json]");
-      process.exit(1);
-    }
-    await cmdLocate(query, { json: flags["--json"] });
-    return true;
-  }
   if (cmd === "audit") {
     const { cmdAudit } = await import("../commands/shared/audit");
     await cmdAudit(args.slice(1));
     return true;
   }
   if (cmd === "tmux") {
-    // #1315 — tmux moved from plugin to core. Invokes the same default
-    // handler that previously sat behind the plugin registry, with a
+    // #1459 — route the tmux command through its handler directly, with a
     // CLI InvokeContext so output streams to process.stdout.
-    const { default: tmuxHandler } = await import("../commands/core/tmux/index");
+    const { default: tmuxHandler } = await import("../commands/plugins/tmux/index");
     const result = await tmuxHandler({
       source: "cli",
       args: args.slice(1),
@@ -159,11 +144,8 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const unknownFlag = filteredArgs.find(a => a.startsWith("-"));
     if (unknownFlag) {
       const { UserError } = await import("../core/util/user-error");
-      const { formatError } = await import("../lib/format-error");
-      console.error(formatError(
-        `unknown flag '${unknownFlag}' for 'maw serve'`,
-        `usage: maw serve [port] [--as <name>]  (run 'maw serve --help' for more)`,
-      ));
+      console.error(`\x1b[31m✗\x1b[0m unknown flag '${unknownFlag}' for 'maw serve'`);
+      console.error(`  usage: maw serve [port] [--as <name>]  (run 'maw serve --help' for more)`);
       throw new UserError(`unknown flag '${unknownFlag}'`);
     }
     const portArg = filteredArgs.find(a => /^\d+$/.test(a));

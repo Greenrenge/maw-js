@@ -6,8 +6,8 @@ export const worktreesApi = new Elysia();
 worktreesApi.get("/worktrees", async ({ set }) => {
   try {
     return await scanWorktrees();
-  } catch (e: unknown) {
-    set.status = 500; return { error: e instanceof Error ? e.message : String(e) };
+  } catch (e: any) {
+    set.status = 500; return { error: e.message };
   }
 });
 
@@ -17,8 +17,8 @@ worktreesApi.post("/worktrees/cleanup", async ({ body, set}) => {
   try {
     const log = await cleanupWorktree(path);
     return { ok: true, log };
-  } catch (e: unknown) {
-    set.status = 500; return { error: e instanceof Error ? e.message : String(e) };
+  } catch (e: any) {
+    set.status = 500; return { error: e.message };
   }
 }, {
   body: t.Object({ path: t.String() }),

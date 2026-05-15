@@ -10,23 +10,10 @@ export interface TriggerConfig {
   once?: boolean;       // fire once then self-destruct (#149)
 }
 
-/** Named peer with URL + optional SSH alias. */
+/** Named peer with URL */
 export interface PeerConfig {
   name: string;
   url: string;
-  /**
-   * SSH host/alias used for cross-node tmux attach (#1236 Tier 3).
-   *
-   * Resolution order in `attach.resolveSshAlias`:
-   *   1. `namedPeers[n].ssh`        (explicit override — preferred)
-   *   2. URL hostname stripped      (`http://mba.wg:9090` → `mba.wg`)
-   *   3. literal node name from /api/identity
-   *
-   * Set this when the peer's wireguard hostname is different from its SSH
-   * alias, or when you've configured `Host <alias>` in `~/.ssh/config`.
-   * No new secret storage — SSH keys stay where they are (~/.ssh).
-   */
-  ssh?: string;
 }
 
 export interface MawIntervals {
@@ -156,6 +143,8 @@ export interface MawConfig {
   psiPath?: string;
   /** TLS cert/key paths */
   tls?: { cert: string; key: string };
+  /** Zenoh transport — pub/sub via zenohd remote-api */
+  zenoh?: { locator: string };
   /** Polling intervals (ms) */
   intervals?: MawIntervals;
   /** HTTP/operation timeouts (ms) */
@@ -168,30 +157,8 @@ export interface MawConfig {
   pin?: string;
   /** Plugin source URLs — auto-installed on bootstrap (nuke → first run) */
   pluginSources?: string[];
-  /**
-   * Absolute path to the bundled-plugins directory
-   * (`<maw-js-checkout>/src/commands/plugins`).
-   *
-   * Why: `runBootstrap` uses `import.meta.dir` from cli.ts to locate bundled
-   * plugins. That works in source / `bun link` mode, but the compiled binary's
-   * `import.meta.dir` points at the binary's filesystem location — which
-   * doesn't contain the `commands/plugins/` subtree. With this field set
-   * (auto-populated on the first source-mode boot, or set manually for
-   * distributed binaries), the compiled binary can still re-symlink the
-   * bundled plugins after `~/.maw/plugins/` is wiped. (#1186)
-   */
-  bundledPluginSource?: string;
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
-  /**
-   * Tmux session names treated as intentional non-fleet — `maw fleet validate`
-   * skips its "Orphan session" warning for these. Useful for dev oracles that
-   * run from source repos directly (incubator pattern) without fleet configs.
-   * Match is exact OR after stripping the `NN-` slot prefix, so listing
-   * `"mawjs"` allowlists both `08-mawjs` and `25-mawjs` even as slots shift.
-   * (#1134)
-   */
-  fleetValidateAllowlist?: string[];
 }
 
 /** Typed defaults for intervals, timeouts, limits (#172) */

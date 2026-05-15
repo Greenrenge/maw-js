@@ -20,17 +20,8 @@ function isValidPeerSession(item: unknown): item is Session {
   );
 }
 
-/**
- * Aggregated session row — local sessions + peer sessions tagged with origin.
- *   - `source`: peer URL (or "local" for local sessions)
- *   - `node`:   peer's logical node identity (from /api/identity), when known.
- *               Surfaced for cross-node attach (#1236 Tier 3) so callers can
- *               render "homekeeper is on mba" instead of leaking the raw URL.
- */
-export type AggregatedSession = Session & { source?: string; node?: string };
-
 /** Simple TTL cache for aggregated sessions (#145) */
-let aggregatedCache: { peers: AggregatedSession[]; ts: number } | null = null;
+let aggregatedCache: { peers: (Session & { source?: string })[]; ts: number } | null = null;
 const CACHE_TTL = 30_000;
 
 export interface PeerStatus {
@@ -123,27 +114,14 @@ export function getPeers(): string[] {
 }
 
 /**
- * Fetch sessions from a peer, alongside its node identity.
- *
- * Two parallel calls — /api/sessions for the data, /api/identity for the
- * `node` tag. Identity is best-effort: a peer that answers /api/sessions but
- * not /api/identity still yields sessions tagged with `source=url, node=undefined`.
- * The node tag is consumed by cross-node attach (#1236 Tier 3) for friendlier
- * "on <node>" messaging — never load-bearing for routing.
+ * Fetch sessions from a peer
  */
-async function fetchPeerSessions(url: string): Promise<{ sessions: Session[]; node?: string }> {
+async function fetchPeerSessions(url: string): Promise<Session[]> {
   try {
-    const [sessionsRes, idRes] = await Promise.all([
-      curlFetch(`${url}/api/sessions?local=true`, { timeout: cfgTimeout("http") }),
-      curlFetch(`${url}/api/identity`, { timeout: cfgTimeout("http") }).catch(() => null),
-    ]);
-    const node: string | undefined =
-      idRes && idRes.ok && idRes.data && typeof (idRes.data as any).node === "string"
-        ? (idRes.data as any).node
-        : undefined;
-    if (!sessionsRes.ok) return { sessions: [], node };
-    const raw = sessionsRes.data;
-    if (!Array.isArray(raw)) return { sessions: [], node };
+    const res = await curlFetch(`${url}/api/sessions?local=true`, { timeout: cfgTimeout("http") });
+    if (!res.ok) return [];
+    const raw = res.data;
+    if (!Array.isArray(raw)) return [];
     // Validate at federation boundary — drop sessions with malformed names
     const valid: Session[] = [];
     for (const item of raw) {
@@ -156,35 +134,32 @@ async function fetchPeerSessions(url: string): Promise<{ sessions: Session[]; no
         );
       }
     }
-    return { sessions: valid, node };
+    return valid;
   } catch {
-    return { sessions: [] };
+    return [];
   }
 }
 
 /**
- * Merge local sessions with peer sessions, tagging each with `source` (URL or
- * "local") and `node` (peer's logical identity, when known). The `node` tag
- * powers cross-node attach (#1236 Tier 3) without leaking peer URLs to the
- * operator.
+ * Merge local sessions with peer sessions, tagging each with source
  */
-export async function getAggregatedSessions(localSessions: Session[]): Promise<AggregatedSession[]> {
+export async function getAggregatedSessions(localSessions: Session[]): Promise<(Session & { source?: string })[]> {
   const peers = getPeers();
   if (peers.length === 0) {
     return localSessions;
   }
 
-  const local: AggregatedSession[] = localSessions.map(s => ({ ...s, source: "local" }));
+  const local: (Session & { source?: string })[] = localSessions.map(s => ({ ...s, source: "local" }));
 
   // Return cached peer sessions if fresh (#145)
   if (aggregatedCache && Date.now() - aggregatedCache.ts < CACHE_TTL) {
     return [...local, ...aggregatedCache.peers];
   }
 
-  // Fetch sessions + identity from all peers in parallel
+  // Fetch sessions from all peers in parallel
   const peerResults = await Promise.all(peers.map(async (url) => {
-    const { sessions, node } = await fetchPeerSessions(url);
-    return sessions.map(s => ({ ...s, source: url, node }));
+    const sessions = await fetchPeerSessions(url);
+    return sessions.map(s => ({ ...s, source: url }));
   }));
 
   // Dedup sessions by source + name (#175)

@@ -11,9 +11,6 @@
  *   entry: string → TS plugin (full maw-js internals access)
  */
 
-/** Discriminated ok/error result used by validation helpers throughout the plugin subsystem. */
-export type ValidationResult = { ok: true } | { ok: false; error: string };
-
 /**
  * Plugin compile target. Phase A ships `"js"` only. `"wasm"` is a reserved
  * slot for Phase C — parser validates+rejects today so the enum shape can
@@ -49,7 +46,6 @@ export interface PluginManifest {
     aliases?: string[];                    // alternate command names
     help?: string;
     flags?: Record<string, string>;        // flag name → "boolean"|"string"|"number"
-    richHelp?: boolean;                    // #1116 — bypass plugin help interception so handler returns rich help
   };
   api?: { path: string; methods: ("GET" | "POST")[]; };
   description?: string;

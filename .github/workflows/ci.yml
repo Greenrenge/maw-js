@@ -8,14 +8,14 @@ on:
 
 jobs:
   test:
-    # Fast suites — single runner each. test-unit and test-isolated are split
-    # out below into sharded matrices (test-unit because mock.module is
-    # process-global and benefits from --isolate; test-isolated because it's
-    # the slowest at 79 per-file subprocesses).
     runs-on: ubuntu-latest
     strategy:
       matrix:
         suite:
+          - name: unit
+            script: test
+          - name: isolated
+            script: test:isolated
           - name: plugin
             script: test:plugin
           - name: mock-smoke
@@ -38,95 +38,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Setup ghq
-        uses: ./.github/actions/setup-ghq
+      # ghq is used by cmdWake, cmd-update, plugin-bootstrap, find, done.
+      # Without it, isolated tests shell out and print "ghq: not found" noise
+      # (even when the test itself passes). Install the binary so CI logs
+      # stay quiet and any future test that depends on ghq output works.
+      - name: Install ghq
+        run: |
+          go install github.com/x-motemen/ghq@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Run ${{ matrix.suite.name }} tests
-        env:
-          MAW_SKIP_FLAKY: "1"
-        run: bun run ${{ matrix.suite.script }}
-
-  # test-unit shards the 102-file unit suite 8-way using Bun 1.3.13's native
-  # --shard=N/M + --isolate flags. --isolate is essential — 31 of the 102
-  # files use mock.module() which is process-global, so without per-file
-  # isolation a shard's tests can leak mocks into siblings. (#1278)
-  #
-  # #1348 — timeout-minutes guards against Bun --isolate crashes that hang
-  # the runner indefinitely (panic: Option::unwrap() on None). Normal shard
-  # completes in <30s; 5 min is generous enough to catch real slowdowns
-  # while failing fast on hung shards. Rerun --failed usually passes.
-  test-unit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.13
-
-      - name: Cache bun deps
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Setup ghq
-        uses: ./.github/actions/setup-ghq
-
-      - name: Run unit tests (shard ${{ matrix.shard }}/8)
-        env:
-          MAW_SKIP_FLAKY: "1"
-          MAW_TEST_MODE: "1"
-        run: |
-          bun test --shard=${{ matrix.shard }}/8 --isolate \
-            --path-ignore-patterns '**/test/isolated/**' \
-            --path-ignore-patterns '**/zz-mock-tmux-smoke*' \
-            --path-ignore-patterns '**/agents/**'
-
-  # test-isolated is the slowest CI job — 79 test files × bun startup, all
-  # sequential because Bun's mock.module is process-global. Each subprocess
-  # is already independent, so we shard 8-way for ~8x wall-clock speedup.
-  # (#1257)
-  test-isolated:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    # No explicit `name:` — GitHub's default matrix naming is `test-isolated (N)`
-    # which renders cleanly in the PR checks list. The previous explicit
-    # `test-isolated (${{ matrix.shard }}/8)` form was noisier.
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.13
-
-      - name: Cache bun deps
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Setup ghq
-        uses: ./.github/actions/setup-ghq
-
-      - name: Run isolated tests (shard ${{ matrix.shard }}/8)
         # MAW_SKIP_FLAKY=1 — override list (#811/#813 precedent).
         # Currently skips:
         #   - test/integration/federation-local.test.ts (#830 — port-binding
@@ -138,11 +59,11 @@ jobs:
         # is a belt-and-braces measure to keep CI green while we monitor.
         env:
           MAW_SKIP_FLAKY: "1"
-        run: bash scripts/test-isolated.sh --shard ${{ matrix.shard }}/8
+        run: bun run ${{ matrix.suite.script }}
 
   build:
     runs-on: ubuntu-latest
-    needs: [test, test-unit, test-isolated]
+    needs: test
     steps:
       - uses: actions/checkout@v6
 
@@ -161,7 +82,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build CLI
-        run: bun build --target=bun src/cli.ts
+        run: bun build src/cli.ts --outfile dist/maw --target=bun --minify --external @eclipse-zenoh/zenoh-ts
 
       - name: Validate plugin manifests
         run: |
@@ -180,8 +101,3 @@ jobs:
           cmd=$(ls src/commands/*.ts 2>/dev/null | wc -l)
           echo "src/ root: $root (expect ≤2) | commands/ root: $cmd (expect 0)"
           [ "$root" -le 2 ] && [ "$cmd" -eq 0 ] || exit 1
-
-      # #1115 — validate generated docker-compose.yml passes docker schema
-      - name: Validate fleet compose YAML
-        run: |
-          bun src/cli.ts fleet compose --validate

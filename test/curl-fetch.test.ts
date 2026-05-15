@@ -20,18 +20,13 @@ mock.module("../src/config", () => mockConfigModule(() => {
 
 const { curlFetch } = await import("../src/core/transport/curl-fetch");
 
-// On macOS, curlFetch uses curlSpawn (curl subprocess) instead of nativeFetch
-// (globalThis.fetch). Tests that mock globalThis.fetch only exercise the Linux
-// code path and must be skipped on macOS. (#1126)
-const nativeFetchTest = process.platform === "darwin" ? test.skip : test;
-
-// Probe for a live local maw server at `localhost:3456`. Tests that
+// Probe for a live local maw server at `white.local:3456`. Tests that
 // require a running daemon are skipped in environments where it's not
 // reachable (CI, other machines, localhost without the service).
 // This keeps the integration tests useful locally without breaking CI.
 let hasLocalMawServer = false;
 try {
-  const probe = await fetch("http://localhost:3456/api/auth/status", {
+  const probe = await fetch("http://white.local:3456/api/auth/status", {
     signal: AbortSignal.timeout(1000),
   });
   hasLocalMawServer = probe.ok;
@@ -40,7 +35,7 @@ try {
 const liveTest = hasLocalMawServer ? test : test.skip;
 
 describe("curlFetch", () => {
-  test.skipIf(process.platform !== "linux")("uses native fetch on Linux", async () => {
+  test("uses native fetch on Linux", async () => {
     // On Linux (this test runs on white.local), curlFetch should use native fetch
     // We can verify by checking process.platform
     expect(process.platform).toBe("linux");
@@ -51,7 +46,7 @@ describe("curlFetch", () => {
     expect(res.ok).toBe(false);
   });
 
-  nativeFetchTest("warns on nativeFetch failure with method + URL (#385 site 1)", async () => {
+  test("warns on nativeFetch failure with method + URL (#385 site 1)", async () => {
     // Previous behavior: catch swallowed ALL errors (abort/JSON/network/DNS)
     // and returned a bare {ok:false, status:0, data:null} — callers had no
     // diagnosis. Fix: warn loud with method + URL + error message before
@@ -105,14 +100,14 @@ describe("curlFetch", () => {
 
   liveTest("sends HMAC headers when token configured", async () => {
     // Test against local maw server — auth/status is public so it won't reject
-    const res = await curlFetch("http://localhost:3456/api/auth/status", { timeout: 5000 });
+    const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     expect(res.data?.enabled).toBe(true);
   });
 
   liveTest("sends POST with body and auth headers", async () => {
     // POST to auth/status (public endpoint, accepts any method)
-    const res = await curlFetch("http://localhost:3456/api/auth/status", {
+    const res = await curlFetch("http://white.local:3456/api/auth/status", {
       method: "POST",
       body: JSON.stringify({ test: true }),
       timeout: 5000,
@@ -123,25 +118,24 @@ describe("curlFetch", () => {
 
   liveTest("works without federation token", async () => {
     mockToken = undefined;
-    const res = await curlFetch("http://localhost:3456/api/auth/status", { timeout: 5000 });
+    const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     mockToken = "test-token-16chars!";
   });
 
   liveTest("parses JSON response", async () => {
-    const res = await curlFetch("http://localhost:3456/api/auth/status", { timeout: 5000 });
+    const res = await curlFetch("http://white.local:3456/api/auth/status", { timeout: 5000 });
     expect(res.ok).toBe(true);
     expect(typeof res.data).toBe("object");
-    expect(typeof res.data.node).toBe("string");
+    expect(res.data.node).toBe("white");
   });
 });
 
 describe("curlFetch body size cap (#653)", () => {
   // Tests snapshot global.fetch per-case so they don't leak across the file.
   // Pattern lifted from costs.test.ts fix (#649) to keep snapshot/restore safe.
-  // These tests mock globalThis.fetch → only valid on Linux (nativeFetch path).
 
-  nativeFetchTest("rejects body exceeding maxBytes (streaming)", async () => {
+  test("rejects body exceeding maxBytes (streaming)", async () => {
     const origFetch = globalThis.fetch;
     try {
       // Stream 20 chunks of 1 MB each — no Content-Length header, so the
@@ -165,7 +159,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  nativeFetchTest("rejects when Content-Length exceeds cap (before buffering)", async () => {
+  test("rejects when Content-Length exceeds cap (before buffering)", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
@@ -181,7 +175,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  nativeFetchTest("passes through when body under cap", async () => {
+  test("passes through when body under cap", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
@@ -199,7 +193,7 @@ describe("curlFetch body size cap (#653)", () => {
     }
   });
 
-  nativeFetchTest("default cap is 10 MB when maxBytes not supplied", async () => {
+  test("default cap is 10 MB when maxBytes not supplied", async () => {
     const origFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => {
@@ -223,7 +217,7 @@ describe("curlFetch federation auth", () => {
     // the server sees non-loopback IP so it checks HMAC
     mockToken = "wrong-token-that-wont-match";
     // Use a protected POST endpoint (GET /api/sessions is public for browsers)
-    const res = await curlFetch("http://localhost:3456/api/send", {
+    const res = await curlFetch("http://white.local:3456/api/send", {
       method: "POST",
       body: JSON.stringify({ target: "test", text: "test" }),
       timeout: 5000,
@@ -236,7 +230,7 @@ describe("curlFetch federation auth", () => {
   liveTest("POST with body does not hang", async () => {
     // This specifically tests the bug where POST + headers caused Bun.spawn curl to hang
     const start = Date.now();
-    const res = await curlFetch("http://localhost:3456/api/send", {
+    const res = await curlFetch("http://white.local:3456/api/send", {
       method: "POST",
       body: JSON.stringify({ target: "nonexistent", text: "test" }),
       timeout: 3000,

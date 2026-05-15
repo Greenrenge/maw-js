@@ -10,7 +10,8 @@ import type { Session } from "../core/transport/ssh";
 import type { TransportRouter } from "../core/transport/transport";
 import { startIntervals, stopIntervals, sendInitialSessions, type EngineIntervalState } from "./engine-intervals";
 import { handleCrashedAgents } from "./engine-crash";
-import type { SessionInfo } from "./types";
+
+type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
 export class MawEngine {
   private clients = new Set<MawWS>();

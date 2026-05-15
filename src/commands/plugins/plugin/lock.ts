@@ -10,13 +10,14 @@
  * See ψ/writing/2026-04-18/plugin-hash-supply-chain-spec.md for the spec.
  */
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { homedir, tmpdir } from "os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, join } from "path";
 import { hashFile } from "../../../plugin/registry";
-import type { ValidationResult } from "../../../plugin/types";
 import { readManifest } from "./install-manifest-helpers";
 import { extractTarball } from "./install-extraction";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 
 export const LOCK_SCHEMA = 1;
 
@@ -47,7 +48,7 @@ export function lockPath(): string {
 }
 
 /** Validate sha256 is a canonical "sha256:" + 64 lowercase hex, or bare 64-hex. */
-export function validateSha256(value: string): ValidationResult {
+export function validateSha256(value: string): { ok: true } | { ok: false; error: string } {
   const s = typeof value === "string" ? value : "";
   const hex = s.startsWith("sha256:") ? s.slice("sha256:".length) : s;
   if (!/^[0-9a-f]{64}$/.test(hex)) {
@@ -57,7 +58,7 @@ export function validateSha256(value: string): ValidationResult {
 }
 
 /** Plugin names: segmented by '/', lowercase alnum + . _ - within segments. */
-export function validateName(name: string): ValidationResult {
+export function validateName(name: string): { ok: true } | { ok: false; error: string } {
   if (typeof name !== "string" || name.length === 0) {
     return { ok: false, error: "plugin name required" };
   }
@@ -147,9 +148,8 @@ export function readLock(): Lock {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`plugins.lock: invalid JSON at ${path}: ${msg}`);
+  } catch (e: any) {
+    throw new Error(`plugins.lock: invalid JSON at ${path}: ${e.message}`);
   }
   const v = validateSchema(parsed);
   if (!v.ok) throw new Error(v.error);
@@ -170,9 +170,8 @@ export function writeLock(lock: Lock): void {
   // <path>.tmp behind, we refuse to clobber without surfacing it.
   try {
     writeFileSync(tmp, content, { encoding: "utf8", flag: "w" });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`plugins.lock: failed to stage ${tmp}: ${msg}`);
+  } catch (e: any) {
+    throw new Error(`plugins.lock: failed to stage ${tmp}: ${e.message}`);
   }
   try {
     chmodSync(tmp, 0o644);

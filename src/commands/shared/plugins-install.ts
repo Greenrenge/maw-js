@@ -78,9 +78,8 @@ export async function doInstall(srcPath: string, force: boolean): Promise<void> 
   let manifest: ReturnType<typeof parseManifest>;
   try {
     manifest = parseManifest(manifestJson, src);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`invalid plugin: ${message}`);
+  } catch (err: any) {
+    console.error(`invalid plugin: ${err.message}`);
     process.exit(1);
   }
 

@@ -12,7 +12,7 @@ export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
   if (!cmd || cmd === "--help" || cmd === "-h") return;
   try {
     const { listSessions } = await import("../sdk");
-    const live = await listSessions().catch(() => [] as unknown[]);
+    const live = await listSessions().catch(() => [] as any[]);
     if (live.length !== 0) return;
 
     const { latestSnapshot } = await import("../core/fleet/snapshot");
@@ -40,9 +40,8 @@ export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
       try {
         await cmdWake(oracle, { attach: false });
         console.log(`  \x1b[32m✓\x1b[0m ${s.name}`);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.log(`  \x1b[31m✗\x1b[0m ${s.name}: ${msg}`);
+      } catch (e: any) {
+        console.log(`  \x1b[31m✗\x1b[0m ${s.name}: ${e?.message || String(e)}`);
       }
     }
     console.log("");

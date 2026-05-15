@@ -45,9 +45,8 @@ export async function loadWasmCommand(path: string, filename: string, scope: "bu
   let instance: WebAssembly.Instance;
   try {
     instance = new WebAssembly.Instance(mod, bridge);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message?.slice(0, 120) : String(err).slice(0, 120);
-    console.error(`[commands] wasm instantiation failed: ${filename}: ${msg}`);
+  } catch (err: any) {
+    console.error(`[commands] wasm instantiation failed: ${filename}: ${err.message?.slice(0, 120)}`);
     return;
   }
 

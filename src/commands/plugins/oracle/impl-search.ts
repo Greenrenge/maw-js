@@ -17,7 +17,7 @@ export async function cmdOracleSearch(query: string, opts: OracleSearchOpts = {}
       e.org,
       e.repo,
       e.budded_from ?? "",
-      (e as Record<string, unknown>).nickname as string ?? "",
+      (e as any).nickname ?? "",
     ].join(" ").toLowerCase();
     return haystack.includes(q);
   });

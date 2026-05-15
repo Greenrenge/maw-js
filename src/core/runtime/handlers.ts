@@ -9,16 +9,10 @@ async function runAction(ws: MawWS, action: string, target: string, fn: () => Pr
   try {
     await fn();
     ws.send(JSON.stringify({ type: "action-ok", action, target }));
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    ws.send(JSON.stringify({ type: "error", error: msg }));
+  } catch (e: any) {
+    ws.send(JSON.stringify({ type: "error", error: e.message }));
   }
 }
-
-export interface HandlerTarget { target: string }
-export interface HandlerScopedTarget { scope?: string; target: string }
-export interface HandlerSendData { force?: boolean; target: string; text: string }
-export interface SpawnCommandData { target?: string; command?: string; cwd?: string }
 
 // --- Handlers ---
 
@@ -27,60 +21,51 @@ const subscribe: Handler = (ws, data, engine) => {
   // scope "preview" adds to previewTargets — used by FleetGrid pinned cards,
   //   VSAgentPanel, useMissionControl pin so they don't clobber the active
   //   TerminalView target on the same singleton WS (echo 2026-04-29).
-  const d = data as HandlerScopedTarget;
-  const scope = d.scope === "preview" ? "preview" : "main";
+  const scope = data.scope === "preview" ? "preview" : "main";
   if (scope === "main") {
-    ws.data.target = d.target;
+    ws.data.target = data.target;
     engine.pushCapture(ws);
   } else {
     if (!ws.data.previewTargets) ws.data.previewTargets = new Set();
-    ws.data.previewTargets.add(d.target);
+    ws.data.previewTargets.add(data.target);
     engine.pushPreviews(ws);
   }
 };
 
 const subscribePreviews: Handler = (ws, data, engine) => {
-  const d = data as { targets?: string[] };
-  ws.data.previewTargets = new Set(d.targets || []);
+  ws.data.previewTargets = new Set(data.targets || []);
   engine.pushPreviews(ws);
 };
 
 const select: Handler = (_ws, data) => {
-  const d = data as HandlerTarget;
-  selectWindow(d.target).catch(() => { /* expected: window may not exist */ });
+  selectWindow(data.target).catch(() => { /* expected: window may not exist */ });
 };
 
 const send: Handler = async (ws, data, engine) => {
   // Check for active Claude session before sending (#17)
-  const d = data as HandlerSendData;
-  if (!d.force) {
+  if (!data.force) {
     try {
-      const cmd = await getPaneCommand(d.target);
+      const cmd = await getPaneCommand(data.target);
       if (!isAgentCommand(cmd)) {
-        ws.send(JSON.stringify({ type: "error", error: `no active Claude session in ${d.target} (running: ${cmd})` }));
+        ws.send(JSON.stringify({ type: "error", error: `no active Claude session in ${data.target} (running: ${cmd})` }));
         return;
       }
     } catch { /* pane check failed, proceed anyway */ }
   }
-  sendKeys(d.target, d.text)
+  sendKeys(data.target, data.text)
     .then(() => {
-      ws.send(JSON.stringify({ type: "sent", ok: true, target: d.target, text: d.text }));
+      ws.send(JSON.stringify({ type: "sent", ok: true, target: data.target, text: data.text }));
       setTimeout(() => engine.pushCapture(ws), 300);
     })
-    .catch(e => {
-      const msg = e instanceof Error ? e.message : String(e);
-      ws.send(JSON.stringify({ type: "error", error: msg }));
-    });
+    .catch(e => ws.send(JSON.stringify({ type: "error", error: e.message })));
 };
 
 const sleep: Handler = (ws, data) => {
-  const d = data as HandlerTarget;
-  runAction(ws, "sleep", d.target, () => sendKeys(d.target, "\x03"));
+  runAction(ws, "sleep", data.target, () => sendKeys(data.target, "\x03"));
 };
 
 const stop: Handler = (ws, data) => {
-  const d = data as HandlerTarget;
-  runAction(ws, "stop", d.target, () => tmux.killWindow(d.target));
+  runAction(ws, "stop", data.target, () => tmux.killWindow(data.target));
 };
 
 /**
@@ -98,7 +83,7 @@ const stop: Handler = (ws, data) => {
  *   • Resolve the canonical cwd from fleet config and prepend `cd '<cwd>' && `
  *     when known. Non-fleet targets fall back to the bare cmd (pre-fix behavior).
  */
-function buildSpawnCmd(data: SpawnCommandData): string {
+function buildSpawnCmd(data: { target?: string; command?: string; cwd?: string }): string {
   const target = data.target || "";
   const oracle = extractOracleName(target);
   const baseCmd = data.command || buildCommand(oracle);
@@ -107,20 +92,18 @@ function buildSpawnCmd(data: SpawnCommandData): string {
 }
 
 const wake: Handler = (ws, data) => {
-  const d = data as SpawnCommandData;
-  const cmd = buildSpawnCmd(d);
-  runAction(ws, "wake", d.target, () => sendKeys(d.target, cmd + "\r"));
+  const cmd = buildSpawnCmd(data);
+  runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
 };
 
 const restart: Handler = (ws, data) => {
-  const d = data as SpawnCommandData;
-  const cmd = buildSpawnCmd(d);
-  runAction(ws, "restart", d.target, async () => {
-    await sendKeys(d.target, "\x03"); // Ctrl+C
+  const cmd = buildSpawnCmd(data);
+  runAction(ws, "restart", data.target, async () => {
+    await sendKeys(data.target, "\x03"); // Ctrl+C
     await new Promise(r => setTimeout(r, 2000));
-    await sendKeys(d.target, "\x03"); // Ctrl+C again (in case first was caught)
+    await sendKeys(data.target, "\x03"); // Ctrl+C again (in case first was caught)
     await new Promise(r => setTimeout(r, 500));
-    await sendKeys(d.target, cmd + "\r");
+    await sendKeys(data.target, cmd + "\r");
   });
 };
 

@@ -1,6 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
-import type { AgentColor } from "../../core/tmux/layout-manager";
-import type { TeamConfig, TeamMember } from "../team/team-helpers";
+import type { AgentColor } from "../tmux/layout-manager";
 import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
@@ -18,7 +17,7 @@ const KNOWN_AGENTS: Record<string, { cmd: string; label: string }> = {
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
-  console.log = (...a: unknown[]) => {
+  console.log = (...a: any[]) => {
     if (ctx.writer) ctx.writer(...a);
     else logs.push(a.map(String).join(" "));
   };
@@ -68,9 +67,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const {
       nextAgentColor, colorAnsi, stylePaneBorder, enableBorderStatus,
       applyTeamLayout, applyTiledLayout, getWindowTarget,
-    } = await import("../../core/tmux/layout-manager");
+    } = await import("../tmux/layout-manager");
     const { hostExec, withPaneLock } = await import("../../../sdk");
-    const { PANE_INIT_PRELUDE } = await import("../../shared/pane-prelude");
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("fs");
     const { join } = await import("path");
     const { homedir } = await import("os");
@@ -82,7 +80,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const configPath = join(teamDir, "config.json");
 
     mkdirSync(teamDir, { recursive: true });
-    let config: TeamConfig;
+    let config: any;
     if (existsSync(configPath)) {
       config = JSON.parse(readFileSync(configPath, "utf-8"));
     } else {
@@ -106,21 +104,21 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       paneIds.push({ name, agentId, agentCmd, label, color });
     }
 
-    // Phase 1: Split placeholder panes — sleep, no shell init, immune to SIGWINCH
+    // Phase 1: Split all panes (empty shells) — no agents yet
     const spawned: { name: string; agentId: string; agentCmd: string; label: string; color: AgentColor; paneId: string }[] = [];
     for (const agent of paneIds) {
       const targetFlag = anchor ? `-t '${anchor}' ` : "";
       let paneId = "";
       await withPaneLock(async () => {
         paneId = (await hostExec(
-          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'sleep infinity'`,
+          `tmux split-window ${targetFlag}-h -P -F '#{pane_id}' 'exec zsh -li'`,
         )).trim();
         await new Promise(r => setTimeout(r, 100));
       });
       spawned.push({ ...agent, paneId });
     }
 
-    // Phase 2: Apply layout ONCE — all panes get their final sizes (only sleep is running)
+    // Phase 2: Apply layout ONCE — all panes get their final sizes
     const window = await getWindowTarget();
     if (tiled) {
       await applyTiledLayout(window);
@@ -130,17 +128,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     await enableBorderStatus(window);
     await new Promise(r => setTimeout(r, 200));
 
-    // Phase 3: Respawn panes with real shell + agent — shell inits at final pane size
+    // Phase 3: Start agents in correctly-sized panes
     for (const agent of spawned) {
       await stylePaneBorder(agent.paneId, `${agent.name} (${agent.label})`, agent.color);
 
       const escaped = agent.agentCmd.replace(/'/g, "'\\''");
       await hostExec(
-        `tmux respawn-pane -k -t '${agent.paneId}' '${PANE_INIT_PRELUDE}; ${escaped}; stty sane 2>/dev/null; printf "\\e[?1049l\\e[0m"; clear; exec zsh -li'`,
+        `tmux send-keys -t '${agent.paneId}' '${escaped}; printf "\\e[?1049l"; clear; exec zsh -li' Enter`,
       );
       await new Promise(r => setTimeout(r, 200));
 
-      const existing = config.members.findIndex((m: TeamMember) => m.name === agent.name);
+      const existing = config.members.findIndex((m: any) => m.name === agent.name);
       const entry = { name: agent.name, agentId: agent.agentId, tmuxPaneId: agent.paneId, color: agent.color, model: agent.agentCmd };
       if (existing >= 0) config.members[existing] = entry;
       else config.members.push(entry);
@@ -155,8 +153,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     console.log(`\x1b[32m✓\x1b[0m swarm: ${agentList.length} agents (${tiled ? "tiled" : "main-vertical"})`);
     return { ok: true, output: logs.join("\n") || undefined };
-  } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e), output: logs.join("\n") || undefined };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e), output: logs.join("\n") || undefined };
   } finally {
     console.log = origLog;
   }

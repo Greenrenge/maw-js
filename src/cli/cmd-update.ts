@@ -163,9 +163,8 @@ export async function runUpdate(args: string[]): Promise<void> {
       });
       ref = tags[0];
       console.log(`\n  📍 ${channel} channel → ${ref}`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`\x1b[31merror\x1b[0m: failed to resolve ${channel} channel: ${msg}`);
+    } catch (e: any) {
+      console.error(`\x1b[31merror\x1b[0m: failed to resolve ${channel} channel: ${e.message}`);
       process.exit(1);
     }
   }
@@ -221,6 +220,19 @@ export async function runUpdate(args: string[]): Promise<void> {
   // Order matters: validation (above) → try add → on fail, remove + retry →
   // on still-fail, print recovery command. User always has a working maw
   // unless BOTH adds fail.
+  // Test-mode guard — runUpdate mutates the *real* `~/.bun/bin/maw`,
+  // `~/.bun/install/global/`, and bun's global lockfiles; it has no sandbox
+  // seam. The test suite (MAW_TEST_MODE=1) spawns `maw update <ref> --yes` to
+  // exercise the ref-allowlist gate — that previously fell straight through
+  // into the destructive install ops below and wiped the developer's maw
+  // install on every `bun test` run (observed 2026-05-14/15). Stop here:
+  // everything above (help short-circuit, REF_RE allowlist, channel resolve,
+  // confirmation gate) is non-destructive and still fully exercised.
+  if (process.env.MAW_TEST_MODE) {
+    console.log(`  \x1b[90m[test-mode] ref "${ref}" accepted — skipping destructive install\x1b[0m`);
+    return;
+  }
+
   // #551 — serialize concurrent `maw update` invocations via filesystem lock.
   // Channel-resolve + validation above runs unlocked; destructive install ops
   // below (stash, bun remove, bun add, link refresh) are serialized.
@@ -239,6 +251,16 @@ export async function runUpdate(args: string[]): Promise<void> {
       const BIN = join(homedir(), ".bun", "bin", "maw");
       const STASH = `${BIN}.prev`;
       let stashed = false;
+      // The global maw-js package dir. A `bun add -g` install makes
+      // `~/.bun/bin/maw` a symlink INTO this dir, so `rmSync`-ing it orphans
+      // the stashed bin symlink — `existsSync(STASH)` then reports false and
+      // the restore below silently no-ops, leaving NO working maw (observed:
+      // full install wipe on a failed `maw update`). Stash this dir by RENAME
+      // (not rm) so a failed retry can restore a *working* install — both the
+      // bin symlink AND the package it resolves to.
+      const NM = join(homedir(), ".bun", "install", "global", "node_modules");
+      const PKG_STASH = join(NM, "maw-js.update-stash");
+      let pkgStashed = false;
       // #968 — if .prev already exists, it's a leftover from a prior crashed
       // update. The original (#551) behavior refused at this point so the
       // user wouldn't lose their last-known-good binary. But that left the
@@ -252,12 +274,11 @@ export async function runUpdate(args: string[]): Promise<void> {
         try {
           renameSync(STASH, archived);
           console.warn(`\x1b[33m↺\x1b[0m rotated stale ${STASH} → ${archived} (prior crash leftover; in-flight stash will replace it)`);
-        } catch (e: unknown) {
+        } catch (e: any) {
           // Belt-and-suspenders: if rotation fails (perms, disk full, etc.),
           // fall back to the original refuse behavior so we never silently
           // overwrite a working binary in the rename below.
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${msg}`);
+          console.error(`\x1b[31merror\x1b[0m: ${STASH} already exists and could not be rotated: ${e.message || e}`);
           console.error(`  resolve manually:  mv ${STASH} ${BIN}     \x1b[90m# restore last-known-good\x1b[0m`);
           console.error(`  or discard it:     rm ${STASH}             \x1b[90m# only if you're sure\x1b[0m`);
           console.error(`  then re-run:       maw update ${ref}`);
@@ -289,9 +310,18 @@ export async function runUpdate(args: string[]): Promise<void> {
         if (dirty) writeFileSync(globalPkg, JSON.stringify(data, null, 2) + "\n");
       } catch { /* best effort — file missing or unreadable; bun remove still runs below */ }
       try {
-        const nm = join(homedir(), ".bun", "install", "global", "node_modules");
-        for (const name of ["maw-js", "maw", "@maw-js"]) {
-          try { rmSync(join(nm, name), { recursive: true, force: true }); } catch {}
+        // Clear any leftover pkg stash from a prior crashed update, then move
+        // the maw-js package OUT of node_modules by rename. bun's resolver
+        // sees a clean node_modules (same effect as rm for the dep-loop fix,
+        // #950) but the package stays recoverable for the restore path below.
+        try { rmSync(PKG_STASH, { recursive: true, force: true }); } catch {}
+        if (existsSync(join(NM, "maw-js"))) {
+          try { renameSync(join(NM, "maw-js"), PKG_STASH); pkgStashed = true; } catch {}
+        }
+        // `maw` (bin shim) and `@maw-js` (scope dir) are not what the bin
+        // symlink resolves through — safe to drop outright.
+        for (const name of ["maw", "@maw-js"]) {
+          try { rmSync(join(NM, name), { recursive: true, force: true }); } catch {}
         }
       } catch {}
 
@@ -352,18 +382,57 @@ export async function runUpdate(args: string[]): Promise<void> {
         }
       }
 
-      if (installCode !== 0 && stashed && existsSync(STASH)) {
-        // Retry failed — restore the previous binary so the user isn't stranded.
+      // Restore the maw-js package dir from the rename-stash. Used by both the
+      // failure path (put the old install back) and the rollback path (a
+      // "successful" install whose binary doesn't actually run).
+      const restorePkgStash = () => {
+        if (!pkgStashed || !existsSync(PKG_STASH)) return;
         try {
-          renameSync(STASH, BIN);
-          console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`failed to restore stash: ${msg}`);
+          rmSync(join(NM, "maw-js"), { recursive: true, force: true });
+          renameSync(PKG_STASH, join(NM, "maw-js"));
+        } catch (e: any) {
+          console.error(`failed to restore maw-js package from stash: ${e.message || e}`);
         }
-      } else if (installCode === 0 && stashed && existsSync(STASH)) {
-        // Retry succeeded — clean up the stash.
-        try { unlinkSync(STASH); } catch {}
+      };
+
+      if (installCode !== 0) {
+        // Retry failed — restore the previous WORKING maw so the user isn't
+        // stranded. Order matters: restore the package dir FIRST so the
+        // stashed bin symlink resolves again, THEN move the bin back.
+        restorePkgStash();
+        if (stashed && existsSync(STASH)) {
+          try {
+            renameSync(STASH, BIN);
+            console.warn(`\x1b[33m↺\x1b[0m restored previous maw binary from stash`);
+          } catch (e: any) {
+            console.error(`failed to restore stash: ${e.message || e}`);
+          }
+        }
+      } else {
+        // Retry reported success — but verify the fresh binary actually RUNS
+        // before discarding the stash (the invariant: never rotate away the
+        // old one until the new one is confirmed working). If it doesn't,
+        // roll back to the stashed install and fall into the error path.
+        const verify = Bun.spawn(["maw", "--version"], { stdout: "pipe", stderr: "pipe" });
+        const freshOk = (await verify.exited) === 0;
+        if (!freshOk) {
+          console.warn(`\x1b[33m↺\x1b[0m fresh install did not run — rolling back to previous maw`);
+          restorePkgStash();
+          if (stashed && existsSync(STASH)) {
+            try {
+              renameSync(STASH, BIN);
+            } catch (e: any) {
+              console.error(`failed to restore stash: ${e.message || e}`);
+            }
+          }
+          installCode = 1; // fall into the error path below
+        } else {
+          // Fresh install confirmed working — discard the stashes.
+          if (stashed && existsSync(STASH)) { try { unlinkSync(STASH); } catch {} }
+          if (pkgStashed && existsSync(PKG_STASH)) {
+            try { rmSync(PKG_STASH, { recursive: true, force: true }); } catch {}
+          }
+        }
       }
     }
     if (installCode !== 0) {
@@ -410,16 +479,8 @@ export async function runUpdate(args: string[]): Promise<void> {
       const bundledRoots = [
         join(mawSrc, "commands", "plugins"),
         join(mawSrc, "vendor", "mpr-plugins"),
-      ].filter((root) => existsSync(root));
-      // #1314 — refuse to re-link into a transient/worktree path. `which maw`
-      // resolving into /tmp/<worktree>/ via `bun link` would otherwise write
-      // symlinks that go dangling when the worktree is removed, leaving the
-      // user with "unknown command: <bundled-plugin>" until they re-link from
-      // a stable checkout.
-      if (bundledRoots.some((root) => /^(\/private)?\/tmp\//.test(root))) {
-        console.log(`\n  \x1b[33m⚠\x1b[0m bundled plugins resolve to transient path (${bundledRoots.join(", ")}) — skipping re-link`);
-        console.log(`    re-run \x1b[90mbun link maw-js\x1b[0m from your stable checkout when ready (#1314)`);
-      } else if (bundledRoots.length > 0) {
+      ];
+      if (bundledRoots.some((root) => existsSync(root))) {
         const healed = healBrokenPluginSymlinks(pluginDir, bundledRoots);
         const refreshed = linkBundledPluginRoots(pluginDir, bundledRoots);
         if (refreshed > 0) console.log(`\n  🔗 ${refreshed} bundled plugins re-linked`);

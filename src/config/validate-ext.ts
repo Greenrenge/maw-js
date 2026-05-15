@@ -10,11 +10,10 @@ function validateExtFields(
   // triggers: TriggerConfig[]
   if ("triggers" in raw) {
     if (Array.isArray(raw.triggers)) {
-      const valid = raw.triggers.filter((t: unknown) => {
+      const valid = raw.triggers.filter((t: any) => {
         if (!t || typeof t !== "object") return false;
-        const obj = t as Record<string, unknown>;
-        if (!obj.on || typeof obj.on !== "string") return false;
-        if (!obj.action || typeof obj.action !== "string") return false;
+        if (!t.on || typeof t.on !== "string") return false;
+        if (!t.action || typeof t.action !== "string") return false;
         return true;
       });
       if (valid.length !== raw.triggers.length) {
@@ -71,6 +70,14 @@ function validateExtFields(
     }
   }
 
+  // zenoh: { locator: string }
+  if ("zenoh" in raw && raw.zenoh && typeof raw.zenoh === "object") {
+    const z = raw.zenoh as Record<string, unknown>;
+    if (typeof z.locator === "string") {
+      result.zenoh = { locator: z.locator };
+    }
+  }
+
   // pluginSources: string[] of URLs
   if ("pluginSources" in raw) {
     if (Array.isArray(raw.pluginSources)) {
@@ -107,25 +114,20 @@ function validateExtFields(
     }
   }
 
-  // namedPeers: array of {name, url, ssh?} objects
-  // `ssh` is the optional SSH alias for cross-node attach (#1236). When
-  // present it MUST be a string; non-string ssh values cause the whole entry
-  // to be dropped (rather than silently leaking a bad type into hostExec).
+  // namedPeers: array of {name, url} objects
   if ("namedPeers" in raw) {
     if (Array.isArray(raw.namedPeers)) {
-      const valid = raw.namedPeers.filter((p: unknown) => {
+      const valid = raw.namedPeers.filter((p: any) => {
         if (!p || typeof p !== "object") return false;
-        const obj = p as Record<string, unknown>;
-        if (typeof obj.name !== "string" || typeof obj.url !== "string") return false;
-        if ("ssh" in obj && typeof obj.ssh !== "string") return false;
-        try { new URL(obj.url); return true; } catch { return false; }
+        if (typeof p.name !== "string" || typeof p.url !== "string") return false;
+        try { new URL(p.url); return true; } catch { return false; }
       });
       if (valid.length !== raw.namedPeers.length) {
         warn("namedPeers", `has ${raw.namedPeers.length - valid.length} invalid entries`);
       }
       result.namedPeers = valid;
     } else {
-      warn("namedPeers", "must be an array of {name, url, ssh?}");
+      warn("namedPeers", "must be an array of {name, url}");
     }
   }
 

@@ -2,7 +2,7 @@
  * install-impl seam: tarball extraction, URL download, artifact hash verify.
  */
 
-import type { PluginManifest, ValidationResult } from "../../../plugin/types";
+import type { PluginManifest } from "../../../plugin/types";
 import { spawnSync } from "child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -16,7 +16,7 @@ const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
  * We shell out to GNU tar rather than adding a `tar` npm dep — Bun ships without
  * streaming tar, and adding a dep for a single call is not worth it.
  */
-export function extractTarball(tarballPath: string, destDir: string): ValidationResult {
+export function extractTarball(tarballPath: string, destDir: string): { ok: true } | { ok: false; error: string } {
   // Path-traversal guard: list entries first, reject any that escape the staging dir.
   // GNU tar does not strip "../" by default; -C alone does not prevent traversal.
   const list = spawnSync("tar", ["-tzf", tarballPath], { encoding: "utf8" });
@@ -52,9 +52,8 @@ export async function downloadTarball(url: string): Promise<{ ok: true; path: st
   let res: Response;
   try {
     res = await fetch(url);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: `download failed: ${msg}` };
+  } catch (e: any) {
+    return { ok: false, error: `download failed: ${e.message}` };
   }
   if (!res.ok) {
     return { ok: false, error: `download failed: HTTP ${res.status} ${res.statusText}` };
@@ -144,7 +143,7 @@ export function verifyArtifactHashAgainst(
   dir: string,
   manifest: PluginManifest,
   expected: string,
-): ValidationResult {
+): { ok: true } | { ok: false; error: string } {
   let relPath: string;
   // #896: entry-first when source-shaped — covers no-artifact AND
   // half-built (sha256:null) shapes uniformly.
@@ -189,7 +188,7 @@ export function verifyArtifactHashAgainst(
  * half-built (artifact.sha256===null) shapes when entry is present. Both
  * fall through to entry-only existence verification.
  */
-export function verifyArtifactHash(dir: string, manifest: PluginManifest): ValidationResult {
+export function verifyArtifactHash(dir: string, manifest: PluginManifest): { ok: true } | { ok: false; error: string } {
   if (isSourcePluginManifest(manifest)) {
     // Source plugins have no embedded sha256 to fencepost against. Verify the
     // entry file at least exists; the real adversarial check is plugins.lock.

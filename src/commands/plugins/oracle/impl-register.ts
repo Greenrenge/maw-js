@@ -33,12 +33,12 @@ export function findInFleet(
 ): DiscoveredOracle | null {
   try {
     for (const file of readdirSync(fleetDir).filter((f) => f.endsWith(".json"))) {
-      let config: Record<string, unknown>;
+      let config: any;
       try {
         config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
       } catch { continue; }
 
-      const windows: unknown[] = (config.windows as unknown[]) || [];
+      const windows: any[] = config.windows || [];
       const hasThis = windows.some(
         (w) => w.name === `${name}-oracle` || w.name === name,
       );
@@ -171,7 +171,6 @@ export async function cmdOracleRegister(
   } = {},
 ): Promise<void> {
   if (!name) throw new Error("register requires a name: maw oracle register <name>");
-  name = name.toLowerCase();
 
   const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
   const writeRawCache = deps.writeRawCache ?? ((data) => writeRaw(CACHE_FILE, data));

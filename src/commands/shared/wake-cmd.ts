@@ -1,60 +1,38 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { ghqFind } from "../../core/ghq";
-import { buildCommandInDir, buildShellFunction, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
-import { UserError } from "../../core/util/user-error";
 import { resolveOracle, findWorktrees, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
-import { maybeSplit } from "./wake-maybe-split";
+import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 
-export interface WakeCmdOptions {
-  task?: string;
-  wt?: string;
-  prompt?: string;
-  incubate?: string;
-  fresh?: boolean;
-  attach?: boolean;
-  noAttach?: boolean;
-  listWt?: boolean;
-  split?: boolean;
-  repoPath?: string;
-  urlRepoName?: string;
-  allLocal?: boolean;
-  engine?: string;
-  /** #1346 — bypass refuse-to-spawn when session exists but no oracle window is detected after retries. */
-  force?: boolean;
+export function shouldOfferExistingSessionAttach(
+  opts: { attach?: boolean; split?: boolean; bring?: boolean },
+  isTTY = process.stdin.isTTY,
+): boolean {
+  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY);
 }
 
-// #1346 — retry findExistingOracleWindow before falling through to spawn.
-// Spinner-state panes (mid-boot, before tmux pane-info stabilizes) can be
-// missed by a single listWindows call, so wake would spawn a NEW pane and
-// leak. 3 attempts × 500ms ≈ 1s wait covers the typical boot window.
-const WAKE_DETECT_RETRIES = 3;
-const WAKE_DETECT_BACKOFF_MS = 500;
+const FRESH_SESSION_READY_ATTEMPTS = 8;
+const FRESH_SESSION_READY_DELAY_MS = 150;
 
-async function findExistingOracleWindow(
-  session: string,
-  oracle: string,
-  windowName: string,
-): Promise<string | null> {
-  const nameSuffix = windowName.replace(`${oracle}-`, "");
-  const suffixRe = new RegExp(`^${oracle}-\\d+-${nameSuffix}$`);
-  for (let i = 0; i < WAKE_DETECT_RETRIES; i++) {
-    try {
-      const windows = await tmux.listWindows(session);
-      const names = windows.map(w => w.name);
-      const found = names.find(w => w === windowName) || names.find(w => suffixRe.test(w));
-      if (found) return found;
-    } catch { /* session may be in flux — retry */ }
-    if (i < WAKE_DETECT_RETRIES - 1) {
-      await new Promise(r => setTimeout(r, WAKE_DETECT_BACKOFF_MS));
-    }
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as { cause?: unknown }).cause;
+    return cause ? `${error.message}\n${errorMessage(cause)}` : error.message;
   }
-  return null;
+  return String(error);
+}
+
+function isFreshSessionLookupRace(error: unknown, session: string): boolean {
+  const message = errorMessage(error);
+  return message.includes(session) && /can't find (session|window|pane)/i.test(message);
 }
 
 export async function getLiveTileRoles(
@@ -75,20 +53,64 @@ export async function getLiveTileRoles(
   }
 }
 
-export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<string> {
-  // #1151 — reject flag-shaped names. parseFlags lands unrecognized flags
-  // (e.g. --help) in positional `_`, so they reach here as oracle="--help"
-  // and (without this guard) get sanitized into session names like `26---help`.
-  if (oracle.startsWith("-")) {
-    console.error(`\x1b[31m✗\x1b[0m invalid oracle name: "${oracle}" — did you mean 'maw --help'?`);
-    throw new UserError(`invalid oracle name: "${oracle}"`);
+export async function waitForTmuxSessionReady(
+  session: string,
+  deps: {
+    hasSession?: (session: string) => Promise<boolean>;
+    sleep?: (ms: number) => Promise<void>;
+    attempts?: number;
+    delayMs?: number;
+  } = {},
+): Promise<void> {
+  const hasSession = deps.hasSession ?? tmux.hasSession.bind(tmux);
+  const wait = deps.sleep ?? sleep;
+  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
+  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (await hasSession(session)) return;
+    if (attempt < attempts) await wait(delayMs);
   }
 
-  // --no-attach wins over --attach; normalize early so all downstream
-  // `opts.attach` checks honor caller intent. Lets api/sessions.ts and
-  // friends pass `noAttach: true` cleanly without needing `attach: false`.
-  if (opts.noAttach) opts.attach = false;
+  throw new Error(`tmux did not report fresh session '${session}' ready after ${attempts} checks`);
+}
 
+export async function retryFreshSessionTmuxStep<T>(
+  session: string,
+  label: string,
+  step: () => Promise<T>,
+  deps: {
+    sleep?: (ms: number) => Promise<void>;
+    attempts?: number;
+    delayMs?: number;
+    hasSession?: (session: string) => Promise<boolean>;
+  } = {},
+): Promise<T> {
+  const wait = deps.sleep ?? sleep;
+  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
+  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await step();
+    } catch (error) {
+      if (!isFreshSessionLookupRace(error, session) || attempt === attempts) {
+        throw error;
+      }
+      await wait(delayMs);
+      await waitForTmuxSessionReady(session, {
+        hasSession: deps.hasSession,
+        sleep: wait,
+        attempts: 2,
+        delayMs,
+      });
+    }
+  }
+
+  throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
+}
+
+export async function cmdWake(oracle: string, opts: { task?: string; wt?: string; prompt?: string; incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean; split?: boolean; bring?: boolean; tab?: boolean; repoPath?: string; urlRepoName?: string; allLocal?: boolean; engine?: string }): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
   oracle = normalizeTarget(oracle);
@@ -135,10 +157,9 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
 
   // #997 — when fuzzy match resolved a different repo (e.g. "v3" → "arra-oracle-v3-oracle"),
   // update oracle to the resolved name so session/window names are correct.
-  // #1299 — case-insensitive match: e.g. "DustBoy-Phd-Oracle" should resolve too.
-  const resolvedOracle = repoName.replace(/-oracle$/i, "");
-  if (resolvedOracle !== oracle && repoName.toLowerCase().endsWith("-oracle")) {
-    oracle = resolvedOracle.toLowerCase();
+  const resolvedOracle = repoName.replace(/-oracle$/, "");
+  if (resolvedOracle !== oracle && repoName.endsWith("-oracle")) {
+    oracle = resolvedOracle;
   }
 
   // #673 — extract org/repo slug from ghq path (…/github.com/<org>/<repo>)
@@ -147,10 +168,6 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     : repoName;
   console.log(`\x1b[36m→\x1b[0m found \x1b[1m${ghSlug}\x1b[0m (${repoPath})`);
   let session = await detectSession(oracle, opts.urlRepoName);
-  // #1346 — remember whether session pre-existed BEFORE the create-branch
-  // mutates `session`. Drives the refuse-to-spawn guard below: only sessions
-  // that pre-existed can leak panes when we fall through to newWindow.
-  const sessionPreExisted = Boolean(session);
   if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
@@ -172,8 +189,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
-    // #1340 — lowercase baseName so maw always creates canonical lowercase sessions.
-    const baseName = (getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle).toLowerCase();
+    const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
 
     // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
     // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
@@ -192,33 +208,21 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     session = session_;
     const mainWindowName = `${oracle}-oracle`;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
-    await setSessionEnv(session);
+    await waitForTmuxSessionReady(session);
+    await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session));
     await new Promise(r => setTimeout(r, 300));
-    // Auto-detect channel config for this oracle (#1096)
-    // Channel env vars are prepended to the command (not tmux set-environment)
-    // because tmux set-environment only affects NEW shells, not the existing one
-    const { getChannelPluginIds, getChannelEnv, getChannelPermissionMode } = await import("./channel-loader");
-    // #1195 Phase 2 — prefer <repo>/.claude/channel.json over the global config
-    const channelIds = getChannelPluginIds(oracle, undefined, repoPath);
-    const channelEnv = getChannelEnv(oracle, undefined, repoPath);
-    // #1146 — read permissionMode so channel-enabled bots can opt into "relay"
-    // (channel-routed prompts) instead of the default "skip" (autonomous).
-    const permissionMode = getChannelPermissionMode(oracle, repoPath);
-    const wakeOpts = channelIds.length
-      ? { engine: opts.engine, channels: channelIds, channelEnv, permissionMode }
-      : opts.engine;
-    const paneTarget = `${session}:${mainWindowName}`;
-    await tmux.sendText(paneTarget, buildShellFunction(mainWindowName, wakeOpts));
+    await retryFreshSessionTmuxStep(session, "launch main window", () =>
+      tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, opts.engine))
+    );
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)
     const config = loadConfig();
     const agents = config.agents || {};
-    const oracleKey = oracle.toLowerCase();
-    if (!(oracleKey in agents)) {
+    if (!(oracle in agents)) {
       const node = config.node || "local";
-      saveConfig({ agents: { ...agents, [oracleKey]: node } });
-      console.log(`\x1b[32m+\x1b[0m registered agent '${oracleKey}' → '${node}' in config.agents`);
+      saveConfig({ agents: { ...agents, [oracle]: node } });
+      console.log(`\x1b[32m+\x1b[0m registered agent '${oracle}' → '${node}' in config.agents`);
     }
 
     // #1020 — session = team: auto-create team config so `maw team spawn`
@@ -238,15 +242,11 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
         usedNames.add(wtWindowName);
         await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
         await new Promise(r => setTimeout(r, 300));
-        await tmux.sendText(`${session}:${wtWindowName}`, buildShellFunction(wtWindowName, wakeOpts));
+        await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
         console.log(`\x1b[32m+\x1b[0m window: ${wtWindowName}`);
       }
     }
   } else {
-    // Else-branch is entered when (a) session pre-existed, or (b) shouldAutoWake
-    // said don't wake. In (b) with no session there's nothing to do; bail so the
-    // type narrows for all session-using calls below.
-    if (!session) throw new UserError(`wake: no session for oracle '${oracle}' and auto-wake disabled`);
     await setSessionEnv(session);
     let preExistingWindows = new Set<string>();
     try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
@@ -272,7 +272,7 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
           usedNames.add(wtWindowName);
           await tmux.newWindow(session, wtWindowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
-          await tmux.sendText(`${session}:${wtWindowName}`, buildShellFunction(wtWindowName, opts.engine));
+          await tmux.sendText(`${session}:${wtWindowName}`, buildCommandInDir(wtWindowName, wt.path, opts.engine));
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wtWindowName}`);
         }
       }
@@ -282,13 +282,6 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     const retried = await ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }
-
-  // After the create-or-reuse branch, `session` must be non-null:
-  //   - create branch assigns it
-  //   - else branch is only entered when session pre-existed (truthy)
-  // Narrow the type for all downstream uses + defend against a shouldAutoWake
-  // path that returns wake=false with no pre-existing session.
-  if (!session) throw new UserError(`wake: no session for oracle '${oracle}' and auto-wake disabled`);
 
   const reordered = await restoreTabOrder(session);
   if (reordered > 0) console.log(`\x1b[36m↻ ${reordered} window(s) reordered to saved positions.\x1b[0m`);
@@ -342,63 +335,61 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
     }
   }
 
-  // #1346 — find the oracle's window with retry+backoff so spinner-state
-  // panes (mid-boot) are detected as running rather than re-spawned.
-  const existingWindow = await findExistingOracleWindow(session, oracle, windowName);
-  if (existingWindow) {
-    if (opts.prompt) {
-      await tmux.selectWindow(`${session}:${existingWindow}`);
-      const escaped = opts.prompt.replace(/'/g, "'\\''");
-      await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`);
-      if (opts.attach) await attachToSession(session);
-      await maybeSplit(`${session}:${existingWindow}`, opts);
-      return `${session}:${existingWindow}`;
-    }
-    // Check if agent is actually alive in the pane
-    const target = `${session}:${existingWindow}`;
-    let agentAlive = false;
-    try {
+  try {
+    const windows = await tmux.listWindows(session);
+    const nameSuffix = windowName.replace(`${oracle}-`, "");
+    const existingWindow = windows.map(w => w.name).find(w => w === windowName)
+      || windows.map(w => w.name).find(w => new RegExp(`^${oracle}-\\d+-${nameSuffix}$`).test(w));
+    if (existingWindow) {
+      if (opts.prompt) {
+        await tmux.selectWindow(`${session}:${existingWindow}`);
+        const escaped = opts.prompt.replace(/'/g, "'\\''");
+        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`);
+        if (opts.attach) await attachToSession(session);
+        await maybeSplit(`${session}:${existingWindow}`, opts);
+        await maybeOpenWindow(`${session}:${existingWindow}`, opts);
+        return `${session}:${existingWindow}`;
+      }
+      // Check if agent is actually alive in the pane
+      const target = `${session}:${existingWindow}`;
       const infos = await getPaneInfos([target]);
       const info = infos[target];
-      agentAlive = Boolean(info && isAgentCommand(info.command));
-    } catch {
-      // #1346 — getPaneInfos can throw while the pane is mid-boot. Treat as
-      // alive: window exists, an agent is presumably coming up. Better to
-      // skip re-launch than to spawn a new pane / clobber the booting shell.
-      agentAlive = true;
-    }
+      const agentAlive = info && isAgentCommand(info.command);
 
-    if (!agentAlive) {
-      console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
-      await tmux.sendText(target, buildShellFunction(existingWindow, opts.engine));
+      if (!agentAlive) {
+        console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
+        await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        if (opts.attach) {
+          await tmux.selectWindow(target);
+          await attachToSession(session);
+        }
+        await maybeSplit(target, opts);
+        await maybeOpenWindow(target, opts);
+        return target;
+      }
+
+      console.log(`\x1b[32m⚡\x1b[0m '${existingWindow}' running in ${session}`);
+      if (shouldOfferExistingSessionAttach(opts)) {
+        process.stdout.write(`  attach? [y/N] `);
+        const { openSync, readSync, closeSync } = await import("fs");
+        try {
+          const fd = openSync("/dev/tty", "r");
+          const buf = Buffer.alloc(8);
+          const n = readSync(fd, buf, 0, buf.length, null);
+          closeSync(fd);
+          const answer = buf.slice(0, n).toString().trim().toLowerCase();
+          if (answer === "y" || answer === "yes") opts.attach = true;
+        } catch {}
+      }
       if (opts.attach) {
         await tmux.selectWindow(target);
         await attachToSession(session);
       }
       await maybeSplit(target, opts);
+      await maybeOpenWindow(target, opts);
       return target;
     }
-
-    console.log(`\x1b[32m⚡\x1b[0m '${existingWindow}' running in ${session}`);
-    if (opts.attach) {
-      await tmux.selectWindow(target);
-      await attachToSession(session);
-    }
-    await maybeSplit(target, opts);
-    return target;
-  }
-
-  // #1346 — session pre-existed but no window matches after retries.
-  // Refuse to spawn (would leak panes when wake retries under fuzzy-attach,
-  // see #1342). Worktree mode (--task/--wt) is exempt: that path is an
-  // explicit create-if-missing flow, not the idempotent attach path.
-  if (sessionPreExisted && !opts.task && !opts.wt && !opts.force) {
-    throw new UserError(
-      `session '${session}' exists but no window for '${windowName}'\n` +
-      `  this may be a race (oracle is starting up) — wait a moment and retry, or\n` +
-      `  use \`maw wake ${oracle} --force\` to spawn anyway`
-    );
-  }
+  } catch { /* session might be fresh */ }
 
   // #2 — a new task/worktree window is a net-new agent pane: cap-check before
   // spawning it (no-op when limits.maxConcurrentAgents is 0).
@@ -406,18 +397,19 @@ export async function cmdWake(oracle: string, opts: WakeCmdOptions): Promise<str
 
   await tmux.newWindow(session, windowName, { cwd: targetPath });
   await new Promise(r => setTimeout(r, 300));
+  const cmd = buildCommandInDir(windowName, targetPath, opts.engine);
   if (opts.prompt) {
-    const cmd = buildCommandInDir(windowName, targetPath, opts.engine);
     const escaped = opts.prompt.replace(/'/g, "'\\''");
     await tmux.sendText(`${session}:${windowName}`, `${cmd} -p '${escaped}'`);
   } else {
-    await tmux.sendText(`${session}:${windowName}`, buildShellFunction(windowName, opts.engine));
+    await tmux.sendText(`${session}:${windowName}`, cmd);
   }
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
   if (opts.attach) await attachToSession(session);
 
   await maybeSplit(`${session}:${windowName}`, opts);
+  await maybeOpenWindow(`${session}:${windowName}`, opts);
 
   takeSnapshot("wake").catch(() => {});
   return `${session}:${windowName}`;

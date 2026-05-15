@@ -45,15 +45,8 @@ export {
 export type { Session as SshSession, HostExecTransport } from "../core/transport/ssh";
 export { curlFetch } from "../core/transport/curl-fetch";
 export {
-  getPeers, getFederationStatus, findPeerForTarget, getAggregatedSessions,
+  getPeers, getFederationStatus, findPeerForTarget,
 } from "../core/transport/peers";
-export type { AggregatedSession } from "../core/transport/peers";
-export {
-  attachRemoteSession, SshAttachError,
-} from "../core/transport/ssh-attach";
-export type {
-  AttachRemoteSessionOpts, SshAttachErrorKind, ExecFileSyncFn,
-} from "../core/transport/ssh-attach";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
 export { findWindow } from "../core/runtime/find-window";
@@ -131,9 +124,9 @@ export {
   cmdOracleScan,
   cmdOracleFleet,
   cmdOracleScanStale,
+  cmdOraclePrune,
+  cmdOracleRegister,
 } from "../commands/plugins/oracle/impl";
-export { cmdOraclePrune } from "../commands/plugins/oracle/impl-prune";
-export { cmdOracleRegister } from "../commands/plugins/oracle/impl-register";
 
 // ─── definePlugin — the plugin contract ──────────────────────────────────────
 
@@ -146,13 +139,13 @@ export interface PluginConfig {
   /** The handler — one function, all surfaces (cli/api/peer) */
   handler: (ctx: InvokeContext) => Promise<InvokeResult>;
   /** Phase 0: GATE — return false to cancel event pipeline */
-  onGate?: (event: unknown) => boolean;
+  onGate?: (event: any) => boolean;
   /** Phase 1: FILTER — modify event before handlers */
-  onFilter?: (event: unknown) => unknown;
+  onFilter?: (event: any) => any;
   /** Phase 2: HANDLE — observe/react to events */
-  onEvent?: (event: unknown) => void | Promise<void>;
+  onEvent?: (event: any) => void | Promise<void>;
   /** Phase 3: LATE — guaranteed cleanup */
-  onLate?: (event: unknown) => void;
+  onLate?: (event: any) => void;
   /** Called when plugin is first installed */
   onInstall?: () => void | Promise<void>;
   /** Called when plugin is removed */

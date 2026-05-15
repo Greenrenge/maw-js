@@ -7,15 +7,15 @@
 
 import { sendKeys, listSessions } from "../core/transport/ssh";
 import { findWindow } from "../core/runtime/find-window";
-import type { Transport, TransportTarget, TransportPresence, MessageHandler, PresenceHandler, FeedHandler } from "../core/transport/transport";
+import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 
 export class TmuxTransport implements Transport {
   readonly name = "tmux";
   private _connected = false;
-  private msgHandlers = new Set<MessageHandler>();
-  private presenceHandlers = new Set<PresenceHandler>();
-  private feedHandlers = new Set<FeedHandler>();
+  private msgHandlers = new Set<(msg: TransportMessage) => void>();
+  private presenceHandlers = new Set<(p: TransportPresence) => void>();
+  private feedHandlers = new Set<(e: FeedEvent) => void>();
 
   get connected() { return this._connected; }
 
@@ -56,15 +56,15 @@ export class TmuxTransport implements Transport {
   /** Feed events are handled by the MawEngine — no-op here */
   async publishFeed(_event: FeedEvent): Promise<void> {}
 
-  onMessage(handler: MessageHandler) {
+  onMessage(handler: (msg: TransportMessage) => void) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: PresenceHandler) {
+  onPresence(handler: (p: TransportPresence) => void) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: FeedHandler) {
+  onFeed(handler: (e: FeedEvent) => void) {
     this.feedHandlers.add(handler);
   }
 

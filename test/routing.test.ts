@@ -85,6 +85,11 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
   });
 
+  test("local: prefix miss is local/self miss, not unknown peer", () => {
+    const r = resolveTarget("local:ghost", BASE_CONFIG, SESSIONS);
+    expect(r).toMatchObject({ type: "error", reason: "self_not_running" });
+  });
+
   // #6: NODE:AGENT → UNKNOWN NODE
   test("unknown node returns error", () => {
     const r = resolveTarget("mars:neo", BASE_CONFIG, SESSIONS);

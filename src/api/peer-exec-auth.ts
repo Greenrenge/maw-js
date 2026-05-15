@@ -63,17 +63,16 @@ export function isReadOnlyCmd(cmd: string): boolean {
 
 export function isShellPeerAllowed(originHost: string): boolean {
   if (originHost.startsWith("anon-")) return false;
-  const config = loadConfig() as unknown as Record<string, unknown>;
-  const wormhole = config?.wormhole as unknown as Record<string, unknown>;
-  const allowed = (wormhole?.shellPeers as unknown[] ?? []).filter((x): x is string => typeof x === "string");
+  const config = loadConfig() as any;
+  const allowed: string[] = config?.wormhole?.shellPeers ?? [];
   return allowed.includes(originHost);
 }
 
 // --- Peer URL resolution --------------------------------------------------
 
 export function resolvePeerUrl(peer: string): string | null {
-  const config = loadConfig() as unknown as Record<string, unknown>;
-  const namedPeers = (config?.namedPeers as unknown[] ?? []) as Array<{ name: string; url: string }>;
+  const config = loadConfig() as any;
+  const namedPeers: Array<{ name: string; url: string }> = config?.namedPeers ?? [];
   const match = namedPeers.find((p) => p.name === peer);
   if (match) return match.url;
 

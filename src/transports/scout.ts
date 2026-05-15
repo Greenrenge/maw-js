@@ -15,9 +15,6 @@ import type {
   TransportTarget,
   TransportMessage,
   TransportPresence,
-  MessageHandler,
-  PresenceHandler,
-  FeedHandler,
 } from "../core/transport/transport";
 import type { FeedEvent } from "../lib/feed";
 import { loadPeers } from "../lib/peers/store";
@@ -42,19 +39,6 @@ export interface ScoutTransportConfig {
   autoPair?: boolean;
 }
 
-// ─── Module-level singleton for cross-module access (#1237) ────────────────
-// The API layer (src/api/pair.ts) needs to read live `discoveredPeers` for
-// `GET /api/peers/discoveries`. Rather than inject the router into Elysia we
-// expose the *last connected* ScoutTransport via a small accessor. Tests can
-// override with `_setCurrentScout(null)` to clear.
-let currentScout: ScoutTransport | null = null;
-export function getCurrentScout(): ScoutTransport | null {
-  return currentScout;
-}
-export function _setCurrentScout(s: ScoutTransport | null): void {
-  currentScout = s;
-}
-
 export class ScoutTransport implements Transport {
   readonly name = "scout-p2p";
   private _connected = false;
@@ -63,9 +47,9 @@ export class ScoutTransport implements Transport {
   private scoutTimer: ReturnType<typeof setTimeout> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private state: ScoutState;
-  private msgHandlers = new Set<MessageHandler>();
-  private presenceHandlers = new Set<PresenceHandler>();
-  private feedHandlers = new Set<FeedHandler>();
+  private msgHandlers = new Set<(msg: TransportMessage) => void>();
+  private presenceHandlers = new Set<(p: TransportPresence) => void>();
+  private feedHandlers = new Set<(e: FeedEvent) => void>();
 
   constructor(config: ScoutTransportConfig) {
     this.config = config;
@@ -113,7 +97,6 @@ export class ScoutTransport implements Transport {
       });
 
       this._connected = true;
-      currentScout = this; // #1237 — make this instance reachable from the API layer
       this.scheduleScout();
       this.pruneTimer = setInterval(() => this.pruneStale(), 10_000);
 
@@ -145,7 +128,6 @@ export class ScoutTransport implements Transport {
       this.socket = null;
     }
     this._connected = false;
-    if (currentScout === this) currentScout = null;
   }
 
   async send(target: TransportTarget, message: string): Promise<boolean> {
@@ -164,14 +146,14 @@ export class ScoutTransport implements Transport {
       });
 
       if (res.ok) {
-        const data = (await res.json()) as Record<string, unknown>;
+        const data = (await res.json()) as any;
         if (data.ok) {
           const msg: TransportMessage = {
             from: this.config.node,
             to: target.oracle,
             body: message,
             timestamp: Date.now(),
-            transport: "scout" as const,
+            transport: "scout" as any,
           };
           for (const h of this.msgHandlers) h(msg);
           return true;
@@ -200,15 +182,15 @@ export class ScoutTransport implements Transport {
     }
   }
 
-  onMessage(handler: MessageHandler) {
+  onMessage(handler: (msg: TransportMessage) => void) {
     this.msgHandlers.add(handler);
   }
 
-  onPresence(handler: PresenceHandler) {
+  onPresence(handler: (p: TransportPresence) => void) {
     this.presenceHandlers.add(handler);
   }
 
-  onFeed(handler: FeedHandler) {
+  onFeed(handler: (e: FeedEvent) => void) {
     this.feedHandlers.add(handler);
   }
 
@@ -220,30 +202,6 @@ export class ScoutTransport implements Transport {
 
   listPeers() {
     return [...this.state.discoveredPeers.values()];
-  }
-
-  /**
-   * Snapshot of discovered peers as plain objects — for HTTP exposure (#1237).
-   * Returned in `lastSeen` desc order. Re-syncs `paired` against the latest
-   * peers.json so a peer added via `peers accept` flips ✓ without waiting
-   * for the next Hello.
-   */
-  discoveriesSnapshot(): import("./scout-state").DiscoveredPeer[] {
-    // Refresh `paired` from on-disk peers.json — cheap (small JSON) and keeps
-    // the snapshot honest immediately after an accept.
-    try {
-      const { peers } = loadPeers();
-      const pairedNodes = new Set<string>();
-      for (const [, p] of Object.entries(peers)) {
-        if (p.node) pairedNodes.add(p.node);
-      }
-      for (const peer of this.state.discoveredPeers.values()) {
-        if (!peer.paired && pairedNodes.has(peer.node)) peer.paired = true;
-      }
-    } catch { /* ignore — best-effort refresh */ }
-
-    return [...this.state.discoveredPeers.values()]
-      .sort((a, b) => b.lastSeen - a.lastSeen);
   }
 
   // ─── Protocol Handlers ─────────────────────────────────────────────

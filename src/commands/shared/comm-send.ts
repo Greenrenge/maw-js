@@ -68,6 +68,33 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
 }
 
 /**
+ * Visible internal federation attribution.
+ *
+ * Transport-level signing (`curlFetch(..., { from: "auto" })`) authenticates
+ * cross-node HTTP calls, but same-node tmux delivery has no protocol envelope.
+ * Internal Oracle convention is a body-level `[node:oracle]` prefix for human
+ * chat. Preserve executable slash/$ commands and already-signed messages so
+ * `maw hey target /skill` keeps invoking the command instead of turning into
+ * prose.
+ *
+ * @internal exported for regression tests.
+ */
+export function formatSignedMessage(
+  message: string,
+  config: Pick<ReturnType<typeof loadConfig>, "node">,
+  senderName: string,
+): string {
+  const leading = message.match(/^\s*/)?.[0] ?? "";
+  const body = message.slice(leading.length);
+  if (!body) return message;
+  if (body.startsWith("/") || body.startsWith("$")) return message;
+  if (/^\[[^\]\s:]+:[^\]]+\](?:\s|$)/.test(body)) return message;
+
+  const node = config.node || "local";
+  return `${leading}[${node}:${senderName}] ${body}`;
+}
+
+/**
  * Check if a pane is idle — i.e., no user input is in progress on the prompt line.
  * Uses capture-pane to inspect the last visible line. If a shell prompt marker
  * ($, %, >, ❯, #) is followed by non-whitespace text, the user is mid-input.
@@ -94,30 +121,22 @@ export async function checkPaneIdle(target: string, host?: string): Promise<{ id
 }
 
 /**
- * Federation-friendly error for bare-name targets that don't resolve locally.
- * Originally introduced in #759 Phase 2 (#785) as a hard error before any
- * resolution work — every bare name was rejected.
- *
- * After #1136 the contract is softer: bare names get a local-resolver probe
- * first, and this error only fires when the local lookup truly misses (or
- * is ambiguous). The shape and substitution rules are unchanged so existing
- * downstream tools that match on the message keep working.
+ * Phase 2 of #759 — bare-name hard rejection. The bare-name path is removed
+ * outright: cmdSend prints this error to stderr and exits non-zero before
+ * any resolution attempt. Replaces the Phase 1 `formatBareNameDeprecation`
+ * warning. Shape is fixed per the issue and exercised by
+ * test/isolated/hey-bare-name-rejection.test.ts.
  *
  * The triple `<node>:<session>:<agent>` form keeps `<node>` and `<session>`
  * as literal placeholders — the user is meant to run `maw locate <agent>`
  * to enumerate concrete candidates across the federation. Only `<agent>`
  * is substituted with the bare query the user actually typed.
  *
- * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts,
- *   test/isolated/hey-bare-name-rejection.test.ts). The production caller is
- *   `cmdSend` in this same file. No other module imports this symbol.
+ * @internal — exported for tests only (test/comm-send-deprecation-759.test.ts).
+ *   The production caller is `cmdSend` in this same file. No other module
+ *   imports this symbol.
  */
-export function formatBareNameError(query: string, localNode = "local"): string {
-  // `localNode` is the current node's name (config.node). When provided, the
-  // `this node:` hint uses it so the suggestion actually resolves — `local:`
-  // is not a built-in alias and errors with "node 'local' not in namedPeers".
-  // Defaults to `"local"` for backward compat with the pure-function tests.
-  // (#1246)
+export function formatBareNameError(query: string): string {
   const RED = "\x1b[31m"; // error marker
   const C = "\x1b[36m";   // cyan — for canonical suggestion lines
   const D = "\x1b[90m";   // dim — for explanatory tail
@@ -126,7 +145,7 @@ export function formatBareNameError(query: string, localNode = "local"): string 
     `${RED}error${R}: bare-name target removed — node prefix required`,
     ``,
     `  this node:`,
-    `    ${C}maw hey ${localNode}:${query} "..."${R}`,
+    `    ${C}maw hey local:${query} "..."${R}`,
     ``,
     `  cross-node candidates:`,
     `    ${C}maw hey <node>:<session>:${query} "..."${R}`,
@@ -146,14 +165,10 @@ export function formatBareNameError(query: string, localNode = "local"): string 
  * - `trust` (#842 Sub-C): paired with `approve` — also append the
  *   sender↔target pair to the on-disk trust list so subsequent sends in
  *   either direction skip the gate without operator intervention.
- * - `noReply` (#1140): signal that no response is expected. Prepends
- *   `/fyi ` to the message body (human-readable convention) and appends
- *   `<no-reply/>` (wire-level marker for automated routing).
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
-  noReply?: boolean;
 }
 
 export async function cmdSend(
@@ -162,27 +177,18 @@ export async function cmdSend(
   force = false,
   opts: CmdSendOptions = {},
 ) {
-  // #1140 — --no-reply: prepend /fyi (human convention) + append <no-reply/> (wire marker)
-  if (opts.noReply) {
-    if (!message.startsWith("/fyi ")) message = `/fyi ${message}`;
-    if (!message.includes("<no-reply/>")) message = `${message} <no-reply/>`;
-  }
-
   const config = loadConfig();
 
-  // #1136 — bare names get a local-resolver probe before the federation-
-  // friendly error fires. Capture the flag here; the error path at the end
-  // of this function uses it. The original #759 Phase 2 hard reject
-  // unconditionally exited here; that was the right call when federation
-  // ambiguity (#758) was unaddressed, but `resolveTarget` now returns
-  // `kind: "ambiguous"` for the dangerous case, so the safety net moved
-  // from the entry guard to the resolver itself. The 95% local-only case
-  // (single-host setups) gets the happy path; cross-host ambiguity still
-  // surfaces the canonical 3-part guidance.
-  //
-  // `team:` and `plugin:` prefixes have their own colon and skip this
-  // probe. `/` is reserved for path-style targets and also skips.
-  const isBareName = !query.includes(":") && !query.includes("/");
+  // #759 Phase 2 — bare-name targets are now a hard error. Reject before any
+  // resolution work so users get a fast, deterministic failure pushing them
+  // onto the canonical `<node>:<agent>` form. `team:` and `plugin:` prefixes
+  // are special-cased downstream and have their own colon, so they pass.
+  // `/` is reserved for path-style targets. MAW_QUIET no longer suppresses —
+  // Phase 1's quiet-opt-out was a deprecation-window concession only.
+  if (!query.includes(":") && !query.includes("/")) {
+    console.error(formatBareNameError(query));
+    process.exit(1);
+  }
 
   // --- Team fan-out routing: maw hey team:<team-name> <msg> (#627) ---
   if (query.startsWith("team:")) {
@@ -226,10 +232,9 @@ export async function cmdSend(
         await cmdSend(member, message, force);
         if (!memberFailed) delivered++;
         else failed++;
-      } catch (e: unknown) {
+      } catch (e: any) {
         failed++;
-        const message = e instanceof Error ? e.message : "failed";
-        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${message}`);
+        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${e?.message || "failed"}`);
       }
     }
     process.exit = origExit;
@@ -270,18 +275,12 @@ export async function cmdSend(
     const targetNode = parts.length >= 2 ? parts[0] : null;
     const bareAgent = parts.length >= 2 ? parts[1] : query;
     const isCanonical = parts.length >= 3;
-    const isLocalScope = !targetNode || targetNode === config.node;
+    const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
     if (isLocalScope && bareAgent && !isCanonical) {
-      // #1107: check fleet config first — if fleet maps this oracle to a
-      // running session, it's live (don't fall through to substring matching)
-      const { resolveFleetSession } = await import("./wake");
-      const fleetSess = resolveFleetSession(bareAgent);
-      const hasLocalSession = (fleetSess && sessions.some(s => s.name === fleetSess)) ||
-        sessions.some(s =>
-          s.name === bareAgent ||
-          s.name.replace(/^\d+-/, "") === bareAgent ||
-          s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
-        );
+      const hasLocalSession = sessions.some(s =>
+        s.name === bareAgent ||
+        s.windows.some(w => w.name === `${bareAgent}-oracle` || w.name === bareAgent)
+      );
       try {
         // Sub-PR 4 of #841: use the unified OracleManifest as the source of
         // truth for `isFleetKnown`. We still derive `isLive` from the freshly
@@ -333,12 +332,7 @@ export async function cmdSend(
         if (decision.wake) {
           const wakeRes = await curlFetch(`${peer.url}/api/wake`, {
             method: "POST",
-            // #1343 — receiver (mpr/plugins/wake/index.ts:117) reads body.oracle.
-            // Previously sent {target: ...} which silently failed every cross-node
-            // auto-wake. Cross-node hey short-form (peer:agent) has been broken
-            // since wake was extracted to mpr. Canonical (peer:session:window)
-            // skips wake entirely so masked the bug.
-            body: JSON.stringify({ oracle: bareAgent }),
+            body: JSON.stringify({ target: bareAgent }),
             from: "auto", // #804 Step 4 SIGN — sign cross-node /api/wake
           });
           if (!wakeRes.ok || !wakeRes.data?.ok) {
@@ -414,11 +408,10 @@ export async function cmdSend(
           return;
         }
       }
-    } catch (e: unknown) {
+    } catch (e: any) {
       // Forgiving: ACL eval errors must not break delivery. Phase 2 is
       // additive — log + fall through to existing behavior.
-      const message = e instanceof Error ? e.message : String(e);
-      console.error(`\x1b[90mwarn: ACL evaluation failed (${message}); allowing send\x1b[0m`);
+      console.error(`\x1b[90mwarn: ACL evaluation failed (${e?.message ?? e}); allowing send\x1b[0m`);
     }
   }
 
@@ -435,11 +428,10 @@ export async function cmdSend(
       console.log(
         `\x1b[36m+\x1b[0m trusted ${senderOracle} ↔ ${targetOracle}`,
       );
-    } catch (e: unknown) {
+    } catch (e: any) {
       // Same forgiving stance — trust persistence failure shouldn't
       // block the send the operator just approved.
-      const message = e instanceof Error ? e.message : String(e);
-      console.error(`\x1b[90mwarn: trust persistence failed (${message})\x1b[0m`);
+      console.error(`\x1b[90mwarn: trust persistence failed (${e?.message ?? e})\x1b[0m`);
     }
   }
 
@@ -457,6 +449,9 @@ export async function cmdSend(
       process.exit(decision.exitCode ?? 1);
     }
   }
+
+  const senderName = resolveMyName(config);
+  const outboundMessage = formatSignedMessage(message, config, senderName);
 
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
@@ -485,16 +480,15 @@ export async function cmdSend(
         }
       }
     }
-    await sendKeys(target, message);
-    await runHook("after_send", { to: query, message });
+    await sendKeys(target, outboundMessage);
+    await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
-    const senderName = resolveMyName(config);
-    logMessage(senderName, query, message, "local");
-    emitFeed("MessageSend", senderName, config.node, `${query}: ${message.slice(0, 200)}`, config.port || 3456);
+    logMessage(senderName, query, outboundMessage, "local");
+    emitFeed("MessageSend", senderName, config.node, `${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
     await Bun.sleep(150);
     let lastLine = "";
     try { const content = await capture(target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
-    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
+    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${outboundMessage}`);
     if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
   }
@@ -503,16 +497,15 @@ export async function cmdSend(
   if (result?.type === "peer") {
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: result.target, text: message }),
+      body: JSON.stringify({ target: result.target, text: outboundMessage }),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
-      const agentName = resolveMyName(config);
-      logMessage(agentName, query, message, `peer:${result.node}`);
-      emitFeed("MessageSend", agentName, config.node!, `${result.node}:${query}: ${message.slice(0, 200)}`, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
+      logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
+      emitFeed("MessageSend", senderName, config.node!, `${result.node}:${query}: ${outboundMessage.slice(0, 200)}`, config.port || 3456);
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     const underlying = res.data?.error || (res.status ? `HTTP ${res.status}` : "connection failed");
@@ -528,13 +521,13 @@ export async function cmdSend(
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: query, text: message }),
+      body: JSON.stringify({ target: query, text: outboundMessage }),
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);
+      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
-      await runHook("after_send", { to: query, message });
+      await runHook("after_send", { to: query, message: outboundMessage });
       return;
     }
     // Remote fetch was attempted but failed — surface the remote failure explicitly (#411).
@@ -546,14 +539,6 @@ export async function cmdSend(
   }
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
-  // #1136: for bare names, prefer the federation-friendly guidance (canonical
-  // 3-part form + `maw locate` hint) over the generic "window not found"
-  // message. Bare names already had a chance through `resolveTarget` and
-  // auto-wake above; if we got here it's a true miss.
-  if (isBareName) {
-    console.error(formatBareNameError(query, config.node ?? "local"));
-    process.exit(1);
-  }
   if (result?.type === "error") {
     console.error(`\x1b[31merror\x1b[0m: ${result.detail}`);
     if (result.hint) console.error(`\x1b[33mhint\x1b[0m:  ${result.hint}`);

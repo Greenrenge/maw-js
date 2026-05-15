@@ -44,15 +44,14 @@ export async function fetchPeerIdentities(
         }
         const agents = data.agents.filter((a): a is string => typeof a === "string");
         return { peerName: p.name, url: p.url, node: data.node, agents, reachable: true };
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
+      } catch (e: any) {
         return {
           peerName: p.name,
           url: p.url,
           node: "",
           agents: [],
           reachable: false,
-          error: message.split("\n")[0],
+          error: String(e?.message || e).split("\n")[0],
         };
       }
     }),

@@ -1,21 +1,19 @@
 /**
- * Bare-name federation-friendly error formatter (#759 Phase 2 + #1136).
+ * #759 Phase 2 — bare-name hard rejection error formatter.
  *
- * The formatter is tested directly (pure function). The cmdSend wiring —
- * how/when this error fires — is covered by the isolated test
+ * The Phase 1 deprecation warning has been converted into a hard error. The
+ * formatter is tested directly (pure function). The cmdSend wiring (early
+ * exit, gating on `!query.includes(":")`) is covered by the isolated test
  * `test/isolated/hey-bare-name-rejection.test.ts`.
  *
- * History:
- *   - Phase 1 (#759 / #761) — deprecation warning, fall-through to send
- *   - Phase 2 (#785) — hard error, no resolution attempted
- *   - #1136 — relaxation: bare names get a local-resolver probe; this error
- *     fires only when the local lookup truly misses or is ambiguous. The
- *     formatter shape and substitution rules are unchanged.
+ * History: this file used to assert `formatBareNameDeprecation` — Phase 2
+ * renamed the export to `formatBareNameError` and changed the shape from
+ * yellow `⚠ deprecation` to red `error:`. See issue #759.
  */
 import { describe, test, expect } from "bun:test";
 import { formatBareNameError } from "../src/commands/shared/comm-send";
 
-describe("#759 Phase 2 + #1136 — bare-name federation-friendly error", () => {
+describe("#759 Phase 2 — bare-name hard rejection", () => {
   test("error marker, removal phrase, and node-prefix demand are all present", () => {
     const out = formatBareNameError("mawjs-oracle");
     expect(out).toContain("error");
@@ -48,24 +46,6 @@ describe("#759 Phase 2 + #1136 — bare-name federation-friendly error", () => {
     const out = formatBareNameError("weird name with spaces");
     expect(out).toContain("local:weird name with spaces");
     expect(out).toContain("maw locate weird name with spaces");
-  });
-
-  test("localNode parameter substitutes into the `this node:` hint (#1246)", () => {
-    // When the caller passes the current node name, the hint uses it instead
-    // of the literal "local" so the suggested command actually resolves.
-    const out = formatBareNameError("mother", "m5");
-    expect(out).toContain("maw hey m5:mother");
-    expect(out).not.toContain("maw hey local:mother");
-    // Cross-node placeholder stays the same — `<node>:<session>:` is still
-    // a literal users learn to expand via `maw locate`.
-    expect(out).toContain("maw hey <node>:<session>:mother");
-  });
-
-  test("localNode defaults to 'local' for backward compat (#1246)", () => {
-    // No second arg → falls back to the original "local:" form. Callers in
-    // the codebase always pass config.node; this is just defense.
-    const out = formatBareNameError("mother");
-    expect(out).toContain("maw hey local:mother");
   });
 
   test("output shape (ANSI-stripped) matches the issue example", () => {

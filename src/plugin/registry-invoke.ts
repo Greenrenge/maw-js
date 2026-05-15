@@ -56,9 +56,7 @@ export async function invokePlugin(
     // #388.1 — intercept anywhere in args, not just args[0], so
     // `maw <plugin> <sub> --help` shows help instead of running the
     // subcommand (e.g. `maw oracle scan --help`, `maw ui install --help`).
-    // #1116 — plugins with cli.richHelp opt out of interception so their
-    // own handler can return detailed subcommand listings.
-    if (args.some(a => a === "-h" || a === "--help" || a === "-help") && !m.cli?.richHelp) {
+    if (args.some(a => a === "-h" || a === "--help" || a === "-help")) {
       const lines: string[] = [];
       lines.push(`${m.name} v${m.version}`);
       if (m.description) lines.push(`  ${m.description}`);
@@ -96,6 +94,9 @@ export async function invokePlugin(
   // honest behavior for Phase A (no sandbox).
   if (plugin.kind === "ts" && plugin.entryPath) {
     try {
+      // Bun canary on macOS can lose later dynamic imports that pass through
+      // the /var → /private/var symlink. Canonicalize to a file URL so
+      // temporary TS plugin modules load deterministically across runners.
       const mod = await import(pathToFileURL(realpathSync(plugin.entryPath)).href);
       const handler = mod.default || mod.handler;
       if (!handler) return { ok: false, error: "TS plugin has no default export or handler" };

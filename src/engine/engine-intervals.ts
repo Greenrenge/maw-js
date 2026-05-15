@@ -8,7 +8,8 @@ import type { Session } from "../core/transport/ssh";
 import type { TransportRouter } from "../core/transport/transport";
 import type { StatusDetector } from "./status";
 import { tmux } from "../core/transport/tmux";
-import type { SessionInfo } from "./types";
+
+type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
 export interface EngineIntervalState {
   clients: Set<MawWS>;

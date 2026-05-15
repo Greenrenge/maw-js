@@ -48,14 +48,7 @@ export const GhqDiscovery: RepoDiscovery = {
 
   async findBySuffix(suffix: string): Promise<string | null> {
     const lower = literalize(suffix).toLowerCase();
-    const all = (await this.list()).filter((p) => p.toLowerCase().endsWith(lower));
-    if (all.length > 1) {
-      // #1104 — multiple orgs have the same repo name; caller should use
-      // an org-qualified suffix to disambiguate.
-      console.error(`\x1b[33m⚠\x1b[0m ghq: ${all.length} repos match '${suffix}':`);
-      for (const p of all) console.error(`\x1b[90m    • ${p}\x1b[0m`);
-    }
-    return all[0] ?? null;
+    return (await this.list()).find((p) => p.toLowerCase().endsWith(lower)) ?? null;
   },
 
   findBySuffixSync(suffix: string): string | null {

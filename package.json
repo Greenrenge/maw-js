@@ -1,6 +1,6 @@
 {
   "name": "maw-js",
-  "version": "26.5.15-alpha.2018",
+  "version": "26.5.16-alpha.2033",
   "license": "BUSL-1.1",
   "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
@@ -11,7 +11,7 @@
     "maw": "./src/cli.ts"
   },
   "scripts": {
-    "build": "bun build src/cli.ts --outfile dist/maw --target=bun --minify",
+    "build": "bun build src/cli.ts --outfile dist/maw --target=bun --minify --external @eclipse-zenoh/zenoh-ts",
     "deploy": "bun run build && bun src/cli.ts fleet sync && pm2 restart maw",
     "dev": "pm2 start ecosystem.config.cjs",
     "test": "MAW_TEST_MODE=1 bun test test/ --path-ignore-patterns '**/test/isolated/**' --path-ignore-patterns '**/zz-mock-tmux-smoke*' --path-ignore-patterns '**/agents/**'",
@@ -30,6 +30,7 @@
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
+    "@eclipse-zenoh/zenoh-ts": "^1.9.0",
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
     "@monaco-editor/react": "^4.7.0",
@@ -78,10 +79,7 @@
     "./core/matcher/resolve-target": "./src/core/matcher/resolve-target.ts",
     "./core/paths": "./src/core/paths.ts",
     "./core/transport/ssh": "./src/core/transport/ssh.ts",
-    "./core/transport/ssh-attach": "./src/core/transport/ssh-attach.ts",
-    "./core/transport/peers": "./src/core/transport/peers.ts",
     "./core/transport/tmux": "./src/core/transport/tmux.ts",
-    "./worktrees": "./src/core/fleet/worktrees.ts",
     "./core/util/terminal": "./src/core/util/terminal.ts",
     "./core/util/user-error": "./src/core/util/user-error.ts",
     "./lib/artifacts": "./src/lib/artifacts.ts",
@@ -90,25 +88,23 @@
     "./lib/schemas": "./src/lib/schemas.ts",
     "./lib/sleep": "./src/lib/sleep.ts",
     "./lib/sparkline": "./src/lib/sparkline.ts",
-    "./commands/plugins/fleet/fleet-adopt": "./src/commands/plugins/fleet/fleet-adopt.ts",
     "./commands/shared/comm": "./src/commands/shared/comm.ts",
     "./commands/shared/comm-send": "./src/commands/shared/comm-send.ts",
     "./commands/shared/done": "./src/commands/shared/done.ts",
-    "./commands/shared/federation": "./src/commands/shared/federation.ts",
-    "./commands/shared/federation-sync": "./src/commands/shared/federation-sync.ts",
     "./commands/shared/fleet": "./src/commands/shared/fleet.ts",
     "./commands/shared/fleet-doctor-fixer": "./src/commands/shared/fleet-doctor-fixer.ts",
     "./commands/shared/fleet-load": "./src/commands/shared/fleet-load.ts",
-    "./commands/shared/pulse": "./src/commands/shared/pulse.ts",
     "./commands/shared/queue-store": "./src/commands/shared/queue-store.ts",
     "./commands/shared/scan-signals": "./src/commands/shared/scan-signals.ts",
+    "./commands/shared/federation": "./src/commands/shared/federation.ts",
+    "./commands/shared/federation-sync": "./src/commands/shared/federation-sync.ts",
+    "./commands/shared/pulse": "./src/commands/shared/pulse.ts",
     "./commands/shared/should-auto-wake": "./src/commands/shared/should-auto-wake.ts",
     "./commands/shared/triggers": "./src/commands/shared/triggers.ts",
     "./commands/shared/wake": "./src/commands/shared/wake.ts",
     "./commands/shared/wake-cmd": "./src/commands/shared/wake-cmd.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
-    "./commands/shared/workspace": "./src/commands/shared/workspace.ts",
-    "./test/helpers/mock-config": "./test/helpers/mock-config.ts"
+    "./commands/shared/workspace": "./src/commands/shared/workspace.ts"
   }
 }

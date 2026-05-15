@@ -25,7 +25,6 @@ import { join, resolve, basename } from "path";
 import { spawnSync } from "child_process";
 import { parseFlags } from "../../../cli/parse-args";
 import { inferCapabilitiesAst } from "../../../plugin/cap-infer-ast";
-import { formatError } from "../../../lib/format-error";
 
 // ─── Capability inference ────────────────────────────────────────────────────
 
@@ -132,9 +131,8 @@ async function runWatch(dir: string, emitTypes = false): Promise<void> {
     building = true;
     try {
       await runBuild(dir, emitTypes);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(formatError(`rebuild failed: ${msg}`));
+    } catch (e: any) {
+      console.error(`\x1b[31m✗\x1b[0m rebuild failed: ${e.message}`);
     } finally {
       building = false;
     }
@@ -154,12 +152,11 @@ async function runBuild(dir: string, emitTypes = false): Promise<BuildSummary> {
     throw new Error(`no plugin.json in ${dir}`);
   }
 
-  let manifest: Record<string, unknown>;
+  let manifest: any;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`invalid plugin.json: ${msg}`);
+  } catch (e: any) {
+    throw new Error(`invalid plugin.json: ${e.message}`);
   }
 
   // --- Target gate (Phase A: js only; wasm → Phase C message) ---

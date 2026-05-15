@@ -59,13 +59,8 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
     return;
   }
 
-  interface PluginTierGroup {
-    label: PluginTier;
-    plugins: LoadedPlugin[];
-  }
-
   // Group by effective tier (#675 — explicit tier field, fallback to weight-inferred)
-  const tiers: PluginTierGroup[] = [
+  const tiers: { label: PluginTier; plugins: LoadedPlugin[] }[] = [
     { label: "core", plugins: [] },
     { label: "standard", plugins: [] },
     { label: "extra", plugins: [] },

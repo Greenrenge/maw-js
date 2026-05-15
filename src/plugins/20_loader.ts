@@ -17,11 +17,7 @@ async function loadWasmPlugin(system: PluginSystem, path: string, filename: stri
     const MAX_PAGES = 256;
     let instance: WebAssembly.Instance;
     try { instance = new WebAssembly.Instance(mod); }
-    catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[plugin] wasm failed: ${filename}: ${msg.slice(0, 120)}`);
-      return;
-    }
+    catch (err: any) { console.error(`[plugin] wasm failed: ${filename}: ${err.message?.slice(0, 120)}`); return; }
 
     const memory = instance.exports.memory as WebAssembly.Memory;
     const handle = instance.exports.handle as (ptr: number, len: number) => void;
@@ -40,9 +36,8 @@ async function loadWasmPlugin(system: PluginSystem, path: string, filename: stri
           if (json.length > memory.buffer.byteLength) return;
           new Uint8Array(memory.buffer).set(json, 0);
           handle(0, json.length);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[plugin] wasm trap in ${filename}: ${msg.slice(0, 120)}`);
+        } catch (err: any) {
+          console.error(`[plugin] wasm trap in ${filename}: ${(err.message || err).slice(0, 120)}`);
         }
       });
     }, source, filename);

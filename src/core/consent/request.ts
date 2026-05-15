@@ -93,9 +93,8 @@ export async function requestConsent(req: ConsentRequest): Promise<ConsentResult
       if (!res.ok) {
         return { ok: false, requestId: id, error: `peer rejected request: HTTP ${res.status}` };
       }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "unknown";
-      return { ok: false, requestId: id, error: `network error contacting peer: ${message}` };
+    } catch (e: any) {
+      return { ok: false, requestId: id, error: `network error contacting peer: ${e?.message ?? "unknown"}` };
     }
   }
 

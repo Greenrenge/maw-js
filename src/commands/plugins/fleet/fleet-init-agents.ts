@@ -41,13 +41,11 @@ export async function cmdFleetInitAgents(
       for (const w of sess.windows || []) {
         if (!w?.name) continue;
         localScanned++;
-        const wn = w.name.toLowerCase();
-        if (!(wn in proposed)) proposed[wn] = "local";
+        if (!(w.name in proposed)) proposed[w.name] = "local";
       }
     }
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${msg}`);
+  } catch (e: any) {
+    console.log(`  \x1b[33m⚠\x1b[0m fleet scan failed: ${e.message}`);
   }
 
   // 2. namedPeers → fetch {url}/api/config and adopt their "local" agents
@@ -67,14 +65,12 @@ export async function cmdFleetInitAgents(
       for (const [name, host] of Object.entries(peerAgents)) {
         // Only adopt entries the peer owns (host === "local") — skip their
         // view of other peers, which may be stale on their side too.
-        const lname = name.toLowerCase();
-        if (host === "local" && !(lname in proposed)) {
-          proposed[lname] = peer.name;
+        if (host === "local" && !(name in proposed)) {
+          proposed[name] = peer.name;
         }
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "unknown";
-      peersFailed.push(`${peer.name} (${msg})`);
+    } catch (e: any) {
+      peersFailed.push(`${peer.name} (${e?.message || "unknown"})`);
     }
   }
 
