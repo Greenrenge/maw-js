@@ -48,7 +48,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     try { rmSync(workDir, { recursive: true, force: true }); } catch {}
   });
 
-  /** Helper: create a bundled plugin dir that runBootstrap will recognize. */
+  /** Helper: create a bundled plugin dir. Only manifest dirs are valid plugin packages. */
   function makeBundledPlugin(name: string, kind: "manifest" | "index" = "manifest") {
     const dir = join(bundledDir, name);
     mkdirSync(dir, { recursive: true });
@@ -71,7 +71,7 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
 
   it("empty pluginDir → all bundled plugins symlinked (first install)", async () => {
     makeBundledPlugin("alpha");
-    makeBundledPlugin("beta", "index");
+    makeBundledPlugin("beta");
     makeBundledPlugin("gamma");
 
     await runBootstrap(pluginDir, srcDir);
@@ -96,6 +96,33 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(readlinkSync(join(pluginDir, "tile"))).toBe(join(bundledDir, "tile"));
     expect(readlinkSync(join(pluginDir, "wake"))).toBe(join(vendoredDir, "wake"));
     expect(readlinkSync(join(pluginDir, "attach"))).toBe(join(vendoredDir, "attach"));
+  });
+
+  it("#1484 — incomplete in-tree plugin dir does not block vendored manifest plugin", async () => {
+    makeBundledPlugin("team", "index"); // legacy/incomplete in-tree team surface
+    const vendoredTeam = makeVendoredPlugin("team");
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(readdirSync(pluginDir).sort()).toEqual(["team"]);
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
+  });
+
+  it("#1484 — existing symlink to non-manifest plugin dir is healed to vendored plugin", async () => {
+    const incompleteTeam = makeBundledPlugin("team", "index");
+    const vendoredTeam = makeVendoredPlugin("team");
+
+    mkdirSync(pluginDir, { recursive: true });
+    symlinkSync(incompleteTeam, join(pluginDir, "team"));
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(pluginDir, "team"))).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(incompleteTeam);
+
+    await runBootstrap(pluginDir, srcDir);
+
+    expect(lstatSync(join(pluginDir, "team")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(pluginDir, "team"))).toBe(vendoredTeam);
   });
 
   it("#1339 — user plugin dirs override vendored plugin names", async () => {
@@ -166,11 +193,12 @@ describe("runBootstrap — #817 idempotent bundled-plugin symlinks", () => {
     expect(existsSync(join(userDir, "marker.txt"))).toBe(true);
   });
 
-  it("non-plugin dirs (no plugin.json, no index.ts) are skipped", async () => {
+  it("non-plugin dirs (no plugin.json) are skipped even when they have index.ts", async () => {
     makeBundledPlugin("alpha");
     // garbage dir under bundled — not a plugin
     mkdirSync(join(bundledDir, "_shared"), { recursive: true });
     writeFileSync(join(bundledDir, "_shared", "util.ts"), "// helper\n");
+    makeBundledPlugin("index-only", "index");
 
     await runBootstrap(pluginDir, srcDir);
 
