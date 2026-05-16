@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T19:37:02.881Z
+Generated: 2026-05-16T19:41:57.497Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **14.7%** (7443/50740)
-Overall function coverage: **56.0%** (788/1408)
+Overall line coverage: **14.8%** (7490/50723)
+Overall function coverage: **56.9%** (803/1412)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **56.0%** (788/1408)
 | other | 174 | 98 | 18.7% (2699/14401) | 57.6% (278/483) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 3 | 28.8% (781/2710) | 48.6% (134/276) | n/a (0/0) |
+| transport | 28 | 3 | 30.7% (828/2693) | 53.2% (149/280) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -102,6 +102,7 @@ Overall function coverage: **56.0%** (788/1408)
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
+| transport | `src/transports/http.ts` | 100.0% | 100.0% |
 | transport | `src/transports/hub-config.ts` | 90.0% | 100.0% |
 | transport | `src/transports/hub.ts` | 100.0% | 100.0% |
 | transport | `src/transports/lora.ts` | 100.0% | 90.9% |
