@@ -33,7 +33,8 @@ mock.module(BOTH_ENTRY, () => ({ onGate: gateFn, onEvent: onFn }));
 // --- Minimal PluginSystem stand-in (avoids pulling in full dependency chain) ---
 
 function makeSystem() {
-  const hookCalls: Record<string, Array<[string, Function]>> = {
+  let currentName: string | undefined;
+  const hookCalls: Record<string, Array<[string, Function, string | undefined]>> = {
     gate: [],
     filter: [],
     on: [],
@@ -42,10 +43,15 @@ function makeSystem() {
   const registered: Array<{ name: string; type: string }> = [];
   return {
     hooks: {
-      gate: (ev: string, fn: Function) => hookCalls.gate.push([ev, fn]),
-      filter: (ev: string, fn: Function) => hookCalls.filter.push([ev, fn]),
-      on: (ev: string, fn: Function) => hookCalls.on.push([ev, fn]),
-      late: (ev: string, fn: Function) => hookCalls.late.push([ev, fn]),
+      gate: (ev: string, fn: Function) => hookCalls.gate.push([ev, fn, currentName]),
+      filter: (ev: string, fn: Function) => hookCalls.filter.push([ev, fn, currentName]),
+      on: (ev: string, fn: Function) => hookCalls.on.push([ev, fn, currentName]),
+      late: (ev: string, fn: Function) => hookCalls.late.push([ev, fn, currentName]),
+    },
+    withPluginContext: (name: string, _scope: string, fn: Function) => {
+      const prev = currentName;
+      currentName = name;
+      try { return fn(); } finally { currentName = prev; }
     },
     register: (name: string, type: string) => registered.push({ name, type }),
     _hookCalls: hookCalls,
@@ -106,6 +112,7 @@ describe("registerManifestHooks", () => {
     expect(count).toBe(1);
     expect(system._hookCalls.on).toHaveLength(1);
     expect(system._hookCalls.on[0][0]).toBe("feed:update");
+    expect(system._hookCalls.on[0][2]).toBe("on-plugin");
   });
 
   test("WASM plugin is skipped (only TS supported)", async () => {

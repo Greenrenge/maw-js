@@ -6,6 +6,7 @@ import {
   clearEnginePluginRegistrations,
   dispatchEnginePluginEvent,
   findEnginePluginRegistration,
+  hasEnginePluginEventSink,
   listEnginePluginRegistrations,
   pollEnginePluginHealth,
   proxyEnginePluginRequest,
@@ -45,6 +46,22 @@ describe("engine plugin registry (#1566)", () => {
     expect(findEnginePluginRegistration("/api/hey-ledger/admin/users")?.plugin).toBe(nested.plugin);
     expect(findEnginePluginRegistration("/api/hey-ledger/messages")?.plugin).toBe(root.plugin);
     expect(findEnginePluginRegistration("/api/_engine/register")).toBeUndefined();
+  });
+
+  test("reports active event sinks by plugin and event", () => {
+    expect(hasEnginePluginEventSink("messages", "MessageSend")).toBe(false);
+    registerEnginePlugin({
+      plugin: "messages",
+      prefix: "/api/message-ledger",
+      upstream: "http://127.0.0.1:43210",
+      events: ["MessageSend", "MessageDeliver"],
+      eventPath: "/events",
+    });
+
+    expect(hasEnginePluginEventSink("messages", "MessageSend")).toBe(true);
+    expect(hasEnginePluginEventSink("messages", "MessageFail")).toBe(false);
+    expect(hasEnginePluginEventSink("other", "MessageSend")).toBe(false);
+    expect(hasEnginePluginEventSink(undefined, "MessageSend")).toBe(false);
   });
 
   test("rejects unsafe prefixes and non-loopback upstreams", () => {
