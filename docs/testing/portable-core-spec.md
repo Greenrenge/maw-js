@@ -14,7 +14,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | --- | --- | --- | --- |
 | `src/core/matcher/resolve-target.ts` | Pure logic | Ready | First fixture set added in `test/spec/matcher-resolve-target.fixtures.json`. Covers exact, suffix, prefix/middle, substring hints, numeric fleet-session guard, and worktree behavior. |
 | `src/core/matcher/normalize-target.ts` | Pure logic | Ready | Fixture set added in `test/spec/normalize-target.fixtures.json`. Covers whitespace trimming, trailing slash cleanup, trailing `/.git` cleanup, and non-normalized interior/case behavior. |
-| `scripts/calver.ts` | Mostly pure version arithmetic plus git/tag IO | Extract first | Move/calibrate pure HHMM/version arithmetic behind fixtureable helpers before port validation. |
+| `scripts/calver.ts` | Pure version arithmetic plus git/tag/package IO | Ready | Fixture set added in `test/spec/calver.fixtures.json`. Covers date base, HHMM stamp, tag/package suffix parsing, effective base, ghost-date guard, next-calendar base, and full `computeVersion` outcomes; git/package IO stays platform-layer. |
 | Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready | Fixture set added in `test/spec/plugin-policy.fixtures.json`. Covers tier constants, weight boundaries, default-active groups, and migration keys; profile migration tests stay platform-specific. |
 | Routing aliases (`src/core/routing.ts`) | Mixed pure resolver + config/tmux adapters | Extract first | Fixture the input graph (`localNode`, sessions, peers, agents) and expected route/error once IO adapters are separated. |
 | Worktree scan (`src/core/fleet/worktrees-scan.ts`) | Mixed classification + `hostExec`/filesystem | Extract first | The #1553 matching rule is portable; shell/git discovery is platform layer. |
@@ -87,6 +87,32 @@ plugin groups with their migration keys:
 A port should preserve the same tier boundaries (`<10`, `<50`, `>=50`) and the
 same explicit default-active plugin policy. Filesystem-backed profile migration
 and plugin discovery remain platform-layer tests.
+
+
+## Fourth spec: calver arithmetic
+
+The fourth portable spec captures the pure CalVer behavior behind alpha/beta
+suffixes and anti-downgrade rules:
+
+- Fixture data: `test/spec/calver.fixtures.json`
+- TS runner: `test/spec/calver.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON represents dates as local-naive parts so another language can construct
+an equivalent wall-clock timestamp without inheriting JavaScript object details:
+
+```json
+{
+  "name": "post-midnight package downgrade rolls base forward",
+  "args": { "stable": false, "now": { "year": 2026, "month": 5, "day": 16, "hour": 0, "minute": 27 } },
+  "packageVersion": "26.5.16-alpha.2356",
+  "expected": "26.5.17-alpha.27"
+}
+```
+
+A port should preserve the HHMM invariant: suffixes are wall-clock stamps between
+`0` and `2359`; when a same-base suffix would downgrade after midnight, roll the
+CalVer base forward instead of emitting monotonic values such as `2360`.
 
 ## Boundaries
 
