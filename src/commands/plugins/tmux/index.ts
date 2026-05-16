@@ -69,7 +69,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux ls [--all|-a] [--compact|-c] [-v|--verbose] [--roster] [--json]");
         console.log("  default:    panes in current session only");
         console.log("  --all:      panes across every session");
-        console.log("  --compact:  one line per session (`maw ls -c` for top-level compact)");
+        console.log("  --compact:  one line per session (`maw ls` / `maw ls -c` top-level)");
         console.log("  -v:         full per-pane detail");
         console.log("  --roster:   include sleeping oracles from ghq");
         return { ok: true, output: logs.join("\n") || undefined };

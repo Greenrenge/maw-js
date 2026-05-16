@@ -47,7 +47,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — split current pane and attach",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (detail default, -c compact, -a roster)",
+  ls: "List sessions (compact default, -v detail, -a roster)",
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
@@ -73,9 +73,9 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
-  //   maw ls      → full per-pane detail (#1556)
-  //   maw ls -v   → no-op alias for muscle memory (same as default)
-  //   maw ls -c   → compact live-session summary
+  //   maw ls      → compact live-session summary (#1613)
+  //   maw ls -v   → full per-pane detail
+  //   maw ls -c   → explicit compact alias
   //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
   ls: { kind: "direct", handler: "cmdLs" },
   scaffold: ["bud", "--scaffold-only"],
@@ -170,8 +170,9 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  * help-text rendering, but the path is no longer used at runtime —
  * dispatch is by `exportName` against a static handler map.
  *
- * For `ls`, detail is the default; `-v` is a no-op alias, `-c` returns the
- * compact summary, and `-a` preserves the legacy compact+roster behavior.
+ * For `ls`, compact summary is the default; `-v` returns full per-pane detail,
+ * `-c` is an explicit compact alias, and `-a` preserves the legacy
+ * compact+roster behavior.
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
 export function parseLsAliasOpts(argv: string[]) {
@@ -183,16 +184,16 @@ export function parseLsAliasOpts(argv: string[]) {
     "--json": Boolean,
   }, 0);
 
-  // #1556 — Nat's UX preference: detailed per-pane output is the default,
-  // `-v` stays accepted as a no-op muscle-memory alias, and `-c/--compact`
-  // is the opt-in condensed summary. `-a/--all` historically meant
-  // "include sleeping roster" on top-level `maw ls`; keep that legacy shape
-  // by rendering the compact roster view.
-  const compact = !!flags["--compact"] || !!flags["--all"];
+  // #1613 — restore the original compact default. `-v/--verbose` opts into
+  // per-pane detail; `-c/--compact` is an explicit alias for the default.
+  // `-a/--all` historically meant "include sleeping roster" on top-level
+  // `maw ls`; keep that legacy shape by rendering the compact roster view.
+  const verbose = !!flags["--verbose"] && !flags["--compact"] && !flags["--all"];
+  const compact = !verbose || !!flags["--compact"] || !!flags["--all"];
   return {
     all: true,
     compact,
-    verbose: !compact,
+    verbose,
     roster: !!flags["--all"],
     json: !!flags["--json"],
   };
