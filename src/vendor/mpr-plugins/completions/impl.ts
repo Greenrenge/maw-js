@@ -12,7 +12,7 @@ const CORE_COMMANDS = [
 
 const TOP_ALIASES = [
   "a", "kill", "split", "open", "close", "t", "layout", "zoom",
-  "panes", "cleanup", "tile", "bring", "b", "ls", "wake", "new", "preflight",
+  "panes", "cleanup", "tile", "bring", "b", "ls", "wake", "new", "preflight", "snapshots",
 ];
 
 const HELP = `usage: maw completions <commands|oracles|windows|zsh|bash|fish>
@@ -125,6 +125,9 @@ _maw() {
         plugin|plugins)
           _values 'plugin action' ls list enable disable info standard full lean nuke
           ;;
+        team|t)
+          _values 'team action' create new plan preflight load spawn-from spawn bring send msg shutdown down resume lives list ls status add tasks done assign delete rm invite oracle-invite oracle-remove members enter
+          ;;
         serve)
           _message 'port (default: 3456)'
           ;;
@@ -164,6 +167,9 @@ _maw_complete() {
     plugin|plugins)
       words="ls list enable disable info standard full lean nuke"
       ;;
+    team|t)
+      words="create new plan preflight load spawn-from spawn bring send msg shutdown down resume lives list ls status add tasks done assign delete rm invite oracle-invite oracle-remove members enter"
+      ;;
     *)
       words=""
       ;;
@@ -176,7 +182,8 @@ const FISH_COMPLETION = `# maw fish completion
 complete -c maw -f -n '__fish_use_subcommand' -a '(maw completions commands 2>/dev/null)'
 complete -c maw -f -n '__fish_seen_subcommand_from wake about info' -a '(maw completions oracles 2>/dev/null)'
 complete -c maw -f -n '__fish_seen_subcommand_from peek see a attach bring b hey send tell done finish' -a '(maw completions windows 2>/dev/null)'
-complete -c maw -f -n '__fish_seen_subcommand_from completions' -a 'commands oracles windows zsh bash fish --help'`;
+complete -c maw -f -n '__fish_seen_subcommand_from completions' -a 'commands oracles windows zsh bash fish --help'
+complete -c maw -f -n '__fish_seen_subcommand_from team t' -a 'create new plan preflight load spawn-from spawn bring send msg shutdown down resume lives list ls status add tasks done assign delete rm invite oracle-invite oracle-remove members enter'`;
 
 export async function cmdCompletions(sub?: string) {
   const mode = (sub ?? "--help").toLowerCase();

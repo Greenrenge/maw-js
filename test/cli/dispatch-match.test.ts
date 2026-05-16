@@ -330,15 +330,15 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(out).toBeNull();
   });
 
-  test("`wake neo --task X` → direct-handler form with cmdWake handler", () => {
-    const out = resolveTopAlias(["wake", "neo", "--task", "X"]);
+  test("`wake neo --session project --task X` → direct-handler form with cmdWake handler", () => {
+    const out = resolveTopAlias(["wake", "neo", "--session", "project", "--task", "X"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
     if (out!.kind === "direct") {
       expect(out!.handler).toContain("wake-cmd");
       expect(out!.handler).toContain("cmdWake");
       // argv passed to handler is everything AFTER the verb
-      expect(out!.argv).toEqual(["neo", "--task", "X"]);
+      expect(out!.argv).toEqual(["neo", "--session", "project", "--task", "X"]);
     }
   });
 
@@ -355,15 +355,15 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.awake).toContain("does not trigger /awaken");
   });
 
-  test("`new neo --no-attach` → direct-handler cmdNew friendly creation door", () => {
-    const out = resolveTopAlias(["new", "neo", "--no-attach"]);
+  test("`new workspace --no-attach` → direct-handler cmdNew workspace session factory", () => {
+    const out = resolveTopAlias(["new", "workspace", "--no-attach"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("direct");
     if (out!.kind === "direct") {
       expect(out!.handler).toContain("cmdNew");
-      expect(out!.argv).toEqual(["neo", "--no-attach"]);
+      expect(out!.argv).toEqual(["workspace", "--no-attach"]);
     }
-    expect(ALIAS_DESCRIPTIONS.new).toContain("Create a new oracle");
+    expect(ALIAS_DESCRIPTIONS.new).toContain("workspace session");
   });
 
   test("`scaffold neo` → bud --scaffold-only argv rewrite", () => {

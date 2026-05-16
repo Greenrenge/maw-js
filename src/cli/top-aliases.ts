@@ -51,7 +51,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
-  new: "Create a new oracle (friendly door for awaken)",
+  new: "Create a plain tmux workspace session",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
   snapshots: "List and inspect fleet recovery snapshots",
 };
@@ -150,13 +150,14 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
-    write("  Use `maw awaken` for the awakening ritual; use `maw new` for the creation door.");
+    write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
   } else {
     write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
   }
+  write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
   write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
@@ -223,6 +224,7 @@ export async function invokeDirectHandler(
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
+      "--session": String,
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
       "--fresh": Boolean,
@@ -249,6 +251,7 @@ export async function invokeDirectHandler(
     const opts: {
       task?: string;
       wt?: string;
+      session?: string;
       prompt?: string;
       incubate?: string;
       fresh?: boolean;
@@ -266,6 +269,7 @@ export async function invokeDirectHandler(
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
+    if (flags["--session"]) opts.session = flags["--session"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
