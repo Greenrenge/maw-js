@@ -17,7 +17,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | `scripts/calver.ts` | Pure version arithmetic plus git/tag/package IO | Ready | Fixture set added in `test/spec/calver.fixtures.json`. Covers date base, HHMM stamp, tag/package suffix parsing, effective base, ghost-date guard, next-calendar base, and full `computeVersion` outcomes; git/package IO stays platform-layer. |
 | Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready | Fixture set added in `test/spec/plugin-policy.fixtures.json`. Covers tier constants, weight boundaries, default-active groups, and migration keys; profile migration tests stay platform-specific. |
 | Routing aliases (`src/core/routing.ts`) | Pure resolver over config + session graph, with manifest lookup fallback | Ready | Fixture set added in `test/spec/routing.fixtures.json`. Covers local/session, node/self/peer, legacy peer URL fallback, source filtering, and #1565 session-alias guards; manifest cache lookup remains a best-effort platform fallback. |
-| Worktree scan (`src/core/fleet/worktrees-scan.ts`) | Mixed classification + `hostExec`/filesystem | Extract first | The #1553 matching rule is portable; shell/git discovery is platform layer. |
+| Worktree window matching (`src/core/fleet/worktree-window-match.ts`) | Pure matcher extracted from filesystem scan | Ready | Fixture set added in `test/spec/worktree-window-match.fixtures.json`. Covers parent-session scoping, numeric session names, global fallback, same-name dedupe, #1553 full-name-first matching, ambiguity, and none results; filesystem/git scan stays platform-layer. |
 | Transport router (`src/core/transport/transport.ts`) | Pure orchestration over transport interface | Ready-ish | Fixtures can cover route selection/failover if represented as deterministic transport outcomes. |
 
 ## First spec: matcher resolve-target
@@ -140,6 +140,37 @@ A port should preserve local-first routing, explicit `node:agent` routing,
 legacy peer URL fallback, local-only source filtering, and the #1565 invariant:
 fleet/session aliases must fail loudly instead of silently defaulting to a
 multi-window session's first window.
+
+
+## Sixth spec: worktree window matching
+
+The sixth portable spec captures the pure worktree-to-window binding policy used
+by `maw ls` / fleet worktree scans:
+
+- Fixture data: `test/spec/worktree-window-match.fixtures.json`
+- TS runner: `test/spec/worktree-window-match.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON includes the parent repo name, worktree name, session/window graph, and
+expected binding result:
+
+```json
+{
+  "name": "full worktree name wins before stripped tile suffix fallback",
+  "input": {
+    "mainRepoName": "mawjs-oracle",
+    "wtName": "6-tile-1",
+    "sessions": [
+      { "name": "54-mawjs", "windows": [{ "index": 2, "name": "mawjs-6-tile-1", "active": false }] }
+    ]
+  },
+  "expected": { "kind": "bound", "window": "mawjs-6-tile-1" }
+}
+```
+
+A port should preserve the #823/#935/#1553 invariants: dedupe same-named windows,
+try parent oracle sessions first, try full worktree names before stripped numeric
+suffixes, and surface ambiguity instead of guessing a binding.
 
 ## Boundaries
 
