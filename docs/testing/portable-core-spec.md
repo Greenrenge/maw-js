@@ -13,7 +13,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | Candidate | Current status | Fixture suitability | Notes |
 | --- | --- | --- | --- |
 | `src/core/matcher/resolve-target.ts` | Pure logic | Ready | First fixture set added in `test/spec/matcher-resolve-target.fixtures.json`. Covers exact, suffix, prefix/middle, substring hints, numeric fleet-session guard, and worktree behavior. |
-| `src/core/matcher/normalize-target.ts` | Pure logic | Ready | Small next candidate; can be fixture-backed without platform dependencies. |
+| `src/core/matcher/normalize-target.ts` | Pure logic | Ready | Fixture set added in `test/spec/normalize-target.fixtures.json`. Covers whitespace trimming, trailing slash cleanup, trailing `/.git` cleanup, and non-normalized interior/case behavior. |
 | `scripts/calver.ts` | Mostly pure version arithmetic plus git/tag IO | Extract first | Move/calibrate pure HHMM/version arithmetic behind fixtureable helpers before port validation. |
 | Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready for policy fixtures | `src/plugin/default-active.ts` and `src/plugin/tier.ts` are good candidates; profile migration tests stay platform-specific. |
 | Routing aliases (`src/core/routing.ts`) | Mixed pure resolver + config/tmux adapters | Extract first | Fixture the input graph (`localNode`, sessions, peers, agents) and expected route/error once IO adapters are separated. |
@@ -40,6 +40,28 @@ The JSON intentionally records only string item names and simple expected shapes
 ```
 
 A non-TypeScript port should implement the same resolver contract and assert the same JSON produces the same portable result shape.
+
+## Second spec: matcher normalize-target
+
+The second portable spec covers the target-name cleanup helper:
+
+- Fixture data: `test/spec/normalize-target.fixtures.json`
+- TS runner: `test/spec/normalize-target.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON records only raw user input strings and normalized output strings:
+
+```json
+{
+  "name": "trailing .git directory followed by slash is stripped",
+  "input": "token-oracle/.git/",
+  "expected": "token-oracle"
+}
+```
+
+A port should preserve the same limited scope: trim surrounding whitespace,
+strip trailing slashes and terminal `/.git`, but do not lowercase, parse URLs,
+or mutate interior characters.
 
 ## Boundaries
 
