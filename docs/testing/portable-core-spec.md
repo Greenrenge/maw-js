@@ -18,7 +18,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready | Fixture set added in `test/spec/plugin-policy.fixtures.json`. Covers tier constants, weight boundaries, default-active groups, and migration keys; profile migration tests stay platform-specific. |
 | Routing aliases (`src/core/routing.ts`) | Pure resolver over config + session graph, with manifest lookup fallback | Ready | Fixture set added in `test/spec/routing.fixtures.json`. Covers local/session, node/self/peer, legacy peer URL fallback, source filtering, and #1565 session-alias guards; manifest cache lookup remains a best-effort platform fallback. |
 | Worktree window matching (`src/core/fleet/worktree-window-match.ts`) | Pure matcher extracted from filesystem scan | Ready | Fixture set added in `test/spec/worktree-window-match.fixtures.json`. Covers parent-session scoping, numeric session names, global fallback, same-name dedupe, #1553 full-name-first matching, ambiguity, and none results; filesystem/git scan stays platform-layer. |
-| Transport router (`src/core/transport/transport.ts`) | Pure orchestration over transport interface | Ready-ish | Fixtures can cover route selection/failover if represented as deterministic transport outcomes. |
+| Transport router (`src/core/transport/transport.ts`) | Pure orchestration over transport interface | Ready | Fixture set added in `test/spec/transport-router.fixtures.json`. Covers failure classification, connected/reachable filtering, send-false fallback, retryable failover, fatal stop, and explicit unreachable results; concrete transports stay platform-layer. |
 
 ## First spec: matcher resolve-target
 
@@ -171,6 +171,37 @@ expected binding result:
 A port should preserve the #823/#935/#1553 invariants: dedupe same-named windows,
 try parent oracle sessions first, try full worktree names before stripped numeric
 suffixes, and surface ambiguity instead of guessing a binding.
+
+
+## Seventh spec: transport router
+
+The seventh portable spec captures transport-router decisions without importing
+tmux, HTTP, MQTT, or Scout implementations:
+
+- Fixture data: `test/spec/transport-router.fixtures.json`
+- TS runner: `test/spec/transport-router.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON describes deterministic fake transports and expected router outcomes:
+
+```json
+{
+  "name": "retryable throw falls through",
+  "kind": "send",
+  "transports": [
+    { "name": "mqtt", "send": { "type": "throw", "error": "timeout" } },
+    { "name": "http" }
+  ],
+  "expected": {
+    "result": { "ok": true, "via": "http", "retryable": false },
+    "sent": ["mqtt", "http"]
+  }
+}
+```
+
+A port should preserve transport priority order, skip disconnected/unreachable
+transports, continue after retryable failures or `false` sends, stop on fatal
+failures, and return an explicit unreachable result when no route can deliver.
 
 ## Boundaries
 
