@@ -47,7 +47,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — split current pane and attach",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (compact default, -v detail, -a roster)",
+  ls: "List sessions (compact default, -v detail, -r recent, -a roster)",
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
@@ -77,6 +77,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   //   maw ls -v   → full per-pane detail
   //   maw ls -c   → explicit compact alias
   //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
+  //   maw ls -r   → compact sessions sorted newest-first by tmux creation time
   ls: { kind: "direct", handler: "cmdLs" },
   scaffold: ["bud", "--scaffold-only"],
 
@@ -172,8 +173,8 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  * dispatch is by `exportName` against a static handler map.
  *
  * For `ls`, compact summary is the default; `-v` returns full per-pane detail,
- * `-c` is an explicit compact alias, and `-a` preserves the legacy
- * compact+roster behavior.
+ * `-c` is an explicit compact alias, `-a` preserves the legacy
+ * compact+roster behavior, and `-r/--recent [N]` sorts newest-first.
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
 export function parseLsAliasOpts(argv: string[]) {
@@ -183,6 +184,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--verbose": Boolean, "-v": "--verbose",
     "--fix": Boolean,
     "--json": Boolean,
+    "--recent": Boolean, "-r": "--recent",
   }, 0);
 
   // #1613 — restore the original compact default. `-v/--verbose` opts into
@@ -191,13 +193,30 @@ export function parseLsAliasOpts(argv: string[]) {
   // `maw ls`; keep that legacy shape by rendering the compact roster view.
   const verbose = !!flags["--verbose"] && !flags["--compact"] && !flags["--all"];
   const compact = !verbose || !!flags["--compact"] || !!flags["--all"];
-  return {
+  const opts: {
+    all: true;
+    compact: boolean;
+    verbose: boolean;
+    roster: boolean;
+    json: boolean;
+    recent?: boolean;
+    recentLimit?: number;
+  } = {
     all: true,
     compact,
     verbose,
     roster: !!flags["--all"],
     json: !!flags["--json"],
   };
+  if (flags["--recent"]) {
+    opts.recent = true;
+    const limitRaw = (flags._ as string[]).find((arg) => /^\d+$/.test(arg));
+    if (limitRaw) {
+      const limit = Number(limitRaw);
+      if (Number.isSafeInteger(limit) && limit > 0) opts.recentLimit = limit;
+    }
+  }
+  return opts;
 }
 
 export async function invokeDirectHandler(

@@ -62,24 +62,31 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--verbose": Boolean,
         "-v": "--verbose",
         "--roster": Boolean,
+        "--recent": Boolean,
+        "-r": "--recent",
         "--help": Boolean,
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux ls [--all|-a] [--compact|-c] [-v|--verbose] [--roster] [--json]");
+        console.log("usage: maw tmux ls [--all|-a] [--compact|-c] [-v|--verbose] [--recent|-r [N]] [--roster] [--json]");
         console.log("  default:    panes in current session only");
         console.log("  --all:      panes across every session");
         console.log("  --compact:  one line per session (`maw ls` / `maw ls -c` top-level)");
         console.log("  -v:         full per-pane detail");
         console.log("  --roster:   include sleeping oracles from ghq");
+        console.log("  --recent:   sort sessions newest-first by tmux creation time; optional N limits sessions");
         return { ok: true, output: logs.join("\n") || undefined };
       }
+      const recentLimitRaw = (flags._ as string[]).find((arg) => /^\d+$/.test(arg));
+      const recentLimit = recentLimitRaw ? Number(recentLimitRaw) : undefined;
       await cmdTmuxLs({
-        all: !!flags["--all"],
+        all: !!flags["--all"] || !!flags["--recent"],
         json: !!flags["--json"],
-        compact: !!flags["--compact"],
+        compact: !!flags["--compact"] || !!flags["--recent"],
         verbose: !!flags["--verbose"],
         roster: !!flags["--roster"],
+        recent: !!flags["--recent"],
+        recentLimit: Number.isSafeInteger(recentLimit) && recentLimit! > 0 ? recentLimit : undefined,
       });
     } else if (sub === "peek") {
       const flags = parseFlags(args, {

@@ -148,6 +148,10 @@ export interface TmuxLsOpts {
   verbose?: boolean;
   /** Roster: include sleeping oracles from ghq (compact mode only). */
   roster?: boolean;
+  /** Sort sessions newest-first using tmux #{session_created}. */
+  recent?: boolean;
+  /** Limit recent mode to the N newest sessions. */
+  recentLimit?: number;
 }
 
 export type PaneStatus = "active" | "idle" | "stale" | "unknown";
@@ -155,11 +159,42 @@ export type PaneStatus = "active" | "idle" | "stale" | "unknown";
 interface AnnotatedPane {
   id: string;
   target: string;
+  session: string;
   command: string | undefined;
   title: string | undefined;
   annotation: string; // "fleet: X" | "team: agent @ team-name" | "orphan" | ""
   status: PaneStatus;
   lastActivitySec: number;
+  sessionCreated?: number;
+}
+
+
+export function parseSessionCreatedList(raw: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const [name, createdRaw] = line.split("\t");
+    const created = Number(createdRaw);
+    if (name && Number.isFinite(created) && created > 0) out.set(name, created);
+  }
+  return out;
+}
+
+export function formatSessionCreated(epochSeconds?: number): string {
+  if (!epochSeconds || !Number.isFinite(epochSeconds)) return "—";
+  const d = new Date(epochSeconds * 1000);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function sessionNameFromPaneTarget(target: string): string {
+  return target.split(":")[0] || target;
+}
+
+async function sessionCreatedTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
+  return parseSessionCreatedList(raw);
 }
 
 /**
@@ -198,24 +233,47 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
   }
 
+  const createdBySession = opts.recent ? await sessionCreatedTimes() : new Map<string, number>();
   const nowEpoch = Math.floor(Date.now() / 1000);
   const annotated: AnnotatedPane[] = allPanes.map(p => {
     const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
     const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
+    const session = sessionNameFromPaneTarget(p.target);
     return {
       id: p.id,
       target: p.target,
+      session,
       command: p.command,
       title: p.title,
       annotation: annotatePane(p, fleetSessions, teamByPane),
       status,
       lastActivitySec: ageSec < 0 ? 0 : ageSec,
+      sessionCreated: createdBySession.get(session),
     };
   });
 
-  const scope = opts.all
+  let scope = opts.all
     ? annotated
     : annotated.filter(p => p.target.startsWith(`${currentSession}:`));
+
+  const recentSessionOrder = (items: AnnotatedPane[]): string[] => {
+    const byName = new Map<string, number | undefined>();
+    for (const p of items) {
+      if (!byName.has(p.session)) byName.set(p.session, p.sessionCreated);
+    }
+    return [...byName.entries()]
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0) || a[0].localeCompare(b[0]))
+      .map(([name]) => name);
+  };
+
+  if (opts.recent) {
+    const ordered = recentSessionOrder(scope);
+    const limited = opts.recentLimit ? ordered.slice(0, opts.recentLimit) : ordered;
+    const order = new Map(limited.map((name, index) => [name, index]));
+    scope = scope
+      .filter(p => order.has(p.session))
+      .sort((a, b) => (order.get(a.session)! - order.get(b.session)!) || a.target.localeCompare(b.target));
+  }
 
   if (opts.json) {
     console.log(JSON.stringify(scope, null, 2));
@@ -246,7 +304,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   if (opts.compact && !opts.verbose) {
     const bySession = new Map<string, AnnotatedPane[]>();
     for (const p of scope) {
-      const sess = p.target.split(":")[0]!;
+      const sess = p.session;
       if (!bySession.has(sess)) bySession.set(sess, []);
       bySession.get(sess)!.push(p);
     }
@@ -267,13 +325,27 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
     console.log();
     const awakeNames = new Set<string>();
-    for (const [sess, panes] of bySession) {
+    const sessionRows = [...bySession.entries()];
+    if (opts.recent) {
+      sessionRows.sort((a, b) => (b[1][0]?.sessionCreated ?? 0) - (a[1][0]?.sessionCreated ?? 0) || a[0].localeCompare(b[0]));
+      if (opts.recentLimit) sessionRows.splice(opts.recentLimit);
+      const sessionWidth = Math.max(18, ...sessionRows.map(([sess]) => sess.length));
+      console.log(`  ${pad("#", 3)} ${pad("SESSION", sessionWidth)} ${pad("CREATED", 19)} ${pad("STATUS", 6)} ${pad("PANES", 8)} AGENTS`);
+    }
+    for (const [index, [sess, panes]] of sessionRows.entries()) {
       awakeNames.add(sess);
       const dot = STATUS_DOT[bestStatus(panes)];
       const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
       const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
-      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      if (opts.recent) {
+        const sessionWidth = Math.max(18, ...sessionRows.map(([name]) => name.length));
+        const created = formatSessionCreated(panes[0]?.sessionCreated);
+        const afterName = " ".repeat(Math.max(1, sessionWidth - sess.length + 1));
+        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}`);
+      } else {
+        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      }
       const wts = wtBySession.get(sess) || [];
       for (const wt of wts) {
         const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
@@ -309,8 +381,11 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
   const targetWidth = Math.max(28, ...scope.map(p => p.target.length));
 
+  const createdWidth = opts.recent ? 20 : 0;
   console.log();
-  console.log(`  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  console.log(opts.recent
+    ? `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("CREATED", createdWidth)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`
+    : `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
   for (const p of scope) {
     const dot = STATUS_DOT[p.status];
     const age = formatAge(p.lastActivitySec);
@@ -321,7 +396,8 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       : "";
     const annPad = pad(p.annotation, 30);
     const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
-    console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+    const created = opts.recent ? `${pad(formatSessionCreated(p.sessionCreated), createdWidth)} ` : "";
+    console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${created}${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
 }

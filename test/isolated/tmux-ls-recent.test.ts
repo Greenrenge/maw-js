@@ -1,0 +1,94 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { join } from "path";
+
+const srcRoot = join(import.meta.dir, "../..");
+
+type MockPane = {
+  id: string;
+  target: string;
+  command?: string;
+  title?: string;
+  lastActivity?: number;
+};
+
+let panes: MockPane[] = [];
+let sessionCreatedRaw = "";
+
+mock.module(join(srcRoot, "src/sdk"), () => ({
+  tmux: {
+    listPanes: async () => panes,
+  },
+  hostExec: async (cmd: string) => {
+    if (cmd.includes("list-sessions") && cmd.includes("session_created")) return sessionCreatedRaw;
+    if (cmd.includes("display-message") && cmd.includes("session_name")) return "old-session\n";
+    return "";
+  },
+  tmuxCmd: () => "tmux",
+}));
+
+mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
+  loadFleetEntries: () => [],
+}));
+
+mock.module(join(srcRoot, "src/core/fleet/worktrees-scan"), () => ({
+  scanWorktrees: async () => [],
+}));
+
+mock.module(join(srcRoot, "src/core/ghq"), () => ({
+  ghqList: async () => [],
+  ghqListSync: () => [],
+}));
+
+const { cmdTmuxLs, formatSessionCreated, parseSessionCreatedList } = await import("../../src/commands/plugins/tmux/impl");
+
+const origLog = console.log;
+let outs: string[] = [];
+
+async function capture(fn: () => Promise<void>) {
+  outs = [];
+  console.log = (...args: unknown[]) => outs.push(args.map(String).join(" "));
+  try {
+    await fn();
+  } finally {
+    console.log = origLog;
+  }
+  return outs.join("\n");
+}
+
+beforeEach(() => {
+  const now = Math.floor(Date.now() / 1000);
+  panes = [
+    { id: "%1", target: "old-session:oracle.0", command: "claude", title: "old", lastActivity: now },
+    { id: "%2", target: "new-session:oracle.0", command: "claude", title: "new", lastActivity: now },
+    { id: "%3", target: "mid-session:oracle.0", command: "zsh", title: "mid", lastActivity: now },
+  ];
+  sessionCreatedRaw = "old-session\t100\nnew-session\t300\nmid-session\t200\n";
+});
+
+describe("maw ls --recent (#1628)", () => {
+  test("parses and formats tmux session_created epochs", () => {
+    expect([...parseSessionCreatedList(sessionCreatedRaw).entries()]).toEqual([
+      ["old-session", 100],
+      ["new-session", 300],
+      ["mid-session", 200],
+    ]);
+    expect(formatSessionCreated(undefined)).toBe("—");
+    expect(formatSessionCreated(300)).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:05:00$/);
+  });
+
+  test("compact recent view sorts sessions newest-first and honors limit", async () => {
+    const out = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, recentLimit: 2 }));
+
+    expect(out).toContain("CREATED");
+    expect(out.indexOf("new-session")).toBeLessThan(out.indexOf("mid-session"));
+    expect(out).not.toContain("old-session");
+  });
+
+  test("verbose recent view keeps panes grouped by newest session", async () => {
+    const out = await capture(() => cmdTmuxLs({ all: true, verbose: true, recent: true }));
+
+    expect(out).toContain("CREATED");
+    expect(out.indexOf("new-session:oracle.0")).toBeLessThan(out.indexOf("mid-session:oracle.0"));
+    expect(out.indexOf("mid-session:oracle.0")).toBeLessThan(out.indexOf("old-session:oracle.0"));
+  });
+});
