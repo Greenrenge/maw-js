@@ -4,15 +4,24 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 const tmp = mkdtempSync(join(tmpdir(), "maw-team-bring-"));
-process.env.MAW_CONFIG_DIR = join(tmp, "config");
+const configDir = join(tmp, "config");
+process.env.MAW_CONFIG_DIR = configDir;
 
 let wakeCalls: Array<{ oracle: string; opts: any }> = [];
 let layoutCalls: Array<{ target: string; layout: string }> = [];
 
+mock.module("maw-js/core/paths", () => ({
+  CONFIG_DIR: configDir,
+  CONFIG_FILE: join(configDir, "maw.config.json"),
+  FLEET_DIR: join(configDir, "fleet"),
+  MAW_ROOT: "/repo/maw-js",
+  resolveHome: () => tmp,
+}));
+
 mock.module("maw-js/sdk", () => ({
   tmux: {
-    hasSession: async (name: string) => name === "project",
-    run: async () => "project",
+    hasSession: async (name: string) => name === "project" || name === "myteam",
+    run: async () => "54-mawjs",
     selectLayout: async (target: string, layout: string) => {
       layoutCalls.push({ target, layout });
     },
@@ -49,6 +58,14 @@ describe("cmdTeamBring", () => {
     const targets = await cmdTeamBring("myteam", { session: "project", dryRun: true });
 
     expect(targets).toEqual(["project:volt", "project:odin"]);
+    expect(wakeCalls).toEqual([]);
+    expect(layoutCalls).toEqual([]);
+  });
+
+  test("prefers an existing team-named workspace over the current tmux session", async () => {
+    const targets = await cmdTeamBring("myteam", { dryRun: true });
+
+    expect(targets).toEqual(["myteam:volt", "myteam:odin"]);
     expect(wakeCalls).toEqual([]);
     expect(layoutCalls).toEqual([]);
   });
