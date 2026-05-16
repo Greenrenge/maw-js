@@ -16,7 +16,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | `src/core/matcher/normalize-target.ts` | Pure logic | Ready | Fixture set added in `test/spec/normalize-target.fixtures.json`. Covers whitespace trimming, trailing slash cleanup, trailing `/.git` cleanup, and non-normalized interior/case behavior. |
 | `scripts/calver.ts` | Pure version arithmetic plus git/tag/package IO | Ready | Fixture set added in `test/spec/calver.fixtures.json`. Covers date base, HHMM stamp, tag/package suffix parsing, effective base, ghost-date guard, next-calendar base, and full `computeVersion` outcomes; git/package IO stays platform-layer. |
 | Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready | Fixture set added in `test/spec/plugin-policy.fixtures.json`. Covers tier constants, weight boundaries, default-active groups, and migration keys; profile migration tests stay platform-specific. |
-| Routing aliases (`src/core/routing.ts`) | Mixed pure resolver + config/tmux adapters | Extract first | Fixture the input graph (`localNode`, sessions, peers, agents) and expected route/error once IO adapters are separated. |
+| Routing aliases (`src/core/routing.ts`) | Pure resolver over config + session graph, with manifest lookup fallback | Ready | Fixture set added in `test/spec/routing.fixtures.json`. Covers local/session, node/self/peer, legacy peer URL fallback, source filtering, and #1565 session-alias guards; manifest cache lookup remains a best-effort platform fallback. |
 | Worktree scan (`src/core/fleet/worktrees-scan.ts`) | Mixed classification + `hostExec`/filesystem | Extract first | The #1553 matching rule is portable; shell/git discovery is platform layer. |
 | Transport router (`src/core/transport/transport.ts`) | Pure orchestration over transport interface | Ready-ish | Fixtures can cover route selection/failover if represented as deterministic transport outcomes. |
 
@@ -113,6 +113,33 @@ an equivalent wall-clock timestamp without inheriting JavaScript object details:
 A port should preserve the HHMM invariant: suffixes are wall-clock stamps between
 `0` and `2359`; when a same-base suffix would downgrade after midnight, roll the
 CalVer base forward instead of emitting monotonic values such as `2360`.
+
+
+## Fifth spec: routing resolveTarget
+
+The fifth portable spec captures the shared `maw hey` / API routing resolver over
+plain config and session data:
+
+- Fixture data: `test/spec/routing.fixtures.json`
+- TS runner: `test/spec/routing.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON describes a base config plus per-case sessions, query, optional config
+overrides, and the expected route/error object:
+
+```json
+{
+  "name": "bare oracle alias prefers oracle-named window",
+  "query": "specbot",
+  "sessions": [{ "name": "54-specbot", "windows": [{ "index": 1, "name": "specbot-issuer", "active": true }, { "index": 2, "name": "specbot-oracle", "active": true }] }],
+  "expected": { "type": "local", "target": "54-specbot:2" }
+}
+```
+
+A port should preserve local-first routing, explicit `node:agent` routing,
+legacy peer URL fallback, local-only source filtering, and the #1565 invariant:
+fleet/session aliases must fail loudly instead of silently defaulting to a
+multi-window session's first window.
 
 ## Boundaries
 
