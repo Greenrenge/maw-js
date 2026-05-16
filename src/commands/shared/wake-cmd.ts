@@ -196,6 +196,8 @@ export interface WakeOptions {
   task?: string;
   wt?: string;
   prompt?: string;
+  /** Target an existing foreign tmux workspace session instead of the oracle's own session (#1616). */
+  session?: string;
   incubate?: string;
   fresh?: boolean;
   attach?: boolean;
@@ -328,6 +330,13 @@ async function restoreSnapshotWindows(
   return planned.length;
 }
 
+
+function validateForeignSessionName(name: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(name)) {
+    throw new Error(`invalid target session '${name}' — use letters, numbers, dot, underscore, or dash`);
+  }
+}
+
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
   const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || urlRepoName || oracle;
   if (/^\d+-/.test(baseName)) return baseName;
@@ -433,8 +442,16 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
-  let session = preResolvedSession ?? await detectSession(oracle, opts.urlRepoName);
-  if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
+  const foreignSession = opts.session?.trim();
+  if (foreignSession) validateForeignSessionName(foreignSession);
+  let session = foreignSession || preResolvedSession || await detectSession(oracle, opts.urlRepoName);
+  if (foreignSession) {
+    const exists = opts.dryRun || await tmux.hasSession(foreignSession);
+    if (!exists) {
+      throw new Error(`target session '${foreignSession}' not found — run: maw new ${foreignSession}`);
+    }
+    console.log(`\x1b[36m→\x1b[0m target workspace session: ${foreignSession}`);
+  } else if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
   else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
   const requestedSnapshot = opts.fromSnapshot ? loadRequestedSnapshot(opts.snapshotId) : null;
@@ -456,11 +473,13 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     isLive: Boolean(session),
   });
 
-  const mainWindowName = `${oracle}-oracle`;
+  const mainWindowName = foreignSession ? oracle : `${oracle}-oracle`;
 
   if (opts.dryRun) {
     console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
-    if (!session && wakeDecision.wake) {
+    if (foreignSession) {
+      console.log(`\x1b[32m+\x1b[0m would wake window '${mainWindowName}' in workspace session '${foreignSession}'`);
+    } else if (!session && wakeDecision.wake) {
       const plannedSession = await chooseWakeSessionName(oracle, opts.urlRepoName);
       console.log(`\x1b[32m+\x1b[0m would create session '${plannedSession}' (main: ${mainWindowName})`);
     } else if (session) {
@@ -487,8 +506,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       }
     }
 
-    if (opts.noRehydrate) {
-      console.log(`\x1b[90m↻ worktree rehydrate skipped (--main/--solo/--no-rehydrate)\x1b[0m`);
+    if (opts.noRehydrate || foreignSession) {
+      const reason = foreignSession ? "foreign workspace session" : "--main/--solo/--no-rehydrate";
+      console.log(`\x1b[90m↻ worktree rehydrate skipped (${reason})\x1b[0m`);
       return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
     }
 
@@ -545,7 +565,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
-    if (!opts.task && !opts.wt && !opts.noRehydrate) {
+    if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       for (const wt of planRehydrateWorktreeWindows(oracle, allWt, [...existingWindows])) {
         await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
@@ -567,7 +587,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       console.log(`\x1b[36m↻\x1b[0m snapshot restore: ${restored} window${restored === 1 ? "" : "s"}`);
     }
 
-    if (!opts.task && !opts.wt && !opts.noRehydrate) {
+    if (!foreignSession && !opts.task && !opts.wt && !opts.noRehydrate) {
       const allWt = await findWorktrees(parentDir, repoName);
       if (allWt.length > 0) {
         const existingWindows = [...preExistingWindows];
@@ -586,7 +606,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }
 
-  const reordered = await restoreTabOrder(session);
+  const reordered = foreignSession ? 0 : await restoreTabOrder(session);
   if (reordered > 0) console.log(`\x1b[36m↻ ${reordered} window(s) reordered to saved positions.\x1b[0m`);
 
   let targetPath = repoPath;

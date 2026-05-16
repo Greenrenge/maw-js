@@ -7,7 +7,8 @@ import { findZombiePanes } from "./team-cleanup-zombies";
 // Re-export everything so index.ts and tests continue to import from "./impl"
 export { _setDirs, loadTeam, writeShutdownRequest, writeMessage } from "./team-helpers";
 export { cmdTeamShutdown, cmdTeamCreate, cmdTeamSpawn, mergeTeamKnowledge } from "./team-lifecycle";
-export { cmdTeamSend } from "./team-comms";
+export { cmdTeamSend, cmdTeamBroadcast } from "./team-comms";
+export { cmdTeamBring, resolveTeamBringSession, teamOracleMemberNames, loadTeamOracleMemberNames, applyTeamBringLayout } from "./team-workspace";
 export { cmdTeamResume, cmdTeamLives } from "./team-reincarnation";
 export { cmdCleanupZombies } from "./team-cleanup-zombies";
 export { parseTeamCharterText, readTeamCharter, planTeamCharter, formatTeamCharterPlan, preflightTeamCharter, formatTeamCharterPreflight, loadTeamCharter, formatTeamCharterLoad, composeTeamCharterMemberPrompt, spawnFromTeamCharter, formatTeamCharterSpawn } from "./team-charter";
