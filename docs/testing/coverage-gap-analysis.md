@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T18:27:35.608Z
+Generated: 2026-05-16T18:33:52.372Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **13.6%** (6937/50862)
-Overall function coverage: **50.9%** (690/1356)
+Overall line coverage: **13.8%** (7021/50866)
+Overall function coverage: **52.0%** (705/1356)
 
 ## Module summary
 
@@ -17,7 +17,7 @@ Overall function coverage: **50.9%** (690/1356)
 | config/runtime | 19 | 2 | 43.3% (510/1179) | 40.2% (35/87) | n/a (0/0) |
 | fleet | 17 | 1 | 20.7% (227/1096) | 53.4% (31/58) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
-| other | 174 | 98 | 17.9% (2578/14398) | 53.2% (252/474) | n/a (0/0) |
+| other | 174 | 98 | 18.5% (2662/14402) | 56.3% (267/474) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 46.6% (595/1276) | 67.2% (45/67) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
 | transport | 28 | 3 | 26.8% (736/2742) | 36.7% (101/275) | n/a (0/0) |
