@@ -356,6 +356,16 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.new).toContain("Create a new oracle");
   });
 
+  test("`scaffold neo` → bud --scaffold-only argv rewrite", () => {
+    const out = resolveTopAlias(["scaffold", "neo", "--root"]);
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("argv");
+    if (out!.kind === "argv") {
+      expect(out!.argv).toEqual(["bud", "--scaffold-only", "neo", "--root"]);
+    }
+    expect(ALIAS_DESCRIPTIONS.scaffold).toContain("skeleton");
+  });
+
   test("`bring neo` defaults to v1 split-and-attach mode", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });

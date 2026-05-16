@@ -48,6 +48,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   bring: "Bring an oracle HERE — split current pane and attach",
   b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (detail default, -c compact, -a roster)",
+  scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
   new: "Create a new oracle (friendly door for awaken)",
@@ -76,6 +77,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   //   maw ls -c   → compact live-session summary
   //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
   ls: { kind: "direct", handler: "cmdLs" },
+  scaffold: ["bud", "--scaffold-only"],
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
