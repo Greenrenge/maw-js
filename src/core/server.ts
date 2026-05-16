@@ -19,6 +19,7 @@ import { runServeLifecycleHooks } from "../plugin/lifecycle";
 import {
   dispatchEnginePluginEvent,
   findEnginePluginRegistration,
+  hasEnginePluginEventSink,
   proxyEnginePluginRequest,
   startEnginePluginHealthPolling,
 } from "./engine-plugin-registry";
@@ -129,7 +130,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
     const { homedir } = require("os");
     const { join, resolve, dirname } = require("path");
-    const plugins = new PluginSystem();
+    const plugins = new PluginSystem({
+      shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
+        hasEnginePluginEventSink(pluginName, eventName),
+    });
 
     // Built-in plugins (ship with maw-js)
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");

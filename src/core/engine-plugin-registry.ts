@@ -195,6 +195,14 @@ export function listEnginePluginRegistrations(): EnginePluginRegistration[] {
   return [...registrations.values()].sort((a, b) => a.prefix.localeCompare(b.prefix));
 }
 
+export function hasEnginePluginEventSink(plugin: string | undefined, event: string): boolean {
+  if (!plugin) return false;
+  return listEnginePluginRegistrations().some((registration) =>
+    registration.plugin === plugin &&
+    registration.events?.includes(event),
+  );
+}
+
 export function findEnginePluginRegistration(pathname: string): EnginePluginRegistration | undefined {
   if (!pathname.startsWith("/api/") || pathname.startsWith("/api/_engine")) return undefined;
   const candidates = [...registrations.values()]
