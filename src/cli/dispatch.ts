@@ -64,7 +64,7 @@ export async function dispatchCommand(cmd: string, args: string[]): Promise<void
  */
 async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void> {
   const { discoverPackages, invokePlugin } = await import("../plugin/registry");
-  const { resolvePluginMatch, pluginCliNames, pluginNonCliSurfaces } = await import("./dispatch-match");
+  const { resolvePluginMatch, pluginCliNames, pluginNonCliSurfaces, validatePluginCliFlags } = await import("./dispatch-match");
   const plugins = discoverPackages();
   const cmdName = args.join(" ").toLowerCase();
   const dispatch = resolvePluginMatch(plugins, cmdName);
@@ -89,6 +89,14 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       throw new UserError(`disabled plugin dependency: ${dispatch.matchedName}`);
     }
     const remaining = args.slice(matchedWords);
+    const flagValidation = validatePluginCliFlags(dispatch.plugin, remaining);
+    if (!flagValidation.ok) {
+      console.error(`\x1b[31m✗\x1b[0m unknown flag for ${dispatch.matchedName}: ${flagValidation.flag}`);
+      if (flagValidation.suggestion) console.error(`  did you mean: ${flagValidation.suggestion}`);
+      const help = dispatch.plugin.manifest.cli?.help;
+      if (help) console.error(`\n  usage: ${help}`);
+      throw new UserError(`unknown flag: ${flagValidation.flag}`);
+    }
     const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining });
     if (result.ok && result.output) console.log(result.output);
     else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
@@ -169,7 +177,16 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       const retryPlugin = resolvePluginMatch(plugins, args.join(" ").toLowerCase());
       if (retryPlugin.kind === "match") {
         const matchedWords = retryPlugin.matchedName.split(/\s+/).filter(Boolean).length;
-        const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: args.slice(matchedWords) });
+        const remaining = args.slice(matchedWords);
+        const flagValidation = validatePluginCliFlags(retryPlugin.plugin, remaining);
+        if (!flagValidation.ok) {
+          console.error(`\x1b[31m✗\x1b[0m unknown flag for ${retryPlugin.matchedName}: ${flagValidation.flag}`);
+          if (flagValidation.suggestion) console.error(`  did you mean: ${flagValidation.suggestion}`);
+          const help = retryPlugin.plugin.manifest.cli?.help;
+          if (help) console.error(`\n  usage: ${help}`);
+          throw new UserError(`unknown flag: ${flagValidation.flag}`);
+        }
+        const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: remaining });
         if (result.ok && result.output) console.log(result.output);
         else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
         process.exit(0);

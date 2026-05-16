@@ -9,17 +9,22 @@
  *  - prefix match with word boundary (e.g. `restart` != `rest`)
  */
 import { describe, test, expect } from "bun:test";
-import { resolvePluginMatch } from "../../src/cli/dispatch-match";
+import { resolvePluginMatch, validatePluginCliFlags } from "../../src/cli/dispatch-match";
 import { ALIAS_DESCRIPTIONS, parseBringArgs, parseLsAliasOpts, resolveTopAlias } from "../../src/cli/top-aliases";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
-function plugin(name: string, command: string, aliases: string[] = []): LoadedPlugin {
+function plugin(
+  name: string,
+  command: string,
+  aliases: string[] = [],
+  flags?: Record<string, string>,
+): LoadedPlugin {
   return {
     manifest: {
       name,
       version: "1.0.0",
       sdk: "^1.0.0",
-      cli: { command, aliases, help: "" },
+      cli: { command, aliases, help: "", ...(flags ? { flags } : {}) },
     } as LoadedPlugin["manifest"],
     dir: `/tmp/${name}`,
     wasmPath: "",
@@ -225,6 +230,57 @@ describe("resolvePluginMatch — two-pass dispatch", () => {
     const out = resolvePluginMatch([view], "attach");
     expect(out.kind).toBe("match");
     if (out.kind === "match") expect(out.matchedName).toBe("attach");
+  });
+});
+
+describe("validatePluginCliFlags — manifest-declared flags", () => {
+  test("#1629 rejects unknown long flags before handler execution", () => {
+    const bud = plugin("bud", "bud", [], {
+      "--org": "string",
+      "--from": "string",
+      "--dry-run": "boolean",
+    });
+
+    const out = validatePluginCliFlags(bud, ["digger", "--orgs", "laris-co", "--dry-run"]);
+
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.flag).toBe("--orgs");
+      expect(out.suggestion).toBe("--org");
+    }
+  });
+
+  test("allows declared string/number flags and skips their value token", () => {
+    const bud = plugin("bud", "bud", [], {
+      "--org": "string",
+      "--issue": "number",
+      "--dry-run": "boolean",
+    });
+
+    const out = validatePluginCliFlags(bud, ["digger", "--org", "--dashy-org", "--issue=1629", "--dry-run"]);
+
+    expect(out).toEqual({ ok: true });
+  });
+
+  test("keeps legacy permissive behavior until cli.flags is declared", () => {
+    const legacy = plugin("legacy", "legacy");
+
+    const out = validatePluginCliFlags(legacy, ["--whatever"]);
+
+    expect(out).toEqual({ ok: true });
+  });
+
+  test("allows universal plugin help/version flags", () => {
+    const p = plugin("hello", "hello", [], { "--name": "string" });
+
+    expect(validatePluginCliFlags(p, ["--help"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--version"])).toEqual({ ok: true });
+  });
+
+  test("stops validation after -- terminator", () => {
+    const p = plugin("hello", "hello", [], { "--name": "string" });
+
+    expect(validatePluginCliFlags(p, ["--name", "world", "--", "--not-a-flag"])).toEqual({ ok: true });
   });
 });
 

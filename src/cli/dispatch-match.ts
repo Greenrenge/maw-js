@@ -22,6 +22,7 @@
  * could meaningfully respond to a CLI invocation.
  */
 import type { LoadedPlugin } from "../plugin/types";
+import { fuzzyMatch } from "../core/util/fuzzy";
 
 export type DispatchMatch =
   | { kind: "match"; plugin: LoadedPlugin; matchedName: string }
@@ -31,6 +32,12 @@ export type DispatchMatch =
 export interface ResolvePluginMatchOptions {
   includeDisabled?: boolean;
 }
+
+export type PluginCliFlagValidation =
+  | { ok: true }
+  | { ok: false; flag: string; suggestion?: string; allowedFlags: string[] };
+
+const UNIVERSAL_PLUGIN_FLAGS = new Set(["-h", "--help", "-help", "-v", "--version", "-version"]);
 
 /**
  * #899: a plugin is CLI-dispatchable if it has either an explicit `cli`
@@ -137,4 +144,46 @@ export function resolvePluginMatch(
     kind: "ambiguous",
     candidates: winners.map(w => ({ plugin: w.plugin.manifest.name, name: w.matchedName })),
   };
+}
+
+function flagName(arg: string): string | null {
+  if (arg === "--") return null;
+  if (!arg.startsWith("-")) return null;
+  if (/^-\d/.test(arg)) return null;
+  if (arg.length <= 1) return null;
+  const eq = arg.indexOf("=");
+  return eq === -1 ? arg : arg.slice(0, eq);
+}
+
+/**
+ * Validate CLI argv against manifest-declared plugin flags before invoking
+ * the plugin handler. Plugins without `cli.flags` keep their legacy permissive
+ * behavior until their manifests declare the contract.
+ */
+export function validatePluginCliFlags(
+  plugin: LoadedPlugin,
+  argv: string[],
+): PluginCliFlagValidation {
+  const declared = plugin.manifest.cli?.flags;
+  if (!declared) return { ok: true };
+
+  const allowedFlags = Object.keys(declared).sort((a, b) => a.localeCompare(b));
+  const allowed = new Set([...allowedFlags, ...UNIVERSAL_PLUGIN_FLAGS]);
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--") break;
+
+    const name = flagName(arg);
+    if (!name) continue;
+    if (!allowed.has(name)) {
+      const [suggestion] = fuzzyMatch(name, allowedFlags, 1, 2);
+      return { ok: false, flag: name, suggestion, allowedFlags };
+    }
+
+    const type = declared[name];
+    if (type && type !== "boolean" && !arg.includes("=")) i++;
+  }
+
+  return { ok: true };
 }
