@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T19:53:26.123Z
+Generated: 2026-05-16T19:57:12.639Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **15.3%** (7747/50680)
-Overall function coverage: **58.7%** (841/1432)
+Overall line coverage: **15.5%** (7858/50664)
+Overall function coverage: **59.1%** (855/1446)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 88 | 23 | 25.3% (1899/7516) | 55.1% (188/341) | n/a (0/0) |
+| cli/dispatch | 88 | 22 | 26.8% (2010/7500) | 56.9% (202/355) | n/a (0/0) |
 | config/runtime | 19 | 2 | 43.3% (510/1179) | 40.2% (35/87) | n/a (0/0) |
 | fleet | 17 | 0 | 23.2% (249/1073) | 47.9% (34/71) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -128,7 +128,7 @@ Overall function coverage: **58.7%** (841/1432)
 | cli/dispatch | `src/commands/shared/done.ts` | 207 | 0.0% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
-| cli/dispatch | `src/cli/plugin-bootstrap.ts` | 155 | 0.0% |
+| fleet | `src/core/fleet/registry-oracle-scan-local.ts` | 155 | 4.3% |
 
 ## Critical gaps to prioritize
 
