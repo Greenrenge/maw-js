@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T19:13:43.417Z
+Generated: 2026-05-16T19:18:11.523Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **14.4%** (7287/50777)
-Overall function coverage: **53.7%** (743/1383)
+Overall line coverage: **14.5%** (7381/50765)
+Overall function coverage: **54.1%** (757/1399)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 88 | 24 | 24.0% (1805/7528) | 53.5% (174/325) | n/a (0/0) |
+| cli/dispatch | 88 | 23 | 25.3% (1899/7516) | 55.1% (188/341) | n/a (0/0) |
 | config/runtime | 19 | 2 | 43.3% (510/1179) | 40.2% (35/87) | n/a (0/0) |
 | fleet | 17 | 0 | 23.2% (249/1073) | 47.9% (34/71) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -123,7 +123,7 @@ Overall function coverage: **53.7%** (743/1383)
 | cli/dispatch | `src/commands/shared/done.ts` | 207 | 0.0% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
-| cli/dispatch | `src/cli/instance-pid.ts` | 164 | 0.0% |
+| transport | `src/transports/hub-connection.ts` | 161 | 5.8% |
 
 ## Critical gaps to prioritize
 
