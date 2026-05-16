@@ -64,6 +64,20 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function repoNameFromPath(path: string): string {
+  return path.split("/").pop() ?? "";
+}
+
+function repoSlugFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
+}
+
+function localOracleRepoPath(match: string, repos: string[]): string | null {
+  const lower = match.toLowerCase();
+  return repos.find(p => repoNameFromPath(p).toLowerCase() === lower) ?? null;
+}
+
 function stripOracleSuffix(name: string): string {
   return name.replace(/-oracle$/i, "");
 }
@@ -97,28 +111,30 @@ export function resolveLocalOracleRepoName(oracle: string, repos: string[]): Loc
   const oracleLower = oracle.trim().toLowerCase();
   if (!oracleLower) return { kind: "none" };
 
-  const repoNames = repos
+  const repoRefs = repos
     .filter(p => p.toLowerCase().endsWith("-oracle"))
-    .map(p => p.split("/").pop()!)
-    .filter(Boolean);
+    .map(p => ({ path: p, name: repoNameFromPath(p), slug: repoSlugFromPath(p) }))
+    .filter(r => r.name);
 
   const intents = new Set(localOracleIntentNames(oracle));
-  const exact = uniqueStrings(repoNames.filter(name => {
-    const lower = name.toLowerCase();
+  const exactRefs = repoRefs.filter(ref => {
+    const lower = ref.name.toLowerCase();
     const bare = stripOracleSuffix(lower);
     return intents.has(lower) || intents.has(bare);
-  }));
+  });
+  const exactSlugs = uniqueStrings(exactRefs.map(ref => ref.slug));
 
-  if (exact.length === 1) return { kind: "exact", match: exact[0]! };
-  if (exact.length > 1) return { kind: "ambiguous", candidates: exact };
+  if (exactSlugs.length === 1) return { kind: "exact", match: exactRefs[0]!.name };
+  if (exactSlugs.length > 1) return { kind: "ambiguous", candidates: exactSlugs };
 
-  const candidates = uniqueStrings(repoNames.filter(name => {
-    const bare = stripOracleSuffix(name.toLowerCase());
+  const candidateRefs = repoRefs.filter(ref => {
+    const bare = stripOracleSuffix(ref.name.toLowerCase());
     return bare.includes(oracleLower) || oracleLower.includes(bare);
-  }));
+  });
+  const candidateSlugs = uniqueStrings(candidateRefs.map(ref => ref.slug));
 
-  if (candidates.length === 1) return { kind: "fuzzy", match: candidates[0]! };
-  if (candidates.length > 1) return { kind: "ambiguous", candidates };
+  if (candidateSlugs.length === 1) return { kind: "fuzzy", match: candidateRefs[0]!.name };
+  if (candidateSlugs.length > 1) return { kind: "ambiguous", candidates: candidateSlugs };
   return { kind: "none" };
 }
 
@@ -126,21 +142,21 @@ export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
 ): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
-  const oracleRepoStem = oracle.toLowerCase().endsWith("-oracle") ? oracle : `${oracle}-oracle`;
-  const ghqHit = await ghqFind(`/${oracleRepoStem}`);
-  if (ghqHit) {
-    const repoPath = ghqHit;
-    return { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
-  }
-
-  // #997 — fuzzy match against local *-oracle repos in ghq before remote lookups.
+  // #997 — match against local *-oracle repos in ghq before remote lookups.
   // e.g. "v3" matches "arra-oracle-v3-oracle" so `maw wake v3` works like `maw ls -a`.
+  //
+  // #1635 — do this from the full ghq list before the old `ghqFind(/name)`
+  // fast path. `ghqFind(/pulse-oracle)` returns the first suffix hit, which
+  // silently picks one org when both `laris-co/pulse-oracle` and
+  // `Soul-Brews-Studio/pulse-oracle` are local. Bare-name ambiguity must fail
+  // loudly with org/repo candidates.
   try {
     const { ghqList } = await import("../../core/ghq");
     const repos = await ghqList();
     const resolvedLocal = resolveLocalOracleRepoName(oracle, repos);
     if (resolvedLocal.kind === "exact" || resolvedLocal.kind === "fuzzy") {
-      const match = await ghqFind(`/${resolvedLocal.match}`);
+      const match = localOracleRepoPath(resolvedLocal.match, repos)
+        ?? await ghqFind(`/${resolvedLocal.match}`);
       if (match) {
         if (resolvedLocal.kind === "fuzzy") console.log(`\x1b[36m→\x1b[0m fuzzy match: ${resolvedLocal.match}`);
         return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
@@ -148,7 +164,7 @@ export async function resolveOracle(
     } else if (resolvedLocal.kind === "ambiguous") {
       console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${resolvedLocal.candidates.length} local oracles:`);
       for (const c of resolvedLocal.candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
-      console.error(`\x1b[90m  use the full name: maw wake <exact-name>\x1b[0m`);
+      console.error(`\x1b[90m  use the full name: maw wake <org>/<repo>\x1b[0m`);
       process.exit(1);
     }
   } catch { /* ghq unavailable — fall through */ }

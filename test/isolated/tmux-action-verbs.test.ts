@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, _sendTracker } from "../../src/commands/plugins/tmux/impl";
+import { cmdTmuxLayout, cmdTmuxSplit, cmdTmuxAttach, similarOracleCandidatesFromRepos, _sendTracker } from "../../src/commands/plugins/tmux/impl";
 import * as impl from "../../src/commands/plugins/tmux/impl";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -228,6 +228,18 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
 
     expect(calls).toHaveLength(0);
     expect(logs.join("\n")).toContain("tmux attach -t");
+  });
+});
+
+describe("cmdTmuxAttach — oracle recovery candidates", () => {
+  test("same repo name across orgs stays ambiguous with org/repo wake args (#1635)", () => {
+    expect(similarOracleCandidatesFromRepos("pulse", [
+      "/opt/Code/github.com/laris-co/pulse-oracle",
+      "/opt/Code/github.com/Soul-Brews-Studio/pulse-oracle",
+    ])).toEqual([
+      "laris-co/pulse-oracle",
+      "Soul-Brews-Studio/pulse-oracle",
+    ]);
   });
 });
 
