@@ -15,7 +15,7 @@ maw-js is currently TypeScript/Bun, but several subsystems are pure logic and ca
 | `src/core/matcher/resolve-target.ts` | Pure logic | Ready | First fixture set added in `test/spec/matcher-resolve-target.fixtures.json`. Covers exact, suffix, prefix/middle, substring hints, numeric fleet-session guard, and worktree behavior. |
 | `src/core/matcher/normalize-target.ts` | Pure logic | Ready | Fixture set added in `test/spec/normalize-target.fixtures.json`. Covers whitespace trimming, trailing slash cleanup, trailing `/.git` cleanup, and non-normalized interior/case behavior. |
 | `scripts/calver.ts` | Mostly pure version arithmetic plus git/tag IO | Extract first | Move/calibrate pure HHMM/version arithmetic behind fixtureable helpers before port validation. |
-| Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready for policy fixtures | `src/plugin/default-active.ts` and `src/plugin/tier.ts` are good candidates; profile migration tests stay platform-specific. |
+| Plugin tier/default-active policy | Pure policy tables plus profile IO | Ready | Fixture set added in `test/spec/plugin-policy.fixtures.json`. Covers tier constants, weight boundaries, default-active groups, and migration keys; profile migration tests stay platform-specific. |
 | Routing aliases (`src/core/routing.ts`) | Mixed pure resolver + config/tmux adapters | Extract first | Fixture the input graph (`localNode`, sessions, peers, agents) and expected route/error once IO adapters are separated. |
 | Worktree scan (`src/core/fleet/worktrees-scan.ts`) | Mixed classification + `hostExec`/filesystem | Extract first | The #1553 matching rule is portable; shell/git discovery is platform layer. |
 | Transport router (`src/core/transport/transport.ts`) | Pure orchestration over transport interface | Ready-ish | Fixtures can cover route selection/failover if represented as deterministic transport outcomes. |
@@ -62,6 +62,31 @@ The JSON records only raw user input strings and normalized output strings:
 A port should preserve the same limited scope: trim surrounding whitespace,
 strip trailing slashes and terminal `/.git`, but do not lowercase, parse URLs,
 or mutate interior characters.
+
+
+## Third spec: plugin policy
+
+The third portable spec covers pure plugin policy used by the loader and profile
+migrations:
+
+- Fixture data: `test/spec/plugin-policy.fixtures.json`
+- TS runner: `test/spec/plugin-policy.fixtures.test.ts`
+- Script: `bun run test:spec`
+
+The JSON records tier constants, `weightToTier` thresholds, and default-active
+plugin groups with their migration keys:
+
+```json
+{
+  "name": "standard threshold starts at ten",
+  "weight": 10,
+  "expected": "standard"
+}
+```
+
+A port should preserve the same tier boundaries (`<10`, `<50`, `>=50`) and the
+same explicit default-active plugin policy. Filesystem-backed profile migration
+and plugin discovery remain platform-layer tests.
 
 ## Boundaries
 
