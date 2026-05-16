@@ -7,13 +7,15 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "tmux",
-    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom> [...] — tmux pane/session tools; ls supports --json",
+    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom> [...] — tmux pane/session tools; ls supports --json and --recent",
     "flags": {
       "--json": "boolean",
       "--all": "boolean",
       "--compact": "boolean",
       "--verbose": "boolean",
-      "--roster": "boolean"
+      "--roster": "boolean",
+      "--recent": "boolean",
+      "-r": "boolean"
     }
   },
   "weight": 10,
