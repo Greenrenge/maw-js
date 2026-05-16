@@ -44,6 +44,7 @@ export function decodeProjectDir(encoded: string): string {
 let pidCache: { data: PidInfo[]; ts: number } | null = null;
 
 function listClaudePids(): PidInfo[] {
+  if (process.env.MAW_CLAUDE_SKIP_PID_SCAN === "1") return [];
   const now = Date.now();
   if (pidCache && now - pidCache.ts < 5_000) return pidCache.data;
   const results: PidInfo[] = [];
@@ -148,11 +149,15 @@ function extractLastMessages(filePath: string): { lastUser: string | null; lastA
 
 let sessionCache: { data: ClaudeSession[]; ts: number } | null = null;
 
+function claudeProjectsDir(): string {
+  return process.env.MAW_CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects");
+}
+
 export async function listClaudeSessions(): Promise<ClaudeSession[]> {
   const now = Date.now();
   if (sessionCache && now - sessionCache.ts < 5_000) return sessionCache.data;
 
-  const claudeDir = join(homedir(), ".claude", "projects");
+  const claudeDir = claudeProjectsDir();
   const pids = listClaudePids();
   const pidByCwd = new Map(pids.map(p => [p.cwd, p]));
   const results: ClaudeSession[] = [];
@@ -190,6 +195,8 @@ export async function listClaudeSessions(): Promise<ClaudeSession[]> {
       const tmuxTarget = chain.some(c => c.toLowerCase().includes("tmux"))
         ? `(tmux: ${projectPath.split("/").pop()})` : null;
 
+      const { lastUser, lastAssistant } = extractLastMessages(filePath);
+
       results.push({
         sessionId, projectPath,
         repo: resolveRepo(projectPath),
@@ -198,7 +205,8 @@ export async function listClaudeSessions(): Promise<ClaudeSession[]> {
         ppid: pidInfo?.ppid ?? null,
         parentChain: chain, tmuxTarget, triggeredFrom: trigger, status,
         lastActivityAt: new Date(mtimeMs).toISOString(),
-        ...extractLastMessages(filePath),
+        lastUserMessage: lastUser,
+        lastAssistantMessage: lastAssistant,
         sizeBytes: st.size,
       });
     }
