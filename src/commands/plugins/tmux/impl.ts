@@ -716,9 +716,9 @@ function suggestRecovery(target: string, session: string, source: string): void 
   }
 
   for (const s of findSimilarOracles(target).slice(0, 5)) {
-    const name = s.replace(/-oracle$/, "");
-    if (!candidates.some(c => c.oracle === name)) {
-      candidates.push({ oracle: name, label: s });
+    const wakeArg = wakeArgForSimilarOracle(s);
+    if (!candidates.some(c => c.oracle === wakeArg)) {
+      candidates.push({ oracle: wakeArg, label: s });
     }
   }
 
@@ -781,14 +781,38 @@ function ghqFindOracleSync(slug: string): string | null {
   } catch { return null; }
 }
 
+function repoNameFromPath(path: string): string {
+  return path.split("/").pop() ?? "";
+}
+
+function repoSlugFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+export function similarOracleCandidatesFromRepos(target: string, repos: string[]): string[] {
+  const lc = target.toLowerCase();
+  return uniqueStrings(
+    repos
+      .filter(r => {
+        const name = repoNameFromPath(r);
+        return name.endsWith("-oracle") && name.toLowerCase().includes(lc);
+      })
+      .map(repoSlugFromPath),
+  );
+}
+
+function wakeArgForSimilarOracle(candidate: string): string {
+  return candidate.includes("/") ? candidate : candidate.replace(/-oracle$/, "");
+}
+
 function findSimilarOracles(target: string): string[] {
   try {
-    const lc = target.toLowerCase();
-    const repos = ghqListSync();
-    return repos
-      .map(r => r.split("/").pop() ?? "")
-      .filter(name => name.endsWith("-oracle") && name.toLowerCase().includes(lc))
-      .filter((v, i, a) => a.indexOf(v) === i);
+    return similarOracleCandidatesFromRepos(target, ghqListSync());
   } catch { return []; }
 }
 

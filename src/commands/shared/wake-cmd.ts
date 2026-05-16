@@ -357,8 +357,13 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   oracle = normalizeTarget(oracle);
 
   const parsed = parseWakeTarget(oracle);
+  let parsedRepoPath: string | null = null;
   if (parsed) {
     await ensureCloned(parsed.slug);
+    // #1635 — full org/repo input is an explicit disambiguation. Preserve the
+    // exact cloned/local slug instead of later resolving the bare oracle name
+    // through `ghqFind(/repo)`, which can silently pick a different org.
+    parsedRepoPath = await ghqFind(`/${parsed.slug}`);
     oracle = parsed.oracle;
     if (!opts.urlRepoName) opts.urlRepoName = parsed.slug.split("/").pop();
   }
@@ -385,6 +390,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // just cloned it). Skip resolveOracle so a stale same-named repo in a
     // different org can't shadow the freshly-created one.
     const repoPath = opts.repoPath;
+    resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
+  } else if (parsedRepoPath) {
+    const repoPath = parsedRepoPath;
     resolved = { repoPath, repoName: repoPath.split("/").pop()!, parentDir: repoPath.replace(/\/[^/]+$/, "") };
   } else if (opts.incubate) {
     const slug = opts.incubate;

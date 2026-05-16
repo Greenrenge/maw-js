@@ -166,4 +166,17 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
       match: "arra-oracle-v3-oracle",
     });
   });
+
+  it("fails loudly when a bare oracle name exists in multiple orgs (#1635)", () => {
+    expect(resolveLocalOracleRepoName("pulse", [
+      "github.com/laris-co/pulse-oracle",
+      "github.com/Soul-Brews-Studio/pulse-oracle",
+    ])).toEqual({
+      kind: "ambiguous",
+      candidates: [
+        "laris-co/pulse-oracle",
+        "Soul-Brews-Studio/pulse-oracle",
+      ],
+    });
+  });
 });
