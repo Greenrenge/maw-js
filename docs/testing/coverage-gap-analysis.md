@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T18:38:35.679Z
+Generated: 2026-05-16T18:43:12.255Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **13.8%** (7043/50864)
-Overall function coverage: **52.3%** (710/1358)
+Overall line coverage: **13.9%** (7070/50865)
+Overall function coverage: **52.4%** (711/1358)
 
 ## Module summary
 
@@ -18,7 +18,7 @@ Overall function coverage: **52.3%** (710/1358)
 | fleet | 17 | 1 | 20.7% (227/1096) | 53.4% (31/58) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 98 | 18.5% (2662/14402) | 56.3% (267/474) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 48.4% (617/1274) | 72.5% (50/69) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 50.5% (644/1275) | 73.9% (51/69) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
 | transport | 28 | 3 | 26.8% (736/2742) | 36.7% (101/275) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
@@ -96,6 +96,7 @@ Overall function coverage: **52.3%** (710/1358)
 | plugin dispatch | `src/plugin/manifest-parse.ts` | 96.3% | 100.0% |
 | plugin dispatch | `src/plugin/manifest-validate.ts` | 89.7% | 100.0% |
 | plugin dispatch | `src/plugin/manifest.ts` | 100.0% | 100.0% |
+| plugin dispatch | `src/plugin/registry-semver.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/core/routing.ts` | 89.1% | 91.7% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
