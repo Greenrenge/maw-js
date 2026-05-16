@@ -26,7 +26,9 @@
     "ship:alpha:dry": "bash scripts/ship-alpha.sh --dry-run",
     "calver": "bun scripts/calver.ts",
     "check:redos": "bun scripts/check-redos.ts",
-    "preflight": "bash scripts/preflight.sh"
+    "preflight": "bash scripts/preflight.sh",
+    "test:coverage": "bash scripts/test-coverage.sh",
+    "coverage:gap": "bun scripts/coverage-gap-analysis.ts coverage/lcov.info docs/testing/coverage-gap-analysis.md"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
