@@ -43,12 +43,15 @@ export async function resolveTeamBringSession(teamName: string, opts: TeamBringO
     return explicit;
   }
 
+  // Prefer the team-named workspace whenever it exists. This keeps the natural
+  // flow pasteable from any pane:
+  //   maw new <team>; maw team bring <team>
+  // Without this, running the command from an oracle's home tmux session brings
+  // teammates back into that home session instead of the workspace (#1633).
+  if (await tmux.hasSession(teamName)) return teamName;
+
   const current = await currentTmuxSession();
   if (current) return current;
-
-  // Non-interactive path: if the workspace session is named after the team,
-  // allow `maw new <team>; maw team bring <team>` from outside tmux.
-  if (await tmux.hasSession(teamName)) return teamName;
 
   throw new Error(`not in tmux and no '${teamName}' session exists — run: maw new ${teamName}`);
 }
