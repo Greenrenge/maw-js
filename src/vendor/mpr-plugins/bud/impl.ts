@@ -31,6 +31,8 @@ export interface BudOpts {
   signalOnBirth?: boolean;
   /** Pretty display name — written to ψ/nickname at birth (#643 Phase 3). */
   nickname?: string;
+  /** Create repo + local oracle skeleton only; stop before commit/push/wake/parent mutation. */
+  scaffoldOnly?: boolean;
 }
 
 // TinyBudOpts removed — --tiny deprecated, code moved to deprecated/tiny-bud-209/
@@ -154,8 +156,12 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     } else {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] root oracle — no parent`);
     }
-    console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would wake ${name}`);
-    if (parentName) {
+    if (opts.scaffoldOnly) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] scaffold-only: would stop before git commit/push, wake, attach, parent sync_peers, and /awaken`);
+    } else {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would wake ${name}`);
+    }
+    if (parentName && !opts.scaffoldOnly) {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would add ${name} to ${parentName}'s sync_peers`);
     }
     console.log();
@@ -190,6 +196,23 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   }
   const fleetFile = configureFleet(name, org, budRepoName, parentName);
   if (opts.note) writeBirthNote(psiDir, name, parentName, opts.note);
+
+  // #1551 — structure-only oracle creation. This intentionally stops after
+  // the repo/skeleton/fleet scaffolding is present but before any lifecycle
+  // side effects that make the oracle "alive": no initial commit/push, no
+  // parent sync_peers mutation, no wake/split/attach, no /awaken trigger, and
+  // no birth signal. Operators can inspect/edit the scaffold, then choose the
+  // next lifecycle step explicitly.
+  if (opts.scaffoldOnly) {
+    console.log(`\n  \x1b[32m▧ Scaffold complete!\x1b[0m ${name}`);
+    console.log(`  \x1b[90m  repo: ${budRepoSlug}`);
+    console.log(`  \x1b[90m  path: ${budRepoPath}`);
+    console.log(`  \x1b[90m  fleet: ${fleetFile}`);
+    console.log(`  \x1b[90m  skipped: git commit/push, wake, attach, parent sync_peers, /awaken`);
+    console.log(`  \x1b[90m  next: inspect files, then run maw wake ${name} or maw awaken ${name} when ready\x1b[0m`);
+    console.log();
+    return;
+  }
 
   // 5-8.5. Soul-sync, commit, sync peers, wake, split, copy
   await finalizeBud({
