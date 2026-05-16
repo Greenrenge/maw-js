@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T18:21:19.718Z
+Generated: 2026-05-16T18:27:35.608Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **13.4%** (6834/50874)
-Overall function coverage: **49.3%** (668/1355)
+Overall line coverage: **13.6%** (6937/50862)
+Overall function coverage: **50.9%** (690/1356)
 
 ## Module summary
 
@@ -20,7 +20,7 @@ Overall function coverage: **49.3%** (668/1355)
 | other | 174 | 98 | 17.9% (2578/14398) | 53.2% (252/474) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 46.6% (595/1276) | 67.2% (45/67) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
-| transport | 28 | 3 | 23.0% (633/2754) | 28.8% (79/274) | n/a (0/0) |
+| transport | 28 | 3 | 26.8% (736/2742) | 36.7% (101/275) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -101,6 +101,9 @@ Overall function coverage: **49.3%** (668/1355)
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
 | transport | `src/transports/hub-config.ts` | 90.0% | 100.0% |
 | transport | `src/transports/hub.ts` | 100.0% | 100.0% |
+| transport | `src/transports/scout-pair-proof.ts` | 100.0% | 100.0% |
+| transport | `src/transports/scout-protocol.ts` | 100.0% | 100.0% |
+| transport | `src/transports/scout-state.ts` | 100.0% | 100.0% |
 | transport | `src/transports/zenoh-scout.ts` | 90.3% | 66.7% |
 
 ## Critical files below the 80% line target (next queue)
