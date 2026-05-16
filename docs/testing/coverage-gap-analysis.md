@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-16T19:01:47.254Z
+Generated: 2026-05-16T19:07:49.376Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **14.1%** (7192/50852)
-Overall function coverage: **54.1%** (737/1362)
+Overall line coverage: **14.3%** (7265/50800)
+Overall function coverage: **54.0%** (740/1370)
 
 ## Module summary
 
@@ -18,7 +18,7 @@ Overall function coverage: **54.1%** (737/1362)
 | fleet | 17 | 1 | 20.7% (227/1096) | 53.4% (31/58) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 98 | 18.6% (2672/14403) | 56.8% (270/475) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 58.7% (746/1270) | 88.9% (64/72) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 67.2% (819/1218) | 83.8% (67/80) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 49.2% (300/610) | 72.7% (32/44) | n/a (0/0) |
 | transport | 28 | 3 | 27.3% (746/2733) | 40.4% (111/275) | n/a (0/0) |
 | vendor plugins | 245 | 244 | 0.7% (145/21992) | 66.7% (12/18) | n/a (0/0) |
@@ -121,9 +121,9 @@ Overall function coverage: **54.1%** (737/1362)
 | transport | `src/transports/scout.ts` | 248 | 8.5% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 226 | 28.7% |
 | cli/dispatch | `src/commands/shared/done.ts` | 207 | 0.0% |
-| plugin dispatch | `src/plugin/registry-invoke.ts` | 200 | 2.4% |
 | transport | `src/transports/mdns.ts` | 184 | 7.5% |
 | transport | `src/core/transport/peers.ts` | 176 | 31.3% |
+| fleet | `src/core/fleet/claude-sessions.ts` | 171 | 0.0% |
 
 ## Critical gaps to prioritize
 
