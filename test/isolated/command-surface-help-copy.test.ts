@@ -75,6 +75,15 @@ describe("#1531 command-surface help copy", () => {
     expect(usage).toContain("maw rename");
   });
 
+  test("team help advertises shared-workspace bring", () => {
+    expect(desc("src/vendor/mpr-plugins/team/plugin.json")).toContain("bring");
+    expect(help("src/vendor/mpr-plugins/team/plugin.json")).toContain("spawn|bring|send");
+
+    const usage = formatUsage([plugin("src/vendor/mpr-plugins/team")]);
+    expect(usage).toContain("maw team");
+    expect(usage).toContain("bring");
+  });
+
   test("remaining real CLI plugins have explicit metadata and appear in usage", () => {
     const names = ["dream", "oracle-skills", "park", "shellenv", "token"];
     const usage = formatUsage(names.map((name) => plugin(`src/vendor/mpr-plugins/${name}`)));
