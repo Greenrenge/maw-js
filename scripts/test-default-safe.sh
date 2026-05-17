@@ -94,7 +94,10 @@ if [ "${#REQUESTED_FILES[@]}" -gt 0 ]; then
     ALL_TEST_FILES+=("$f")
   done
 else
-  mapfile -t ALL_TEST_FILES < <(
+  ALL_TEST_FILES=()
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && ALL_TEST_FILES+=("$f")
+  done < <(
     git ls-files -- 'test/*.ts' 'test/**/*.ts' |
       while IFS= read -r f; do
         [[ "$f" == test/helpers/* ]] && continue
@@ -111,7 +114,10 @@ if [ "${#ALL_TEST_FILES[@]}" -eq 0 ]; then
   exit 2
 fi
 
-mapfile -t MOCK_FILES < <(
+MOCK_FILES=()
+while IFS= read -r f; do
+  [[ -n "$f" ]] && MOCK_FILES+=("$f")
+done < <(
   printf '%s\n' "${ALL_TEST_FILES[@]}" |
     while IFS= read -r f; do
       grep -qE '^[[:space:]]*mock\.module[[:space:]]*\(' "$f" || continue
@@ -119,14 +125,16 @@ mapfile -t MOCK_FILES < <(
     done | sort -u
 )
 
-declare -A MOCK_SET=()
-for f in "${MOCK_FILES[@]}"; do
-  MOCK_SET["$f"]=1
-done
-
 SAFE_FILES=()
 for f in "${ALL_TEST_FILES[@]}"; do
-  [[ -n "${MOCK_SET[$f]:-}" ]] && continue
+  is_mock=0
+  for mock_file in "${MOCK_FILES[@]}"; do
+    if [[ "$mock_file" == "$f" ]]; then
+      is_mock=1
+      break
+    fi
+  done
+  [[ "$is_mock" -eq 1 ]] && continue
   SAFE_FILES+=("$f")
 done
 

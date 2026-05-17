@@ -89,10 +89,12 @@ export function createSshTransport(overrides: Partial<SshDeps> = {}): SshTranspo
     const transport: HostExecTransport = local ? "local" : "ssh";
     const args = local ? ["bash", "-c", cmd] : ["ssh", host, cmd];
     const proc = io.spawn(args, { stdout: "pipe", stderr: "pipe", windowsHide: true });
-    const text = await new Response(proc.stdout).text();
-    const code = await proc.exited;
+    const [text, err, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
     if (code !== 0) {
-      const err = await new Response(proc.stderr).text();
       const underlying = new Error(err.trim() || `exit ${code}`);
       throw new HostExecError(host, transport, underlying, code);
     }

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { spawnSync } from "child_process";
+import { runBunChild } from "./helpers/run-bun-child";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const homes: string[] = [];
@@ -53,14 +53,13 @@ describe("plugin ls", () => {
       ]);
     `;
 
-    const result = spawnSync("bun", ["-e", script], {
+    const result = runBunChild({
+      script,
       cwd: REPO_ROOT,
       env: { ...process.env, MAW_HOME: home, MAW_TEST_MODE: "1", MAW_QUIET: "1" },
-      encoding: "utf-8",
-      timeout: 10_000,
     });
 
-    expect(result.status).toBe(0);
+    expect(result.code).toBe(0);
     expect(result.stdout.indexOf("alpha")).toBeLessThan(result.stdout.indexOf("zeta"));
     expect(result.stdout.indexOf("aardvark")).toBeLessThan(result.stdout.indexOf("beta"));
   });

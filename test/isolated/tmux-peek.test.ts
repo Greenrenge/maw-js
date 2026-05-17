@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
-import { tmpdir, homedir } from "os";
+import { homedir } from "os";
 
 // Test resolveTmuxTarget in isolation — it's a pure function that resolves
 // user-supplied targets to tmux pane identifiers. hostExec is NOT exercised
@@ -14,6 +14,8 @@ import { tmpdir, homedir } from "os";
 // ACTUAL ~/.claude/teams/ path under a unique team name we clean up.
 
 let testTeamDir: string;
+const originalSpawnSync = Bun.spawnSync;
+const encode = (text: string) => new TextEncoder().encode(text);
 
 beforeEach(() => {
   const teamName = `tmux-peek-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -27,9 +29,22 @@ beforeEach(() => {
       { name: "lead",         tmuxPaneId: "", agentType: "team-lead" },
     ],
   }));
+
+  (Bun as any).spawnSync = ((args: string[]) => {
+    if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+      return {
+        exitCode: 0,
+        stdout: encode(""),
+        stderr: new Uint8Array(),
+        success: true,
+      };
+    }
+    return originalSpawnSync(args as any);
+  }) as typeof Bun.spawnSync;
 });
 
 afterEach(() => {
+  (Bun as any).spawnSync = originalSpawnSync;
   try { rmSync(testTeamDir, { recursive: true, force: true }); } catch { /* ok */ }
 });
 
