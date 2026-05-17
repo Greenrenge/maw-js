@@ -8,7 +8,7 @@ import {
   extractTitle,
   isNoise,
   shareKeywords,
-} from "../src/vendor/mpr-plugins/dream/impl";
+} from "../../src/vendor/mpr-plugins/dream/impl";
 
 type DreamItem = Parameters<typeof deduplicateItems>[0][number];
 

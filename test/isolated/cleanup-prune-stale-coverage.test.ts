@@ -11,7 +11,7 @@ import {
   type DirStat,
   type GitStat,
   type OracleEntryLite,
-} from "../src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles";
+} from "../../src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles";
 
 const DAY_MS = 86_400_000;
 const NOW = Date.UTC(2026, 4, 18, 12, 0, 0);
