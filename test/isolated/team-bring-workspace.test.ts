@@ -71,12 +71,12 @@ describe("cmdTeamBring", () => {
   });
 
   test("wakes each oracle with --session semantics and applies layout", async () => {
-    const targets = await cmdTeamBring("myteam", { session: "project", engine: "codex" });
+    const targets = await cmdTeamBring("myteam", { session: "project", engine: "codex", split: true });
 
     expect(targets).toEqual(["project:volt", "project:odin"]);
     expect(wakeCalls).toEqual([
-      { oracle: "volt", opts: { session: "project", noRehydrate: true, engine: "codex" } },
-      { oracle: "odin", opts: { session: "project", noRehydrate: true, engine: "codex" } },
+      { oracle: "volt", opts: { session: "project", noRehydrate: true, engine: "codex", split: true } },
+      { oracle: "odin", opts: { session: "project", noRehydrate: true, engine: "codex", split: true } },
     ]);
     expect(layoutCalls).toEqual([{ target: "project:lead", layout: "main-vertical" }]);
   });

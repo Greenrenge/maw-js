@@ -59,6 +59,8 @@ let config: any;
 let listSessionsReturn: Session[];
 let resolveTargetReturn: ResolvedTarget;
 let resolveTargetError: Error | null;
+let resolveTargetCalls: string[];
+let resolveTargetHandler: ((query: string) => ResolvedTarget) | null;
 let findPeerUrl: string | null;
 let getPaneCommandReturn: string;
 let captureResponses: string[];
@@ -103,7 +105,9 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   findPeerForTarget: async (...args: Parameters<typeof realSdk.findPeerForTarget>) => mockActive ? findPeerUrl : realSdk.findPeerForTarget(...args),
   resolveTarget: (...args: Parameters<typeof _rSdk.resolveTarget>) => {
     if (!mockActive) return realSdk.resolveTarget(...args);
+    resolveTargetCalls.push(args[0]);
     if (resolveTargetError) throw resolveTargetError;
+    if (resolveTargetHandler) return resolveTargetHandler(args[0]);
     return resolveTargetReturn as ReturnType<typeof _rSdk.resolveTarget>;
   },
   curlFetch: async (url: string, options: any) => {
@@ -239,6 +243,8 @@ beforeEach(() => {
   listSessionsReturn = [{ name: "session", windows: [{ index: 0, name: "oracle", active: true }] }];
   resolveTargetReturn = { type: "local", target: "session:oracle.0" };
   resolveTargetError = null;
+  resolveTargetCalls = [];
+  resolveTargetHandler = null;
   findPeerUrl = null;
   getPaneCommandReturn = "claude";
   captureResponses = ["❯ ", "accepted"];
@@ -510,6 +516,35 @@ describe("cmdSend — prefix routers", () => {
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("no oracle members in team 'missing'");
     expect(errs.join("\n")).toContain("maw team oracle-invite");
+  });
+
+  test("team fan-out prefers brought workspace windows over oracle home sessions", async () => {
+    oracleMembers = ["digger-oracle", "discord-oracle"];
+    oracleRegistry = { members: ["digger-oracle", "discord-oracle", "sender"] };
+    listSessionsReturn = [
+      { name: "anon", windows: [
+        { index: 0, name: "lead", active: true },
+        { index: 1, name: "digger", active: false },
+        { index: 2, name: "discord", active: false },
+      ] },
+      { name: "33-digger", windows: [{ index: 0, name: "digger-oracle", active: true }] },
+      { name: "23-discord", windows: [{ index: 0, name: "discord-oracle", active: true }] },
+    ];
+    resolveTargetHandler = (query) => {
+      if (query === "anon:digger") return { type: "local", target: "anon:1" };
+      if (query === "anon:discord") return { type: "local", target: "anon:2" };
+      return { type: "local", target: `HOME:${query}` };
+    };
+
+    await runCmd(() => cmdSend("team:anon", "hello"));
+
+    expect(exitCode).toBeUndefined();
+    expect(resolveTargetCalls).toEqual(["anon:digger", "anon:discord"]);
+    expect(sendKeysCalls).toEqual([
+      { target: "anon:1", text: "[test-node:sender] hello" },
+      { target: "anon:2", text: "[test-node:sender] hello" },
+    ]);
+    expect(logs.join("\n")).toContain("fan-out complete: 2 delivered, 0 failed");
   });
 });
 
