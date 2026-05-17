@@ -296,9 +296,12 @@ export async function pollEnginePluginHealth(): Promise<{ checked: number; remov
   return { checked: current.length, removed };
 }
 
-export function startEnginePluginHealthPolling(intervalMs = 5_000): () => void {
+export function startEnginePluginHealthPolling(
+  intervalMs = 5_000,
+  poll: () => Promise<{ checked: number; removed: number }> = pollEnginePluginHealth,
+): () => void {
   const timer = setInterval(() => {
-    pollEnginePluginHealth().catch((err) => {
+    poll().catch((err) => {
       console.warn(`[engine-plugin] health poll failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   }, intervalMs);
