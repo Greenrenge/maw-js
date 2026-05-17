@@ -96,6 +96,7 @@
     "./lib/sparkline": "./src/lib/sparkline.ts",
     "./commands/shared/comm": "./src/commands/shared/comm.ts",
     "./commands/shared/comm-send": "./src/commands/shared/comm-send.ts",
+    "./commands/shared/context-limit": "./src/commands/shared/context-limit.ts",
     "./commands/shared/done": "./src/commands/shared/done.ts",
     "./commands/shared/fleet": "./src/commands/shared/fleet.ts",
     "./commands/shared/fleet-doctor-fixer": "./src/commands/shared/fleet-doctor-fixer.ts",

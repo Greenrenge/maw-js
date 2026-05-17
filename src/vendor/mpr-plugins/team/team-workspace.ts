@@ -1,5 +1,6 @@
 import { tmux } from "maw-js/sdk";
 import { cmdWake } from "maw-js/commands/shared/wake";
+import { compactIfPaneContextLimited } from "maw-js/commands/shared/context-limit";
 import { loadOracleRegistry, type OracleMember } from "./oracle-members";
 
 export interface TeamBringOptions {
@@ -11,6 +12,8 @@ export interface TeamBringOptions {
   dryRun?: boolean;
   /** Open each brought oracle beside the current pane using maw wake --split. */
   split?: boolean;
+  /** How long to watch newly woken panes for immediate context-limit freeze. */
+  contextLimitPollMs?: number;
 }
 
 export function teamOracleMemberNames(members: OracleMember[]): string[] {
@@ -80,6 +83,7 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
   console.log(`\x1b[36m⚡\x1b[0m bringing ${members.length} oracle(s) into workspace '${session}'`);
 
   const targets: string[] = [];
+  const woken: Array<{ oracle: string; target: string }> = [];
   for (const oracle of members) {
     if (opts.dryRun) {
       console.log(`  \x1b[90mwould wake ${oracle} --session ${session}${opts.split ? " --split" : ""}\x1b[0m`);
@@ -93,9 +97,19 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
       split: opts.split,
     });
     targets.push(target);
+    woken.push({ oracle, target });
   }
 
   if (!opts.dryRun) {
+    await Promise.all(woken.map(({ oracle, target }) =>
+      compactIfPaneContextLimited(target, {
+        label: `${session}/${oracle}`,
+        pollMs: opts.contextLimitPollMs,
+      }).catch((error) => {
+        console.warn(`  \x1b[33m⚠\x1b[0m ${session}/${oracle}: context-limit probe failed (${error?.message ?? error})`);
+        return false;
+      })
+    ));
     const layout = await applyTeamBringLayout(session, members.length);
     console.log(`\x1b[32m✓\x1b[0m team '${teamName}' brought into '${session}' (${layout})`);
   }

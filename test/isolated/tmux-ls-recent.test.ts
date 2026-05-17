@@ -13,10 +13,12 @@ type MockPane = {
 
 let panes: MockPane[] = [];
 let sessionCreatedRaw = "";
+let captureByTarget = new Map<string, string>();
 
 mock.module(join(srcRoot, "src/sdk"), () => ({
   tmux: {
     listPanes: async () => panes,
+    capture: async (target: string) => captureByTarget.get(target) ?? "",
   },
   hostExec: async (cmd: string) => {
     if (cmd.includes("list-sessions") && cmd.includes("session_created")) return sessionCreatedRaw;
@@ -63,6 +65,7 @@ beforeEach(() => {
     { id: "%3", target: "mid-session:oracle.0", command: "zsh", title: "mid", lastActivity: now },
   ];
   sessionCreatedRaw = "old-session\t100\nnew-session\t300\nmid-session\t200\n";
+  captureByTarget = new Map();
 });
 
 describe("maw ls --recent (#1628)", () => {
@@ -90,5 +93,18 @@ describe("maw ls --recent (#1628)", () => {
     expect(out).toContain("CREATED");
     expect(out.indexOf("new-session:oracle.0")).toBeLessThan(out.indexOf("mid-session:oracle.0"));
     expect(out.indexOf("mid-session:oracle.0")).toBeLessThan(out.indexOf("old-session:oracle.0"));
+  });
+
+  test("marks context-limit panes and sessions with warning status", async () => {
+    captureByTarget.set("new-session:oracle.0", "Context limit reached · /compact or /clear to continue");
+
+    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true }));
+    expect(compact).toContain("⚠");
+    expect(compact).toContain("new-session");
+    expect(compact).toContain("new-session:oracle.0 context-limit");
+
+    const verbose = await capture(() => cmdTmuxLs({ all: true, verbose: true }));
+    expect(verbose).toContain("new-session:oracle.0");
+    expect(verbose).toContain("context-limit");
   });
 });
