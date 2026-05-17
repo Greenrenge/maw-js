@@ -24,6 +24,7 @@ import { join } from "path";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
 import { verbose, info } from "../cli/verbosity";
+import type { MawConfig } from "../config/types";
 import type { LoadedPlugin } from "./types";
 import { satisfies, formatSdkMismatchError } from "./registry-semver";
 import {
@@ -77,10 +78,19 @@ export function resetDiscoverCache(): void {
  * Result is memoized within the current process. Call `resetDiscoverCache()`
  * after mutating plugin state (install, build) to force a fresh scan.
  */
-export function discoverPackages(): LoadedPlugin[] {
-  if (_discoverCache !== null) return _discoverCache;
+export interface DiscoverPackagesDeps {
+  loadConfig?: () => Pick<MawConfig, "disabledPlugins">;
+  resolveActiveProfileFilter?: typeof resolveActiveProfileFilter;
+  scanDirs?: typeof scanDirs;
+  useCache?: boolean;
+}
+
+export function discoverPackages(deps: DiscoverPackagesDeps = {}): LoadedPlugin[] {
+  const useCache = deps.useCache ?? (!deps.loadConfig && !deps.resolveActiveProfileFilter && !deps.scanDirs);
+  if (useCache && _discoverCache !== null) return _discoverCache;
+  const pluginDirs = (deps.scanDirs ?? scanDirs)();
   const plugins: LoadedPlugin[] = [];
-  const disabled = loadConfig().disabledPlugins ?? [];
+  const disabled = (deps.loadConfig ?? loadConfig)().disabledPlugins ?? [];
   const runtimeVer = runtimeSdkVersion();
   let legacyCount = 0;
   // #355 — aggregate mode counts for a single compact summary line instead
@@ -89,7 +99,7 @@ export function discoverPackages(): LoadedPlugin[] {
   // invariant (#343), but the right grain is SUMMARY, not per-entry.
   const modeCounts = { symlink: 0, artifact: 0, unbuilt: 0, legacy: 0 };
 
-  for (const baseDir of scanDirs()) {
+  for (const baseDir of pluginDirs) {
     if (!existsSync(baseDir)) continue;
     let entries: string[];
     try {
@@ -186,14 +196,17 @@ export function discoverPackages(): LoadedPlugin[] {
 
   // #404 — apply weight overrides so category survives `install --link` replaces
   // where the new plugin.json omitted `weight`.
-  const overridesPath = join(scanDirs()[0]!, ".overrides.json");
-  try {
-    const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
-    for (const p of plugins) {
-      const w = overrides[p.manifest.name];
-      if (typeof w === "number") p.manifest.weight = w;
-    }
-  } catch { /* absent or unreadable */ }
+  const primaryPluginDir = pluginDirs[0];
+  if (primaryPluginDir) {
+    const overridesPath = join(primaryPluginDir, ".overrides.json");
+    try {
+      const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
+      for (const p of plugins) {
+        const w = overrides[p.manifest.name];
+        if (typeof w === "number") p.manifest.weight = w;
+      }
+    } catch { /* absent or unreadable */ }
+  }
 
   // Sort by weight (lower = first, default 50) — like Drupal module weight
   plugins.sort((a, b) => (a.manifest.weight ?? 50) - (b.manifest.weight ?? 50));
@@ -211,7 +224,7 @@ export function discoverPackages(): LoadedPlugin[] {
   // The pure resolver in profile-loader.ts keeps its Phase-1 contract
   // (untiered = excluded); the default lives here in the wiring layer where
   // the audit doc's "missing → core" convention applies.
-  const filter = resolveActiveProfileFilter(
+  const filter = (deps.resolveActiveProfileFilter ?? resolveActiveProfileFilter)(
     plugins.map((p) => ({
       name: p.manifest.name,
       tier: p.manifest.tier ?? "core",
@@ -221,6 +234,6 @@ export function discoverPackages(): LoadedPlugin[] {
     ? plugins
     : plugins.filter((p) => filter.has(p.manifest.name));
 
-  _discoverCache = filtered;
+  if (useCache) _discoverCache = filtered;
   return filtered;
 }

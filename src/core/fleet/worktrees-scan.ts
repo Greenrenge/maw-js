@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";
+import type { Session } from "../runtime/find-window";
 
 export interface WorktreeInfo {
   path: string;
@@ -16,6 +17,28 @@ export interface WorktreeInfo {
   fleetFile?: string; // fleet config if registered
 }
 
+export interface ScanWorktreesDeps {
+  hostExec: (cmd: string) => Promise<string>;
+  listSessions: () => Promise<Session[]>;
+  getGhqRoot: () => string;
+  readdirSync: (path: string) => string[];
+  readFileSync: (path: string, encoding: "utf-8") => string;
+  fleetDir: string;
+  error: (...args: unknown[]) => void;
+}
+
+function scanDeps(overrides: Partial<ScanWorktreesDeps>): ScanWorktreesDeps {
+  return {
+    hostExec: overrides.hostExec ?? hostExec,
+    listSessions: overrides.listSessions ?? (listSessions as unknown as () => Promise<Session[]>),
+    getGhqRoot: overrides.getGhqRoot ?? getGhqRoot,
+    readdirSync: overrides.readdirSync ?? (readdirSync as unknown as ScanWorktreesDeps["readdirSync"]),
+    readFileSync: overrides.readFileSync ?? (readFileSync as unknown as ScanWorktreesDeps["readFileSync"]),
+    fleetDir: overrides.fleetDir ?? FLEET_DIR,
+    error: overrides.error ?? console.error,
+  };
+}
+
 /**
  * Scan all worktrees across ghq repos.
  * Classifies:
@@ -23,9 +46,10 @@ export interface WorktreeInfo {
  *   stale   — exists on disk, no tmux window
  *   orphan  — git reports prunable
  */
-export async function scanWorktrees(): Promise<WorktreeInfo[]> {
-  const reposRoot = join(getGhqRoot(), "github.com");
-  const fleetDir = FLEET_DIR;
+export async function scanWorktrees(deps: Partial<ScanWorktreesDeps> = {}): Promise<WorktreeInfo[]> {
+  const d = scanDeps(deps);
+  const reposRoot = join(d.getGhqRoot(), "github.com");
+  const fleetDir = d.fleetDir;
 
   // 1. Find all .wt- directories
   // #1553 — dedupe paths; `find` can surface the same .wt-* dir multiple times
@@ -33,16 +57,16 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   // turning N worktrees into N×K classification rows + ambiguity error spam.
   let wtPaths: string[] = [];
   try {
-    const raw = await hostExec(`find ${reposRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
+    const raw = await d.hostExec(`find ${reposRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
     wtPaths = [...new Set(raw.split("\n").filter(Boolean))];
   } catch { /* no worktrees */ }
 
   // 2. Get running tmux windows for matching
   // listSessions() can throw if tmux is down or SSH fails — treat as empty
   // (all worktrees will classify as stale, which is correct: no windows running).
-  let sessions: Awaited<ReturnType<typeof listSessions>> = [];
+  let sessions: Session[] = [];
   try {
-    sessions = await listSessions();
+    sessions = await d.listSessions();
   } catch { /* tmux unavailable — proceed with no running windows */ }
   const runningWindows = new Set<string>();
   for (const s of sessions) {
@@ -54,8 +78,8 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   // 3. Load fleet configs for matching
   const fleetWindows = new Map<string, string>(); // repo -> fleet file
   try {
-    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
-      const cfg = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
+    for (const file of d.readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
+      const cfg = JSON.parse(d.readFileSync(join(fleetDir, file), "utf-8"));
       for (const w of cfg.windows || []) {
         if (w.repo) fleetWindows.set(w.repo, file);
       }
@@ -84,7 +108,7 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     // Get branch
     let branch = "";
     try {
-      branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD 2>/dev/null`)).trim();
+      branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD 2>/dev/null`)).trim();
     } catch { branch = "unknown"; }
 
     // Match to tmux window — check fleet config or name pattern.
@@ -98,11 +122,11 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
         tmuxWindow = windowMatch.window;
         break;
       case "ambiguous":
-        console.error(`  \x1b[31m✗\x1b[0m '${windowMatch.query}' is ambiguous — matches ${windowMatch.candidates.length} windows:`);
+        d.error(`  \x1b[31m✗\x1b[0m '${windowMatch.query}' is ambiguous — matches ${windowMatch.candidates.length} windows:`);
         for (const c of windowMatch.candidates) {
-          console.error(`  \x1b[90m    • ${c}\x1b[0m`);
+          d.error(`  \x1b[90m    • ${c}\x1b[0m`);
         }
-        console.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
+        d.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
         // tmuxWindow stays undefined → status = stale
         break;
       case "none":
@@ -130,7 +154,7 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
   for (const mainRepo of mainRepos) {
     const mainPath = join(reposRoot, mainRepo);
     try {
-      const prunable = await hostExec(`git -C '${mainPath}' worktree list --porcelain 2>/dev/null | grep -A1 'prunable' | grep 'worktree' | sed 's/worktree //'`);
+      const prunable = await d.hostExec(`git -C '${mainPath}' worktree list --porcelain 2>/dev/null | grep -A1 'prunable' | grep 'worktree' | sed 's/worktree //'`);
       for (const orphanPath of prunable.split("\n").filter(Boolean)) {
         // Check if we already have this path
         const existing = results.find(r => r.path === orphanPath);
