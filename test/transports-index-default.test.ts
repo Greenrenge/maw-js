@@ -37,6 +37,7 @@ let workspaceConfigsValue: any[] = [];
 let loadConfigCalls = 0;
 let loadWorkspaceConfigsCalls = 0;
 let readZenohScoutConfigCalls: any[] = [];
+let zenohConnectReject: unknown = null;
 let transportInstances: FakeTransport[] = [];
 let routerInstances: FakeRouter[] = [];
 
@@ -139,6 +140,24 @@ mock.module(join(import.meta.dir, "../src/transports/zenoh-scout"), () => ({ // 
   },
 }));
 
+function zenohModuleMock() {
+  return {
+    ZenohTransport: class {
+      constructor(options: unknown) {
+        const transport = makeTransport("zenoh", options);
+        transport.connect = mock(async () => {
+          if (zenohConnectReject) throw zenohConnectReject;
+          return undefined;
+        });
+        return transport;
+      }
+    },
+  };
+}
+
+mock.module(join(import.meta.dir, "../src/transports/zenoh"), zenohModuleMock); // mock-boundary-ok: requested default-suite coverage for dynamic zenoh transport import wiring
+mock.module(join(import.meta.dir, "../src/transports/zenoh.ts"), zenohModuleMock); // mock-boundary-ok: requested default-suite coverage for dynamic zenoh transport import wiring
+
 mock.module(join(import.meta.dir, "../src/vendor/mpr-plugins/zenoh-scout/impl"), () => ({ // mock-boundary-ok: requested default-suite coverage for zenoh scout config wiring
   readZenohScoutConfig: (config: unknown) => {
     readZenohScoutConfigCalls.push(config);
@@ -146,8 +165,14 @@ mock.module(join(import.meta.dir, "../src/vendor/mpr-plugins/zenoh-scout/impl"),
   },
 }));
 
+async function waitForAsyncTransportWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+}
+
 const {
   createTransportRouter,
+  discoveryTransport,
   getTransportRouter,
   resetTransportRouter,
 } = await import("../src/transports/index");
@@ -159,6 +184,7 @@ beforeEach(() => {
   loadConfigCalls = 0;
   loadWorkspaceConfigsCalls = 0;
   readZenohScoutConfigCalls = [];
+  zenohConnectReject = null;
   transportInstances = [];
   routerInstances = [];
 });
@@ -229,6 +255,68 @@ describe("transport registry default coverage", () => {
       selfHost: "m5",
     });
     expect(transportInstances.filter((transport) => ["tmux", "scout", "zenoh-scout"].includes(transport.name)).map((transport) => transport.connect.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+
+  test("discovery transport respects disabled zenoh-scout fallback branches", () => {
+    expect(discoveryTransport({
+      ...defaultConfig,
+      discovery: { transport: "zenoh" },
+      disabledPlugins: ["zenoh-scout"],
+    } as any)).toBe("off");
+    expect(discoveryTransport({
+      ...defaultConfig,
+      discovery: { transport: "both" },
+      disabledPlugins: ["zenoh-scout"],
+    } as any)).toBe("scout");
+    expect(discoveryTransport({
+      ...defaultConfig,
+      discovery: { transport: "off" },
+      disabledPlugins: ["zenoh-scout"],
+    } as any)).toBe("off");
+    expect(discoveryTransport({
+      ...defaultConfig,
+      discovery: {},
+      disabledPlugins: ["zenoh-scout"],
+    } as any)).toBe("scout");
+  });
+
+  test("dynamically loads and registers zenoh transport when locator is configured", async () => {
+    configValue = {
+      ...defaultConfig,
+      zenoh: { locator: "tcp/127.0.0.1:7447" },
+    };
+
+    const router = createTransportRouter() as unknown as FakeRouter;
+    await waitForAsyncTransportWork();
+
+    const zenoh = transportInstances.find((transport) => transport.name === "zenoh");
+    expect(zenoh?.options).toEqual({
+      locator: "tcp/127.0.0.1:7447",
+      node: "test-node",
+    });
+    expect(zenoh?.connect).toHaveBeenCalledTimes(1);
+    expect(router.registered.map((transport) => transport.name)).toContain("zenoh");
+  });
+
+  test("warns when dynamically loaded zenoh transport fails to connect", async () => {
+    const originalWarn = console.warn;
+    const warn = mock(() => undefined);
+    console.warn = warn;
+    zenohConnectReject = new Error("bridge unavailable");
+    configValue = {
+      ...defaultConfig,
+      zenoh: { locator: "tcp/127.0.0.1:7447" },
+    };
+
+    try {
+      createTransportRouter();
+      await waitForAsyncTransportWork();
+
+      expect(warn).toHaveBeenCalledWith("[zenoh] connect failed: Error: bridge unavailable");
+      expect(transportInstances.find((transport) => transport.name === "zenoh")?.connect).toHaveBeenCalledTimes(1);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   test("reset disconnects the singleton router and get creates a fresh one afterward", () => {
