@@ -351,6 +351,13 @@ async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Prom
   return `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
 }
 
+function findExistingWakeWindow(windowNames: Iterable<string>, oracle: string, windowName: string): string | undefined {
+  const names = [...windowNames];
+  const nameSuffix = windowName.replace(`${oracle}-`, "");
+  return names.find(w => w === windowName)
+    || names.find(w => new RegExp(`^${oracle}-\\d+-${nameSuffix}$`).test(w));
+}
+
 export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string> {
   // Canonicalize the bare name before any lookup — strips trailing `/`, `/.git`, `/.git/`
   // so `maw wake token-oracle/` (tab-completion artifact) resolves the same as `token-oracle`.
@@ -530,6 +537,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return session ? `${session}:${mainWindowName}` : `${oracle}:dry-run`;
   }
 
+  let knownWindows = new Set<string>();
+  let knownWindowsReliable = true;
+
   if (!session && wakeDecision.wake) {
     // #2 — refuse to spawn a brand-new session/agent once the fleet is at the
     // configured concurrency cap (no-op when limits.maxConcurrentAgents is 0).
@@ -567,6 +577,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
 
     let existingWindows = new Set((await tmux.listWindows(session).catch(() => [] as { name: string }[])).map(w => w.name));
+    existingWindows.add(mainWindowName);
     if (requestedSnapshotSession) {
       const allWt = await findWorktrees(parentDir, repoName);
       const restored = await restoreSnapshotWindows(oracle, session, requestedSnapshotSession, existingWindows, allWt, repoPath, opts.engine);
@@ -583,11 +594,16 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
         console.log(`\x1b[32m+\x1b[0m window: ${wt.windowName}`);
       }
     }
+    knownWindows = existingWindows;
   } else {
     await setSessionEnv(session);
     await runWakeLifecycleHooks({ oracle, session, repoPath, repoName });
     let preExistingWindows = new Set<string>();
-    try { preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name)); } catch { /* ok */ }
+    try {
+      preExistingWindows = new Set((await tmux.listWindows(session)).map(w => w.name));
+    } catch {
+      knownWindowsReliable = false;
+    }
 
     if (requestedSnapshotSession) {
       const allWt = await findWorktrees(parentDir, repoName);
@@ -604,6 +620,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
           await tmux.newWindow(session, wt.windowName, { cwd: wt.path });
           await new Promise(r => setTimeout(r, 300));
           await tmux.sendText(`${session}:${wt.windowName}`, buildCommandInDir(wt.windowName, wt.path, opts.engine));
+          preExistingWindows.add(wt.windowName);
           console.log(`\x1b[32m↻\x1b[0m respawned: ${wt.windowName}`);
         }
       }
@@ -612,6 +629,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     await new Promise(r => setTimeout(r, cfgTimeout("wakeVerify")));
     const retried = await ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
+    knownWindows = preExistingWindows;
   }
 
   const reordered = foreignSession ? 0 : await restoreTabOrder(session);
@@ -675,12 +693,8 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     }
   }
 
-  try {
-    const windows = await tmux.listWindows(session);
-    const nameSuffix = windowName.replace(`${oracle}-`, "");
-    const existingWindow = windows.map(w => w.name).find(w => w === windowName)
-      || windows.map(w => w.name).find(w => new RegExp(`^${oracle}-\\d+-${nameSuffix}$`).test(w));
-    if (existingWindow) {
+  const existingWindow = findExistingWakeWindow(knownWindows, oracle, windowName);
+  if (existingWindow) {
       if (opts.prompt) {
         await tmux.selectWindow(`${session}:${existingWindow}`);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
@@ -732,7 +746,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       await recordWakeSnapshot();
       return target;
     }
-  } catch { /* session might be fresh */ }
+
+  if (!knownWindowsReliable) {
+    throw new Error(`could not list windows for session '${session}' — refusing to create '${windowName}' because it may already exist`);
+  }
 
   // #2 — a new task/worktree window is a net-new agent pane: cap-check before
   // spawning it (no-op when limits.maxConcurrentAgents is 0).

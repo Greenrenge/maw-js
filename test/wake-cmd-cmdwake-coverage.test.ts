@@ -120,6 +120,8 @@ let liveTileRoles: string[];
 let branchName: string;
 let ensureSessionRunningReturn: number;
 let restoreTabOrderReturn: number;
+let listWindowsCalls: string[];
+let listWindowsThrowOnCall: number | null;
 
 let logs: string[];
 let hostExecCalls: string[];
@@ -246,7 +248,11 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
       mockActive ? sessions : realSdk.tmux.listSessions(),
     listWindows: async (session: string) =>
       mockActive
-        ? [...(windowsBySession[session] ?? [])]
+        ? (() => {
+            listWindowsCalls.push(session);
+            if (listWindowsThrowOnCall === listWindowsCalls.length) throw new Error("tmux busy");
+            return [...(windowsBySession[session] ?? [])];
+          })()
         : realSdk.tmux.listWindows(session),
     newSession: async (name: string, opts: any = {}) => {
       if (!mockActive) return realSdk.tmux.newSession(name, opts);
@@ -504,6 +510,8 @@ beforeEach(() => {
   branchName = "main";
   ensureSessionRunningReturn = 0;
   restoreTabOrderReturn = 0;
+  listWindowsCalls = [];
+  listWindowsThrowOnCall = null;
 
   logs = [];
   hostExecCalls = [];
@@ -691,6 +699,20 @@ describe("cmdWake main-suite coverage", () => {
     expect(rendered).toContain("snapshot restore: 2 windows");
     expect(rendered).toContain("2 window(s) retried");
     expect(rendered).toContain("agent dead, re-launching");
+  });
+
+  test("reuses the first window listing so a later tmux list failure cannot create a duplicate", async () => {
+    listWindowsThrowOnCall = 2;
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", {}),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-oracle");
+    expect(listWindowsCalls).toEqual(["54-mawjs"]);
+    expect(newWindowCalls).toEqual([]);
+    expect(sendTextCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("'mawjs-oracle' running in 54-mawjs");
   });
 
   test("creates a wake-bud worktree, stamps lineage, emits birth signal, and launches with prompt", async () => {
