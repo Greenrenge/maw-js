@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T20:59:30.998Z
+Generated: 2026-05-17T21:05:48.437Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **50.4%** (25958/51470)
-Overall function coverage: **86.1%** (2816/3269)
+Overall line coverage: **51.3%** (26390/51457)
+Overall function coverage: **86.4%** (2856/3305)
 
 ## Module summary
 
@@ -17,36 +17,36 @@ Overall function coverage: **86.1%** (2816/3269)
 | config/runtime | 19 | 1 | 60.9% (833/1368) | 68.2% (73/107) | n/a (0/0) |
 | fleet | 17 | 0 | 70.1% (788/1124) | 88.8% (79/89) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 52 | 62.6% (9093/14515) | 82.9% (922/1112) | n/a (0/0) |
+| other | 180 | 52 | 63.7% (9249/14521) | 83.6% (937/1121) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 78.8% (2317/2941) | 95.7% (418/437) | n/a (0/0) |
-| vendor plugins | 245 | 203 | 22.9% (4852/21156) | 80.0% (500/625) | n/a (0/0) |
+| vendor plugins | 245 | 201 | 24.3% (5128/21137) | 80.5% (525/652) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | medium | config/runtime | `src/config/load.ts` | 179 | 37.4% | 47.6% | partial coverage |
-| 2 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/peers-impl.ts` | 179 | 0.0% | n/a | absent from LCOV |
-| 3 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 178 | 41.8% | 33.3% | partial coverage |
-| 4 | low | vendor plugins | `src/vendor/mpr-plugins/wake/index.ts` | 177 | 0.0% | n/a | absent from LCOV |
-| 5 | medium | other | `src/commands/plugins/plugin/index.ts` | 174 | 15.1% | 30.0% | partial coverage |
-| 6 | low | vendor plugins | `src/vendor/mpr-plugins/find/impl.ts` | 174 | 0.0% | n/a | absent from LCOV |
-| 7 | critical | transport | `src/core/transport/tmux-class.ts` | 171 | 53.2% | 96.3% | partial coverage |
-| 8 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 170 | 66.1% | 78.8% | partial coverage |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/zenoh-scout/index.ts` | 169 | 0.0% | n/a | absent from LCOV |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 160 | 82.4% | 92.6% | partial coverage |
-| 11 | medium | other | `src/commands/plugins/tmux/impl.ts` | 159 | 75.5% | 68.2% | partial coverage |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/tab/internal/talk-to-impl.ts` | 155 | 0.0% | n/a | absent from LCOV |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/talk-to/impl.ts` | 155 | 0.0% | n/a | absent from LCOV |
-| 14 | medium | other | `src/lib/peers/probe.ts` | 153 | 26.4% | 50.0% | partial coverage |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/mega/impl.ts` | 150 | 0.0% | n/a | absent from LCOV |
-| 16 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 149 | 77.0% | 94.4% | partial coverage |
-| 17 | medium | other | `src/lib/peers/impl.ts` | 149 | 29.7% | 41.7% | partial coverage |
-| 18 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 148 | 65.9% | 90.0% | partial coverage |
-| 19 | medium | other | `src/api/workspace-routes.ts` | 145 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/oracle-workon/index.ts` | 145 | 0.0% | n/a | absent from LCOV |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/find/impl.ts` | 174 | 0.0% | n/a | absent from LCOV |
+| 3 | critical | transport | `src/core/transport/tmux-class.ts` | 171 | 53.2% | 96.3% | partial coverage |
+| 4 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 170 | 66.1% | 78.8% | partial coverage |
+| 5 | low | vendor plugins | `src/vendor/mpr-plugins/zenoh-scout/index.ts` | 169 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 160 | 82.4% | 92.6% | partial coverage |
+| 7 | medium | other | `src/commands/plugins/tmux/impl.ts` | 159 | 75.5% | 68.2% | partial coverage |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/tab/internal/talk-to-impl.ts` | 155 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/talk-to/impl.ts` | 155 | 0.0% | n/a | absent from LCOV |
+| 10 | medium | other | `src/lib/peers/probe.ts` | 153 | 26.4% | 50.0% | partial coverage |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/mega/impl.ts` | 150 | 0.0% | n/a | absent from LCOV |
+| 12 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 149 | 77.0% | 94.4% | partial coverage |
+| 13 | medium | other | `src/lib/peers/impl.ts` | 149 | 29.7% | 41.7% | partial coverage |
+| 14 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 148 | 65.9% | 90.0% | partial coverage |
+| 15 | medium | other | `src/api/workspace-routes.ts` | 145 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/oracle-workon/index.ts` | 145 | 0.0% | n/a | absent from LCOV |
+| 17 | medium | other | `src/commands/plugins/fleet/index.ts` | 144 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-invite.ts` | 144 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/costs/impl.ts` | 141 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
