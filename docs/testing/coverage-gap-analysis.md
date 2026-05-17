@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T23:29:35.573Z
+Generated: 2026-05-17T23:40:02.022Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **56.5%** (28934/51252)
-Overall function coverage: **87.1%** (3051/3501)
+Overall line coverage: **56.6%** (29034/51252)
+Overall function coverage: **87.3%** (3061/3506)
 
 ## Module summary
 
@@ -21,32 +21,32 @@ Overall function coverage: **87.1%** (3051/3501)
 | plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 187 | 31.4% (6575/20946) | 81.3% (652/802) | n/a (0/0) |
+| vendor plugins | 245 | 187 | 31.9% (6675/20946) | 82.0% (662/807) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 198 | 4.8% | 58.3% | partial coverage |
-| 2 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
-| 3 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 92.6% | partial coverage |
-| 4 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
-| 5 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 141 | 78.2% | 94.4% | partial coverage |
-| 6 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 11 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/token/index.ts` | 132 | 0.0% | n/a | absent from LCOV |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/artifact-manager/index.ts` | 131 | 0.0% | n/a | absent from LCOV |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/maw-js-branch-check.ts` | 129 | 0.0% | n/a | absent from LCOV |
-| 16 | medium | other | `src/commands/plugins/fleet/fleet-consolidate.ts` | 127 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stillborn-worktrees.ts` | 126 | 0.0% | n/a | absent from LCOV |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/index.ts` | 126 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/init/prompts.ts` | 125 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/commands/plugins/fleet/fleet-init-scan.ts` | 124 | 0.0% | n/a | absent from LCOV |
+| 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 92.6% | partial coverage |
+| 3 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
+| 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 141 | 78.2% | 94.4% | partial coverage |
+| 5 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 10 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/token/index.ts` | 132 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/artifact-manager/index.ts` | 131 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/maw-js-branch-check.ts` | 129 | 0.0% | n/a | absent from LCOV |
+| 15 | medium | other | `src/commands/plugins/fleet/fleet-consolidate.ts` | 127 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stillborn-worktrees.ts` | 126 | 0.0% | n/a | absent from LCOV |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/index.ts` | 126 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/init/prompts.ts` | 125 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | other | `src/commands/plugins/fleet/fleet-init-scan.ts` | 124 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/ui/impl-render.ts` | 124 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
