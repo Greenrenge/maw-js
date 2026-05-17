@@ -10,92 +10,33 @@ import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
-import { writeSignal } from "../../core/fleet/leaf";
 import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
-import { mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
-
-export interface WakeBudLineageInput {
-  parentOracle: string;
-  task: string;
-  branch?: string;
-  buddedAt?: string;
-  buddedBy?: string;
-}
-
-function yamlScalar(value: string): string {
-  return JSON.stringify(value);
-}
-
-function wakeBudActor(): string {
-  return process.env.CLAUDE_AGENT_NAME
-    || process.env.MAW_ORACLE_NAME
-    || process.env.TMUX_PANE
-    || process.env.USER
-    || "unknown";
-}
-
-export function buildWakeBudLineage(input: WakeBudLineageInput): string {
-  const rows: [string, string][] = [
-    ["budded_from", input.parentOracle],
-    ["budded_at", input.buddedAt ?? new Date().toISOString()],
-    ["budded_by", input.buddedBy ?? wakeBudActor()],
-    ["branch", input.branch ?? ""],
-    ["task", input.task],
-  ];
-  return `${rows.map(([key, value]) => `${key}: ${yamlScalar(value)}`).join("\n")}\n`;
-}
-
-export function writeWakeBudLineage(worktreePath: string, input: WakeBudLineageInput): string {
-  const psiDir = join(worktreePath, "ψ");
-  mkdirSync(psiDir, { recursive: true });
-  const file = join(psiDir, ".lineage.yaml");
-  writeFileSync(file, buildWakeBudLineage(input), "utf-8");
-  return file;
-}
-
-export function writeWakeBudBirthSignal(
-  parentRoot: string,
-  childName: string,
-  input: WakeBudLineageInput & { worktreePath: string },
-): string {
-  return writeSignal(parentRoot, childName, {
-    kind: "info",
-    message: `wake-bud born: ${childName}`,
-    context: {
-      buddedFrom: input.parentOracle,
-      task: input.task,
-      branch: input.branch ?? "",
-      worktreePath: input.worktreePath,
-    },
-  });
-}
-
-export function shouldOfferExistingSessionAttach(
-  opts: { attach?: boolean; split?: boolean; bring?: boolean },
-  isTTY = process.stdin.isTTY,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY) && env.MAW_TEST_MODE !== "1";
-}
-
-const FRESH_SESSION_READY_ATTEMPTS = 8;
-const FRESH_SESSION_READY_DELAY_MS = 150;
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    const cause = (error as { cause?: unknown }).cause;
-    return cause ? `${error.message}\n${errorMessage(cause)}` : error.message;
-  }
-  return String(error);
-}
-
-function isFreshSessionLookupRace(error: unknown, session: string): boolean {
-  const message = errorMessage(error);
-  return message.includes(session) && /can't find (session|window|pane)/i.test(message);
-}
+import {
+  type RehydrateWorktreePlan,
+  type SnapshotRestorePlan,
+  findWakeSnapshotSession,
+  planRehydrateWorktreeWindows,
+  planSnapshotRestoreWindows,
+  retryFreshSessionTmuxStep,
+  shouldOfferExistingSessionAttach,
+  waitForTmuxSessionReady,
+  writeWakeBudBirthSignal,
+  writeWakeBudLineage,
+} from "./wake-cmd-helpers";
+export {
+  type RehydrateWorktreePlan,
+  type SnapshotRestorePlan,
+  type WakeBudLineageInput,
+  buildWakeBudLineage,
+  findWakeSnapshotSession,
+  planRehydrateWorktreeWindows,
+  planSnapshotRestoreWindows,
+  retryFreshSessionTmuxStep,
+  shouldOfferExistingSessionAttach,
+  waitForTmuxSessionReady,
+  writeWakeBudBirthSignal,
+  writeWakeBudLineage,
+} from "./wake-cmd-helpers";
 
 async function recordWakeSnapshot(): Promise<void> {
   try {
@@ -124,75 +65,6 @@ export async function getLiveTileRoles(
   }
 }
 
-export async function waitForTmuxSessionReady(
-  session: string,
-  deps: {
-    hasSession?: (session: string) => Promise<boolean>;
-    sleep?: (ms: number) => Promise<void>;
-    attempts?: number;
-    delayMs?: number;
-  } = {},
-): Promise<void> {
-  const hasSession = deps.hasSession ?? tmux.hasSession.bind(tmux);
-  const wait = deps.sleep ?? sleep;
-  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
-  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
-
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (await hasSession(session)) return;
-    if (attempt < attempts) await wait(delayMs);
-  }
-
-  throw new Error(`tmux did not report fresh session '${session}' ready after ${attempts} checks`);
-}
-
-export async function retryFreshSessionTmuxStep<T>(
-  session: string,
-  label: string,
-  step: () => Promise<T>,
-  deps: {
-    sleep?: (ms: number) => Promise<void>;
-    attempts?: number;
-    delayMs?: number;
-    hasSession?: (session: string) => Promise<boolean>;
-  } = {},
-): Promise<T> {
-  const wait = deps.sleep ?? sleep;
-  const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
-  const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
-
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      return await step();
-    } catch (error) {
-      if (!isFreshSessionLookupRace(error, session) || attempt === attempts) {
-        throw error;
-      }
-      await wait(delayMs);
-      await waitForTmuxSessionReady(session, {
-        hasSession: deps.hasSession,
-        sleep: wait,
-        attempts: 2,
-        delayMs,
-      });
-    }
-  }
-
-  throw new Error(`unreachable: fresh tmux session setup step '${label}' exhausted without throwing`);
-}
-
-export type RehydrateWorktreePlan = {
-  worktreeName: string;
-  windowName: string;
-  path: string;
-};
-
-export type SnapshotRestorePlan = {
-  windowName: string;
-  cwd: string;
-  source: "repo" | "worktree";
-};
-
 export interface WakeOptions {
   task?: string;
   wt?: string;
@@ -216,94 +88,6 @@ export interface WakeOptions {
   engine?: string;
   fromSnapshot?: boolean;
   snapshotId?: string;
-}
-
-export function planRehydrateWorktreeWindows(
-  oracle: string,
-  worktrees: { name: string; path: string }[],
-  existingWindows: string[] = [],
-  liveTileRoles: Set<string> = new Set(),
-): RehydrateWorktreePlan[] {
-  const usedNames = new Set(existingWindows);
-  const planned: RehydrateWorktreePlan[] = [];
-  for (const wt of worktrees) {
-    const taskPart = wt.name.replace(/^\d+-/, "");
-    // #1445 — tile panes are split panes (role metadata), not windows.
-    // If the role is already alive in-session, skip respawn.
-    if (liveTileRoles.has(taskPart)) continue;
-    let wtWindowName = `${oracle}-${taskPart}`;
-    if (usedNames.has(wtWindowName)) {
-      if (existingWindows.includes(wtWindowName)) continue;
-      wtWindowName = `${oracle}-${wt.name}`;
-    }
-    const altName = `${oracle}-${wt.name}`;
-    if (existingWindows.includes(wtWindowName) || existingWindows.includes(altName)) continue;
-    usedNames.add(wtWindowName);
-    planned.push({ worktreeName: wt.name, windowName: wtWindowName, path: wt.path });
-  }
-  return planned;
-}
-
-function stripFleetPrefix(name: string): string {
-  return name.replace(/^\d+-/, "");
-}
-
-export function findWakeSnapshotSession(
-  snapshot: Snapshot,
-  oracle: string,
-  session?: string | null,
-): SnapshotSession | null {
-  if (session) {
-    const exact = snapshot.sessions.find(s => s.name === session);
-    if (exact) return exact;
-  }
-
-  const oracleBase = stripFleetPrefix(oracle);
-  return snapshot.sessions.find(s => {
-    const sessionBase = stripFleetPrefix(s.name);
-    return sessionBase === oracleBase
-      || s.name === oracleBase
-      || s.name.endsWith(`-${oracleBase}`);
-  }) ?? null;
-}
-
-export function planSnapshotRestoreWindows(
-  oracle: string,
-  snapshotSession: SnapshotSession,
-  existingWindows: Iterable<string>,
-  worktrees: { name: string; path: string }[],
-  repoPath: string,
-): SnapshotRestorePlan[] {
-  const existing = new Set(existingWindows);
-  const planned: SnapshotRestorePlan[] = [];
-  const seen = new Set<string>();
-
-  for (const win of snapshotSession.windows) {
-    const windowName = win.name?.trim();
-    if (!windowName || existing.has(windowName) || seen.has(windowName)) continue;
-    seen.add(windowName);
-
-    let cwd = repoPath;
-    let source: SnapshotRestorePlan["source"] = "repo";
-    const prefix = `${oracle}-`;
-    if (windowName.startsWith(prefix)) {
-      const suffix = windowName.slice(prefix.length);
-      const wt = worktrees.find(w =>
-        w.name === suffix
-        || stripFleetPrefix(w.name) === suffix
-        || `${oracle}-${w.name}` === windowName
-        || `${oracle}-${stripFleetPrefix(w.name)}` === windowName
-      );
-      if (wt) {
-        cwd = wt.path;
-        source = "worktree";
-      }
-    }
-
-    planned.push({ windowName, cwd, source });
-  }
-
-  return planned;
 }
 
 function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
@@ -551,12 +335,16 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // and immediately disambiguates future `maw wake` calls.
     session = await chooseWakeSessionName(oracle, opts.urlRepoName);
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
-    await waitForTmuxSessionReady(session);
-    await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session));
+    await waitForTmuxSessionReady(session, { hasSession: tmux.hasSession });
+    await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session), {
+      hasSession: tmux.hasSession,
+    });
     await new Promise(r => setTimeout(r, 300));
     await retryFreshSessionTmuxStep(session, "launch main window", () =>
       tmux.sendText(`${session}:${mainWindowName}`, buildCommandInDir(mainWindowName, repoPath, opts.engine))
-    );
+    , {
+      hasSession: tmux.hasSession,
+    });
     console.log(`\x1b[32m+\x1b[0m created session '${session}' (main: ${mainWindowName})`);
 
     // Auto-register agent in config.agents so federation peers can route to it (#285)

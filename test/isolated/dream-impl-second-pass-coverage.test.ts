@@ -111,6 +111,48 @@ describe("dream command second-pass runtime coverage", () => {
     expect(savedProject).toContain("#12 Track dream findings");
     expect(savedProject).toContain("#34 Merge dream coverage");
   });
+
+  test("all mode renders per-project cards with momentum, wins, friction, and patterns", async () => {
+    await cmdDream({ all: true } as never);
+
+    const output = logs.join("\n");
+    expect(output).toContain("● active");
+    expect(output).toContain("3/week");
+    expect(output).toContain("Completed active project smoke coverage");
+    expect(output).toContain("Keep command mocks explicit");
+    expect(output).toContain("Active mock pattern needs isolation");
+    expect(output).toContain("→ maw workon active");
+    expect(output).toContain("1/1 active repos shown");
+
+    const dreamsDir = join(cwd, "ψ", "writing", "dreams");
+    const dreamFile = readdirSync(dreamsDir).find(name => name.endsWith("_dream.md"));
+    expect(dreamFile).toBeDefined();
+    const savedDream = readFileSync(join(dreamsDir, dreamFile!), "utf8");
+    expect(savedDream).toContain("## PAIN — blocking or broken");
+    expect(savedDream).toContain("## GAIN — shipped this period");
+  });
+
+  test("speculate and help modes print existing artifacts and usage text", async () => {
+    const dreamsDir = join(cwd, "ψ", "writing", "dreams");
+    const morpheusDir = join(cwd, "ψ", "memory", "morpheus");
+    mkdirSync(dreamsDir, { recursive: true });
+    mkdirSync(morpheusDir, { recursive: true });
+    writeFileSync(join(dreamsDir, "2026-05-17_dream.md"), "# Dream\n- Keep coverage stable\n- Finish wake-cmd gaps\n");
+    writeFileSync(join(morpheusDir, "2026-05-17_speculations.md"), "# Speculation\n- Watch server routes\n- Review messages index\n");
+
+    await cmdDream({ speculate: true } as never);
+    await cmdDream({ help: true } as never);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Morpheus");
+    expect(output).toContain("Latest dream:");
+    expect(output).toContain("Latest speculation:");
+    expect(output).toContain("- Keep coverage stable");
+    expect(output).toContain("- Watch server routes");
+    expect(output).toContain("usage: maw dream [flags]");
+    expect(output).toContain("maw dream --all");
+    expect(output).toContain("maw dream --speculate");
+  });
 });
 
 async function fakeHostExec(cmd: string): Promise<string> {
