@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { spawnSync } from "child_process";
+import { runBunChild } from "./helpers/run-bun-child";
 import {
   DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION,
@@ -41,16 +41,42 @@ function writeTsPlugin(root: string, manifest: Record<string, unknown>, source =
   writeFileSync(join(dir, "plugin.json"), JSON.stringify({ version: "1.0.0", sdk: "*", entry: "index.ts", ...manifest }, null, 2) + "\n");
 }
 
+function runCli(args: string[], env: NodeJS.ProcessEnv) {
+  const result = runBunChild({
+    cwd: REPO_ROOT,
+    env,
+    script: `
+      const decoder = new TextDecoder();
+      const proc = Bun.spawnSync(["bun", "src/cli.ts", ...${JSON.stringify(args)}], {
+        cwd: ${JSON.stringify(REPO_ROOT)},
+        env: process.env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      console.log(JSON.stringify({
+        status: proc.exitCode,
+        stdout: decoder.decode(proc.stdout),
+        stderr: decoder.decode(proc.stderr),
+      }));
+    `,
+  });
+  return JSON.parse(result.stdout.trim()) as {
+    status: number;
+    stdout: string;
+    stderr: string;
+  };
+}
+
 function loadInSubprocess(home: string) {
-  return spawnSync("bun", ["-e", `
-    const { loadConfig } = await import("${REPO_ROOT}/src/config/load.ts");
+  const result = runBunChild({
+    env: { MAW_HOME: home, MAW_TEST_MODE: "1" },
+    script: `
+    const { loadConfig } = await import("${join(REPO_ROOT, "src", "config", "load.ts")}");
     const cfg = loadConfig();
     console.log(JSON.stringify({ disabledPlugins: cfg.disabledPlugins ?? [], migrations: cfg.migrations ?? {} }));
-  `], {
-    env: { ...process.env, MAW_HOME: home, MAW_TEST_MODE: "1" },
-    encoding: "utf-8",
-    timeout: 10_000,
+  `,
   });
+  return { status: result.code, stdout: result.stdout, stderr: result.stderr };
 }
 
 function readConfig(home: string): Record<string, any> {
@@ -314,16 +340,10 @@ describe("#1500 default-active plugin migration", () => {
     });
     const pluginDir = makePluginDir();
 
-    const result = spawnSync("bun", ["src/cli.ts", "costs"], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        MAW_HOME: home,
-        MAW_PLUGINS_DIR: pluginDir,
-        MAW_TEST_MODE: "1",
-      },
-      encoding: "utf-8",
-      timeout: 10_000,
+    const result = runCli(["costs"], {
+      MAW_HOME: home,
+      MAW_PLUGINS_DIR: pluginDir,
+      MAW_TEST_MODE: "1",
     });
 
     expect(result.status).toBe(1);
@@ -343,16 +363,10 @@ describe("#1500 default-active plugin migration", () => {
     });
     const pluginDir = makePluginDir();
 
-    const result = spawnSync("bun", ["src/cli.ts", "--quiet", "completions"], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        MAW_HOME: home,
-        MAW_PLUGINS_DIR: pluginDir,
-        MAW_TEST_MODE: "1",
-      },
-      encoding: "utf-8",
-      timeout: 10_000,
+    const result = runCli(["--quiet", "completions"], {
+      MAW_HOME: home,
+      MAW_PLUGINS_DIR: pluginDir,
+      MAW_TEST_MODE: "1",
     });
 
     expect(result.status).toBe(1);
@@ -380,16 +394,10 @@ describe("#1500 default-active plugin migration", () => {
       dependencies: { plugins: ["trace", "dig"] },
     });
 
-    const result = spawnSync("bun", ["src/cli.ts", "--quiet", "needs-context"], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        MAW_HOME: home,
-        MAW_PLUGINS_DIR: pluginDir,
-        MAW_TEST_MODE: "1",
-      },
-      encoding: "utf-8",
-      timeout: 10_000,
+    const result = runCli(["--quiet", "needs-context"], {
+      MAW_HOME: home,
+      MAW_PLUGINS_DIR: pluginDir,
+      MAW_TEST_MODE: "1",
     });
 
     expect(result.status).toBe(1);
@@ -417,16 +425,10 @@ describe("#1500 default-active plugin migration", () => {
       dependencies: { plugins: ["trace", "dig"] },
     });
 
-    const result = spawnSync("bun", ["src/cli.ts", "--quiet", "nc"], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        MAW_HOME: home,
-        MAW_PLUGINS_DIR: pluginDir,
-        MAW_TEST_MODE: "1",
-      },
-      encoding: "utf-8",
-      timeout: 10_000,
+    const result = runCli(["--quiet", "nc"], {
+      MAW_HOME: home,
+      MAW_PLUGINS_DIR: pluginDir,
+      MAW_TEST_MODE: "1",
     });
 
     expect(result.status).toBe(1);
@@ -445,40 +447,24 @@ describe("#1500 default-active plugin migration", () => {
     });
     const pluginDir = makePluginDir();
     const env = {
-      ...process.env,
       MAW_HOME: home,
       MAW_PLUGINS_DIR: pluginDir,
       MAW_TEST_MODE: "1",
       MAW_QUIET: "1",
     };
 
-    const commands = spawnSync("bun", ["src/cli.ts", "--quiet", "completions", "commands"], {
-      cwd: REPO_ROOT,
-      env,
-      encoding: "utf-8",
-      timeout: 10_000,
-    });
+    const commands = runCli(["--quiet", "completions", "commands"], env);
     expect(commands.status).toBe(0);
     expect(commands.stdout).toContain("completions");
     expect(commands.stdout).toContain("bring");
     expect(commands.stdout).toContain("plugin");
 
-    const zsh = spawnSync("bun", ["src/cli.ts", "--quiet", "completions", "zsh"], {
-      cwd: REPO_ROOT,
-      env,
-      encoding: "utf-8",
-      timeout: 10_000,
-    });
+    const zsh = runCli(["--quiet", "completions", "zsh"], env);
     expect(zsh.status).toBe(0);
     expect(zsh.stdout).toContain("#compdef maw");
     expect(zsh.stdout).toContain("maw completions windows");
 
-    const bash = spawnSync("bun", ["src/cli.ts", "--quiet", "completions", "bash"], {
-      cwd: REPO_ROOT,
-      env,
-      encoding: "utf-8",
-      timeout: 10_000,
-    });
+    const bash = runCli(["--quiet", "completions", "bash"], env);
     expect(bash.status).toBe(0);
     expect(bash.stdout).toContain("complete -F _maw_complete maw");
     expect(bash.stdout).toContain("maw completions commands");
