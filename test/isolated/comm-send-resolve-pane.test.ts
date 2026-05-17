@@ -61,6 +61,8 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
   curlFetch: async () => ({ ok: false, status: 0, data: null }),
   runHook: async () => {},
   hostExec: async () => "",
+  tmux: { run: async () => "", tryRun: async () => "" },
+  FLEET_DIR: "/tmp/maw-test-fleet",
 }));
 
 // --- Import the module under test AFTER all mock.module installs ---

@@ -57,6 +57,7 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
       sendKeys: async (target: string, key: string) => { calls.push(["tmuxKeys", target, key]); },
     } as any),
     emitMessageLifecycle: (input) => { lifecycle.push(input); },
+    writeReceiverInbox: null,
     sleep: async (ms: number) => { calls.push(["sleep", ms]); },
     shouldAutoWake: () => ({ wake: false, reason: "policy" }),
     cmdWake: async (target: string, opts: any) => { calls.push(["cmdWake", target, opts]); },
@@ -193,6 +194,35 @@ describe("POST /send", () => {
     expect(h.lifecycle[0]).toMatchObject({ state: "queued", signed: false });
   });
 
+  test("mirrors inbound local /send deliveries to receiver inbox when enabled", async () => {
+    const inboxCalls: any[] = [];
+    const h = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-digger:digger-oracle.0" })) as any,
+      writeReceiverInbox: (input) => {
+        inboxCalls.push(input);
+        return {
+          ok: true,
+          oracle: "digger",
+          inboxDir: "/repo/ψ/inbox",
+          path: "/repo/ψ/inbox/msg.md",
+          filename: "msg.md",
+        };
+      },
+    });
+
+    const res = await readJson(await h.app.handle(jsonRequest("/send", { target: "digger", text: "dig please" }, { "x-maw-from": "homekeeper:m5" })));
+
+    expect(res).toMatchObject({ ok: true, target: "54-digger:digger-oracle.0", source: "local", inbox: "/repo/ψ/inbox/msg.md" });
+    expect(inboxCalls).toEqual([{
+      query: "digger",
+      target: "54-digger:digger-oracle.0",
+      to: "digger",
+      from: "m5:homekeeper",
+      message: "dig please",
+      config: h.config,
+    }]);
+  });
+
   test("force skips idle guard and capture failures are delivery-safe", async () => {
     const h = makeHarness({
       resolveTarget: (() => ({ type: "local", target: "local:main" })) as any,
@@ -303,6 +333,39 @@ describe("POST /send", () => {
     const res = await outer.app.handle(jsonRequest("/send", { target: "neo", text: "hi" }));
     expect(res.status).toBe(500);
     expect((await readJson(res)).error).toContain("list boom");
+  });
+
+  test("queues inbound /send to receiver inbox when target is offline", async () => {
+    const h = makeHarness({
+      resolveTarget: (() => ({ type: "error", reason: "missing", detail: "not live", hint: "wake" })) as any,
+      writeReceiverInbox: () => ({
+        ok: true,
+        oracle: "digger",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/offline.md",
+        filename: "offline.md",
+      }),
+    });
+
+    const res = await h.app.handle(jsonRequest("/send", { target: "digger", text: "offline task" }, { "x-maw-from": "homekeeper:m5" }));
+
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toEqual({
+      ok: true,
+      target: "digger",
+      text: "offline task",
+      source: "inbox",
+      state: "queued",
+      inbox: "/repo/ψ/inbox/offline.md",
+      reason: "not live",
+    });
+    expect(h.lifecycle[0]).toMatchObject({
+      route: "inbox",
+      state: "queued",
+      from: "m5:homekeeper",
+      to: "m5:digger",
+      target: "digger",
+    });
   });
 });
 
