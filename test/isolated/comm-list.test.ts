@@ -76,6 +76,9 @@ const _rPluginRegistry = await import("../../src/plugin/registry");
 const realDiscoverPackages = _rPluginRegistry.discoverPackages;
 const realInvokePlugin = _rPluginRegistry.invokePlugin;
 
+const childProcess = require("child_process") as typeof import("child_process");
+const realExecSync = childProcess.execSync;
+
 // ─── Mutable state (reset per-test) ─────────────────────────────────────────
 
 interface PaneWindow { index: number; name: string; active: boolean; }
@@ -107,6 +110,7 @@ let emitFeedCalls: Array<{ event: string; oracle: string; node: string; message:
 let discoverPackagesReturn: Array<{ manifest: { name: string } }> = [];
 let invokePluginReturn: { ok: boolean; output?: string; error?: string } = { ok: true, output: "plugin ran" };
 let invokePluginCalls: Array<{ plugin: unknown; ctx: unknown }> = [];
+let execSyncResponses: Array<{ match: RegExp; result?: string | Buffer; error?: string }> = [];
 
 let osHomedirOverride: string | null = null;
 
@@ -325,10 +329,20 @@ beforeEach(() => {
   discoverPackagesReturn = [];
   invokePluginReturn = { ok: true, output: "plugin ran" };
   invokePluginCalls = [];
+  execSyncResponses = [];
   osHomedirOverride = null;
   delete process.env.MAW_QUIET;
   delete process.env.MAW_DEBUG;
   process.env.CLAUDE_AGENT_NAME = "test-oracle";
+  childProcess.execSync = ((command: string, ...rest: unknown[]) => {
+    if (!mockActive) return realExecSync(command, ...(rest as [unknown]));
+    for (const response of execSyncResponses) {
+      if (!response.match.test(command)) continue;
+      if (response.error) throw new Error(response.error);
+      return response.result ?? "";
+    }
+    throw new Error(`unexpected execSync: ${command}`);
+  }) as typeof childProcess.execSync;
 });
 
 afterEach(() => {
@@ -337,6 +351,7 @@ afterEach(() => {
   if (origDebug === undefined) delete process.env.MAW_DEBUG; else process.env.MAW_DEBUG = origDebug;
   if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+  childProcess.execSync = realExecSync;
 });
 
 afterAll(() => {
@@ -344,6 +359,7 @@ afterAll(() => {
   console.log = origLog;
   console.error = origErr;
   (process as unknown as { exit: typeof origExit }).exit = origExit;
+  childProcess.execSync = realExecSync;
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -715,29 +731,25 @@ describe("resolveMyName", () => {
     expect(out).toBe("override-name");
   });
 
-  test("no CLAUDE_AGENT_NAME, no TMUX → config.node fallback", () => {
-    // execSync throws because we're not attached to tmux in this test path
-    // (TMUX env var intentionally cleared). The catch swallows, we land on
-    // `config.node || "cli"`.
+  test("tmux session name is stripped to the bare oracle name", () => {
     delete process.env.CLAUDE_AGENT_NAME;
-    const prevTmux = process.env.TMUX;
-    delete process.env.TMUX;
-    try {
-      const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
-      // Either tmux happens to be running and returns a stripped session, OR
-      // the fallback kicks in. Both are acceptable; we only assert truthy.
-      expect(typeof out).toBe("string");
-      expect(out.length).toBeGreaterThan(0);
-    } finally {
-      if (prevTmux !== undefined) process.env.TMUX = prevTmux;
-    }
+    execSyncResponses = [{ match: /tmux display-message/, result: "08-mawjs\n" }];
+    const out = resolveMyName({ node: "ignored" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("mawjs");
+  });
+
+  test("no CLAUDE_AGENT_NAME, no tmux session → config.node fallback", () => {
+    delete process.env.CLAUDE_AGENT_NAME;
+    execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
+    const out = resolveMyName({ node: "white" } as unknown as Parameters<typeof resolveMyName>[0]);
+    expect(out).toBe("white");
   });
 
   test("no CLAUDE_AGENT_NAME and no config.node → 'cli' fallback", () => {
     delete process.env.CLAUDE_AGENT_NAME;
+    execSyncResponses = [{ match: /tmux display-message/, error: "not in tmux" }];
     const out = resolveMyName({} as unknown as Parameters<typeof resolveMyName>[0]);
-    expect(typeof out).toBe("string");
-    expect(out.length).toBeGreaterThan(0);
+    expect(out).toBe("cli");
   });
 });
 
