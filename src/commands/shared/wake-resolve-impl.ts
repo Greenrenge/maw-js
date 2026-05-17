@@ -295,11 +295,18 @@ export async function resolveOracle(
   process.exit(1);
 }
 
-export async function findWorktrees(parentDir: string, repoName: string, taskSlug?: string): Promise<{ path: string; name: string }[]> {
+export async function findWorktrees(
+  parentDir: string,
+  repoName: string,
+  taskSlug?: string,
+  scopeStem?: string,
+): Promise<{ path: string; name: string }[]> {
   const safe = (s: string) => s.replace(/'/g, "'\\''");
   let lsOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
-  if (!lsOut.trim() && taskSlug) {
-    lsOut = await hostExec(`find '${safe(parentDir)}' -maxdepth 1 -type d -name '*.wt-*-${safe(taskSlug)}' 2>/dev/null || true`);
+  if (!lsOut.trim() && taskSlug && scopeStem) {
+    lsOut = await hostExec(
+      `find '${safe(parentDir)}' -maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}' 2>/dev/null || true`,
+    );
   }
   return lsOut.split("\n").filter(Boolean).map(p => ({
     path: p, name: p.split("/").pop()!.replace(/^.*\.wt-/, ""),
@@ -309,7 +316,7 @@ export async function findWorktrees(parentDir: string, repoName: string, taskSlu
 export function findReusableWorktreeBySlug(
   parentDir: string,
   slug: string,
-  repoName?: string,
+  scopeStem?: string,
   deps: { readdirSync?: typeof readdirSync; statSync?: typeof statSync } = {},
 ): { path: string; name: string } | null {
   const readDir = deps.readdirSync ?? readdirSync;
@@ -319,12 +326,11 @@ export function findReusableWorktreeBySlug(
     const matches = readDir(parentDir)
       .filter((entry) => {
         if (!entry.includes(".wt-") || !entry.endsWith(suffix)) return false;
-        // #1780 — scope to current oracle's repo name to prevent cross-oracle
-        // worktree hijacking (e.g., mother getting volt's worktree).
-        // Match: repoName.wt-*-slug OR repoName-oracle.wt-*-slug
-        if (repoName) {
+        // #1780 — scope to the target oracle's main window stem so a reused
+        // slug (e.g. "white") cannot hijack another oracle's worktree.
+        if (scopeStem) {
           const stem = entry.split(".wt-")[0];
-          if (stem !== repoName && stem !== `${repoName}-oracle` && !stem.endsWith(`/${repoName}`) && !stem.endsWith(`/${repoName}-oracle`)) {
+          if (stem !== scopeStem) {
             return false;
           }
         }

@@ -55,6 +55,7 @@ const realConfig = {
 const realWakeResolve = {
   resolveOracle: _rWakeResolve.resolveOracle,
   findWorktrees: _rWakeResolve.findWorktrees,
+  findReusableWorktreeBySlug: _rWakeResolve.findReusableWorktreeBySlug,
   getSessionMap: _rWakeResolve.getSessionMap,
   resolveFleetSession: _rWakeResolve.resolveFleetSession,
   detectSession: _rWakeResolve.detectSession,
@@ -126,7 +127,7 @@ let listWindowsThrowOnCall: number | null;
 let logs: string[];
 let hostExecCalls: string[];
 let detectSessionCalls: Array<{ oracle: string; urlRepoName?: string }>;
-let findWorktreesCalls: Array<{ parentDir: string; repoName: string; taskSlug?: string }>;
+let findWorktreesCalls: Array<{ parentDir: string; repoName: string; taskSlug?: string; scopeStem?: string }>;
 let setSessionEnvCalls: string[];
 let newSessionCalls: Array<{ name: string; opts: any }>;
 let newWindowCalls: Array<{ session: string; name: string; opts: any }>;
@@ -310,20 +311,21 @@ mock.module(
     resolveOracle: async (
       ...args: Parameters<typeof _rWakeResolve.resolveOracle>
     ) => (mockActive ? resolvedOracle : realWakeResolve.resolveOracle(...args)),
-    findWorktrees: async (parentDirArg: string, repoNameArg: string, taskSlug?: string) => {
+    findWorktrees: async (parentDirArg: string, repoNameArg: string, taskSlug?: string, scopeStem?: string) => {
       if (!mockActive)
-        return realWakeResolve.findWorktrees(parentDirArg, repoNameArg, taskSlug);
+        return realWakeResolve.findWorktrees(parentDirArg, repoNameArg, taskSlug, scopeStem);
       findWorktreesCalls.push({
         parentDir: parentDirArg,
         repoName: repoNameArg,
         taskSlug,
+        scopeStem,
       });
       return worktrees;
     },
-    findReusableWorktreeBySlug: (parentDirArg: string, slug: string) =>
+    findReusableWorktreeBySlug: (parentDirArg: string, slug: string, scopeStem?: string) =>
       mockActive
         ? null
-        : realWakeResolve.findReusableWorktreeBySlug(parentDirArg, slug),
+        : realWakeResolve.findReusableWorktreeBySlug(parentDirArg, slug, scopeStem),
     getSessionMap: () =>
       mockActive ? sessionMap : realWakeResolve.getSessionMap(),
     resolveFleetSession: (oracle: string) =>
@@ -745,7 +747,12 @@ describe("cmdWake main-suite coverage", () => {
     const { result, logs } = await captureLogs(() => cmdWake("homekeeper", { wt: "white" }));
 
     expect(result).toBe("04-homekeeper:homekeeper-white");
-    expect(findWorktreesCalls).toContainEqual({ parentDir, repoName: "homelab", taskSlug: "white" });
+    expect(findWorktreesCalls).toContainEqual({
+      parentDir,
+      repoName: "homelab",
+      taskSlug: "white",
+      scopeStem: "homekeeper-oracle",
+    });
     expect(createdWorktrees).toEqual([]);
     expect(newWindowCalls).toContainEqual({
       session: "04-homekeeper",

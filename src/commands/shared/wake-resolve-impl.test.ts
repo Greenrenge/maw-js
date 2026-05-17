@@ -31,7 +31,13 @@ mock.module(join(root, "config"), () => mockConfigModule(() => ({
   peers: [],
 })));
 
-const { detectSession, sanitizeBranchName, resolveLocalOracleRepoName, findWorktrees } = await import("./wake-resolve-impl");
+const {
+  detectSession,
+  sanitizeBranchName,
+  resolveLocalOracleRepoName,
+  findWorktrees,
+  findReusableWorktreeBySlug,
+} = await import("./wake-resolve-impl");
 
 describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
   it("strips ALL leading dashes (--no-attach → no-attach)", () => {
@@ -185,8 +191,15 @@ describe("resolveLocalOracleRepoName (#1469) — exact local oracle wins before 
 describe("findWorktrees (#1775) — cross-repo slug fallback", () => {
   it("reuses a matching slug even when the repo stem changed", async () => {
     hostExecOut = "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white";
-    await expect(findWorktrees("/ghq/github.com/laris-co", "homelab", "white")).resolves.toEqual([
+    await expect(findWorktrees("/ghq/github.com/laris-co", "homelab", "white", "homekeeper-oracle")).resolves.toEqual([
       { path: "/ghq/github.com/laris-co/homekeeper-oracle.wt-2-white", name: "2-white" },
     ]);
+  });
+
+  it("does not reuse a matching slug from another oracle", () => {
+    expect(findReusableWorktreeBySlug("/ghq/github.com/Soul-Brews-Studio", "white", "mother-oracle", {
+      readdirSync: () => ["volt-oracle.wt-1-white", "mother-oracle.wt-2-black"] as any,
+      statSync: () => ({ isDirectory: () => true }) as any,
+    })).toBeNull();
   });
 });

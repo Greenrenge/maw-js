@@ -393,7 +393,7 @@ describe("resolveOracle runtime paths", () => {
 describe("findWorktrees and detectSession runtime paths", () => {
   test("findWorktrees maps shell glob output into wake worktree records", async () => {
     hostExecImpl = async (cmd) => {
-      expect(cmd).toBe("ls -d /repos/mawjs-oracle.wt-* 2>/dev/null || true");
+      expect(cmd).toBe("ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true");
       return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
     };
 
@@ -403,19 +403,21 @@ describe("findWorktrees and detectSession runtime paths", () => {
     ]);
   });
 
-  test("findReusableWorktreeBySlug finds matching slug across repo names in the org path", () => {
+  test("findReusableWorktreeBySlug finds matching slug only within the requested oracle scope", () => {
     const orgDir = join(tempRoot, "laris-co");
     rmSync(orgDir, { recursive: true, force: true });
     mkdirSync(join(orgDir, "homelab.wt-1-blue"), { recursive: true });
     mkdirSync(join(orgDir, "homekeeper-oracle.wt-2-white"), { recursive: true });
+    mkdirSync(join(orgDir, "volt-oracle.wt-3-white"), { recursive: true });
     writeFileSync(join(orgDir, "not-a-dir.wt-3-white"), "file");
 
-    expect(findReusableWorktreeBySlug(orgDir, "white")).toEqual({
+    expect(findReusableWorktreeBySlug(orgDir, "white", "homekeeper-oracle")).toEqual({
       path: join(orgDir, "homekeeper-oracle.wt-2-white"),
       name: "2-white",
     });
-    expect(findReusableWorktreeBySlug(orgDir, "missing")).toBeNull();
-    expect(findReusableWorktreeBySlug(join(orgDir, "missing"), "white")).toBeNull();
+    expect(findReusableWorktreeBySlug(orgDir, "white", "mother-oracle")).toBeNull();
+    expect(findReusableWorktreeBySlug(orgDir, "missing", "homekeeper-oracle")).toBeNull();
+    expect(findReusableWorktreeBySlug(join(orgDir, "missing"), "white", "homekeeper-oracle")).toBeNull();
   });
 
   test("detectSession honors configured maps, URL repo names, and numbered URL sessions", async () => {

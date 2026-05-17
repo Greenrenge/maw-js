@@ -641,12 +641,14 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   if (opts.wt || opts.task) {
     const name = sanitizeBranchName(opts.wt || opts.task!);
-    const worktrees = await findWorktrees(parentDir, repoName, opts.fresh ? undefined : name);
+    const worktreeScopeStem = mainWindowName;
+    const worktrees = await findWorktrees(parentDir, repoName, opts.fresh ? undefined : name, worktreeScopeStem);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
-      // #1775/#1780 — reuse worktree by slug, scoped to current oracle's repo.
-      // Without repoName scoping, mother-oracle could hijack volt-oracle's worktree.
-      match = findReusableWorktreeBySlug(parentDir, name, repoName);
+      // #1775/#1780 — preserve cross-repo reuse for the target oracle's
+      // historical worktrees without allowing another oracle's matching slug
+      // to hijack the wake target.
+      match = findReusableWorktreeBySlug(parentDir, name, worktreeScopeStem);
       if (!match) {
         const resolvedTarget = resolveWorktreeTarget(name, worktrees);
         switch (resolvedTarget.kind) {
