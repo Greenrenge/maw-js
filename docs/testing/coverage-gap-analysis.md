@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T19:14:36.378Z
+Generated: 2026-05-17T19:30:23.156Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **41.5%** (21569/51972)
-Overall function coverage: **84.6%** (2392/2826)
+Overall line coverage: **43.2%** (22425/51857)
+Overall function coverage: **84.0%** (2442/2906)
 
 ## Module summary
 
@@ -17,36 +17,36 @@ Overall function coverage: **84.6%** (2392/2826)
 | config/runtime | 19 | 1 | 60.9% (833/1368) | 68.2% (73/107) | n/a (0/0) |
 | fleet | 17 | 0 | 70.1% (788/1124) | 88.8% (79/89) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 174 | 50 | 55.5% (8072/14555) | 81.6% (843/1033) | n/a (0/0) |
+| other | 180 | 55 | 56.2% (8175/14554) | 80.6% (846/1049) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 78.8% (2317/2941) | 95.7% (418/437) | n/a (0/0) |
-| vendor plugins | 245 | 221 | 6.9% (1489/21622) | 60.3% (158/262) | n/a (0/0) |
+| vendor plugins | 245 | 215 | 10.4% (2242/21508) | 62.9% (205/326) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 885 | 0.0% | n/a | absent from LCOV |
-| 2 | medium | other | `src/commands/plugins/team/index.ts` | 477 | 0.0% | n/a | absent from LCOV |
-| 3 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles.ts` | 366 | 0.0% | n/a | absent from LCOV |
-| 4 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 332 | 0.0% | n/a | absent from LCOV |
-| 5 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 269 | 0.0% | n/a | absent from LCOV |
-| 6 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/peers/index.ts` | 250 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 244 | 20.0% | 37.5% | partial coverage |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/impl.ts` | 243 | 0.0% | n/a | absent from LCOV |
-| 10 | medium | other | `src/commands/plugins/tmux/impl.ts` | 237 | 63.4% | 54.4% | partial coverage |
-| 11 | medium | other | `src/commands/plugins/team/team-lifecycle.ts` | 234 | 0.0% | n/a | absent from LCOV |
-| 12 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 226 | 47.9% | 50.0% | partial coverage |
-| 13 | medium | other | `src/core/server.ts` | 224 | 0.0% | n/a | absent from LCOV |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/impl.ts` | 224 | 9.7% | 0.0% | partial coverage |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/messages/index.ts` | 212 | 38.4% | 57.4% | partial coverage |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/probe.ts` | 200 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/probe.ts` | 200 | 0.0% | n/a | absent from LCOV |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/peers/impl.ts` | 199 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/bud/from-repo.ts` | 198 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/demo/impl.ts` | 198 | 0.0% | n/a | absent from LCOV |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/prune-stale-oracles.ts` | 366 | 0.0% | n/a | absent from LCOV |
+| 3 | medium | other | `src/commands/plugins/team/index.ts` | 357 | 22.4% | 18.8% | partial coverage |
+| 4 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 251 | 0.0% | n/a | absent from LCOV |
+| 5 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/impl.ts` | 243 | 0.0% | n/a | absent from LCOV |
+| 6 | medium | other | `src/commands/plugins/tmux/impl.ts` | 237 | 63.4% | 54.4% | partial coverage |
+| 7 | medium | other | `src/commands/plugins/team/team-lifecycle.ts` | 234 | 0.0% | n/a | absent from LCOV |
+| 8 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 226 | 47.9% | 50.0% | partial coverage |
+| 9 | medium | other | `src/core/server.ts` | 224 | 0.0% | n/a | absent from LCOV |
+| 10 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/impl.ts` | 224 | 9.7% | 0.0% | partial coverage |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/messages/index.ts` | 212 | 38.4% | 57.4% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/probe.ts` | 200 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/peers/probe.ts` | 200 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/peers/impl.ts` | 199 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/bud/from-repo.ts` | 198 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/demo/impl.ts` | 198 | 0.0% | n/a | absent from LCOV |
+| 17 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 193 | 71.9% | 79.6% | partial coverage |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/completions/impl.ts` | 185 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | config/runtime | `src/config/load.ts` | 179 | 37.4% | 47.6% | partial coverage |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/peers-impl.ts` | 179 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -168,7 +168,7 @@ Overall function coverage: **84.6%** (2392/2826)
 
 ## Critical gaps to prioritize
 
-No critical files appeared in the top 20 uncovered files.
+- `src/commands/shared/wake-cmd.ts` (cli/dispatch): 193 uncovered lines, 71.9% line coverage.
 
 ## Prioritization guidance
 
