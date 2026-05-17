@@ -1,52 +1,52 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T22:34:44.226Z
+Generated: 2026-05-17T22:46:56.829Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **55.4%** (28341/51202)
-Overall function coverage: **87.1%** (3004/3448)
+Overall line coverage: **55.6%** (28464/51210)
+Overall function coverage: **87.4%** (3013/3448)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 91 | 8 | 78.0% (6401/8202) | 90.5% (660/729) | n/a (0/0) |
-| config/runtime | 19 | 1 | 63.5% (870/1370) | 68.2% (73/107) | n/a (0/0) |
+| config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 76.3% (858/1125) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 48 | 67.9% (9853/14501) | 84.5% (974/1153) | n/a (0/0) |
+| other | 180 | 48 | 68.2% (9896/14502) | 84.5% (974/1153) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 192 | 29.8% (6236/20898) | 83.1% (629/757) | n/a (0/0) |
+| vendor plugins | 245 | 192 | 29.9% (6243/20904) | 83.1% (629/757) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
-| 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 160 | 82.4% | 92.6% | partial coverage |
-| 3 | medium | other | `src/commands/plugins/tmux/impl.ts` | 154 | 76.3% | 68.2% | partial coverage |
-| 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 147 | 77.3% | 94.4% | partial coverage |
-| 5 | medium | config/runtime | `src/config/load.ts` | 144 | 50.0% | 47.6% | partial coverage |
-| 6 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/init/impl.ts` | 139 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/token/scan.ts` | 139 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 137 | 53.4% | 72.7% | partial coverage |
-| 10 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 135 | 73.1% | 78.8% | partial coverage |
-| 11 | medium | other | `src/engine/status.ts` | 135 | 8.8% | 0.0% | partial coverage |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 133 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/token/index.ts` | 132 | 0.0% | n/a | absent from LCOV |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 159 | 82.6% | 92.6% | partial coverage |
+| 3 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 147 | 77.3% | 94.4% | partial coverage |
+| 4 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
+| 5 | low | vendor plugins | `src/vendor/mpr-plugins/init/impl.ts` | 139 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/token/scan.ts` | 139 | 0.0% | n/a | absent from LCOV |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 137 | 53.4% | 72.7% | partial coverage |
+| 8 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 135 | 73.1% | 78.8% | partial coverage |
+| 9 | medium | other | `src/engine/status.ts` | 135 | 8.8% | 0.0% | partial coverage |
+| 10 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 133 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/token/index.ts` | 132 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/artifact-manager/index.ts` | 131 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/maw-js-branch-check.ts` | 129 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
