@@ -74,8 +74,9 @@ export function writeWakeBudBirthSignal(
 export function shouldOfferExistingSessionAttach(
   opts: { attach?: boolean; split?: boolean; bring?: boolean },
   isTTY = process.stdin.isTTY,
+  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY);
+  return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY) && env.MAW_TEST_MODE !== "1";
 }
 
 const FRESH_SESSION_READY_ATTEMPTS = 8;

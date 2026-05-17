@@ -107,11 +107,16 @@ describe("wake-bud lineage helpers — default coverage", () => {
 
 describe("wake attach prompt gate — default coverage", () => {
   it("offers attach only for interactive plain wake", () => {
-    expect(shouldOfferExistingSessionAttach({}, true)).toBe(true);
-    expect(shouldOfferExistingSessionAttach({ attach: true }, true)).toBe(false);
-    expect(shouldOfferExistingSessionAttach({ split: true }, true)).toBe(false);
-    expect(shouldOfferExistingSessionAttach({ bring: true }, true)).toBe(false);
-    expect(shouldOfferExistingSessionAttach({}, false)).toBe(false);
+    const env = {} as NodeJS.ProcessEnv;
+    expect(shouldOfferExistingSessionAttach({}, true, env)).toBe(true);
+    expect(shouldOfferExistingSessionAttach({ attach: true }, true, env)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({ split: true }, true, env)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({ bring: true }, true, env)).toBe(false);
+    expect(shouldOfferExistingSessionAttach({}, false, env)).toBe(false);
+  });
+
+  it("suppresses attach prompts in automated MAW_TEST_MODE runs", () => {
+    expect(shouldOfferExistingSessionAttach({}, true, { MAW_TEST_MODE: "1" } as NodeJS.ProcessEnv)).toBe(false);
   });
 });
 
