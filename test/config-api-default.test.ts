@@ -222,18 +222,25 @@ describe("config API pin and public config routes", () => {
   });
 
   test("default pin verifier uses auth token factory when no override is provided", async () => {
-    const app = makeApp({
-      pinAttempts: new Map(),
-      loadConfig: (() => ({ pin: "42" })) as any,
-    });
+    const previousSecret = process.env.MAW_JWT_SECRET;
+    process.env.MAW_JWT_SECRET = "test-config-api-default-pin-secret";
+    try {
+      const app = makeApp({
+        pinAttempts: new Map(),
+        loadConfig: (() => ({ pin: "42" })) as any,
+      });
 
-    const res = await app.handle(jsonRequest("/pin-verify", "POST", { pin: "42" }));
-    const body = await readJson(res);
+      const res = await app.handle(jsonRequest("/pin-verify", "POST", { pin: "42" }));
+      const body = await readJson(res);
 
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(typeof body.token).toBe("string");
-    expect(body.token.length).toBeGreaterThan(10);
+      expect(res.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(typeof body.token).toBe("string");
+      expect(body.token.length).toBeGreaterThan(10);
+    } finally {
+      if (previousSecret === undefined) delete process.env.MAW_JWT_SECRET;
+      else process.env.MAW_JWT_SECRET = previousSecret;
+    }
   });
 
   test("GET and POST /config preserve masked env values and report save errors", async () => {
