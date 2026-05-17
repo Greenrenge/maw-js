@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T10:44:13.632Z
+Generated: 2026-05-17T11:17:36.656Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **28.8%** (14479/50238)
-Overall function coverage: **79.7%** (1638/2055)
+Overall line coverage: **29.0%** (14573/50230)
+Overall function coverage: **80.3%** (1651/2057)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 90 | 15 | 57.9% (4273/7384) | 77.0% (411/534) | n/a (0/0) |
+| cli/dispatch | 90 | 15 | 59.2% (4367/7376) | 79.1% (424/536) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
 | fleet | 17 | 0 | 47.3% (503/1064) | 66.7% (52/78) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
@@ -81,6 +81,7 @@ Overall function coverage: **79.7%** (1638/2055)
 | cli/dispatch | `src/commands/shared/plugin-create.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-ls-info.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-ui.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/queue-store.ts` | 98.2% | 100.0% |
 | cli/dispatch | `src/commands/shared/receiver-inbox.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 84.1% | 85.2% |
@@ -148,9 +149,9 @@ Overall function coverage: **79.7%** (1638/2055)
 | cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
 | cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
-| cli/dispatch | `src/commands/shared/queue-store.ts` | 104 | 11.1% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 101 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100 | 0.0% |
+| cli/dispatch | `src/cli/dispatch.ts` | 97 | 46.4% |
 
 ## Critical gaps to prioritize
 
