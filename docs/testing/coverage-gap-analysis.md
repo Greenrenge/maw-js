@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T10:25:01.887Z
+Generated: 2026-05-17T10:44:13.632Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **28.6%** (14365/50294)
-Overall function coverage: **79.3%** (1625/2048)
+Overall line coverage: **28.8%** (14479/50238)
+Overall function coverage: **79.7%** (1638/2055)
 
 ## Module summary
 
@@ -17,8 +17,8 @@ Overall function coverage: **79.3%** (1625/2048)
 | config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
 | fleet | 17 | 0 | 47.3% (503/1064) | 66.7% (52/78) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
-| other | 174 | 69 | 36.7% (5290/14413) | 74.4% (569/765) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 69.8% (849/1217) | 83.8% (67/80) | n/a (0/0) |
+| other | 174 | 69 | 36.8% (5303/14402) | 74.9% (574/766) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 91.4% (582/637) | 94.5% (69/73) | n/a (0/0) |
 | transport | 28 | 2 | 77.8% (1876/2410) | 93.1% (363/390) | n/a (0/0) |
 | vendor plugins | 245 | 243 | 0.8% (181/21961) | 66.7% (16/24) | n/a (0/0) |
@@ -111,6 +111,7 @@ Overall function coverage: **79.3%** (1625/2048)
 | plugin dispatch | `src/plugin/manifest-validate.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/manifest.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/registry-semver.ts` | 100.0% | 100.0% |
+| plugin dispatch | `src/plugin/registry.ts` | 99.1% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/cli/route-tools.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/cli/top-aliases.ts` | 100.0% | 100.0% |
@@ -141,7 +142,6 @@ Overall function coverage: **79.3%** (1625/2048)
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
-| plugin dispatch | `src/plugin/registry.ts` | 147 | 8.1% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
 | fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
@@ -150,6 +150,7 @@ Overall function coverage: **79.3%** (1625/2048)
 | cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
 | cli/dispatch | `src/commands/shared/queue-store.ts` | 104 | 11.1% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 101 | 0.0% |
+| cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100 | 0.0% |
 
 ## Critical gaps to prioritize
 
