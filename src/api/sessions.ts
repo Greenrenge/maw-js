@@ -14,6 +14,7 @@ import { WakeBody, SleepBody, SendBody, PaneKeysBody, ProbeBody } from "../lib/s
 import { Tmux } from "../core/transport/tmux";
 import { pushFeedEvent } from "./feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../lib/message-events";
+import { defaultReceiverInboxWriter, type ReceiverInboxResult, type ReceiverInboxWriter } from "../commands/shared/receiver-inbox";
 import type { Session } from "../core/transport/ssh";
 
 type Config = ReturnType<typeof loadConfig>;
@@ -42,6 +43,7 @@ export interface SessionsApiDeps {
   pushFeedEvent?: typeof pushFeedEvent;
   buildMessageLifecycleFeedEvent?: typeof buildMessageLifecycleFeedEvent;
   emitMessageLifecycle?: (input: MessageLifecycleInput) => void;
+  writeReceiverInbox?: ReceiverInboxWriter | null;
   sleep?: (ms: number) => Promise<unknown>;
   shouldAutoWake?: (target: string, opts: AutoWakeOpts) => AutoWakeDecision | Promise<AutoWakeDecision>;
   cmdWake?: (target: string, opts: { noAttach: boolean; task?: string }) => Promise<unknown>;
@@ -68,6 +70,7 @@ function defaults(deps: SessionsApiDeps) {
     pushFeedEvent: deps.pushFeedEvent ?? pushFeedEvent,
     buildMessageLifecycleFeedEvent: deps.buildMessageLifecycleFeedEvent ?? buildMessageLifecycleFeedEvent,
     emitMessageLifecycle: deps.emitMessageLifecycle,
+    writeReceiverInbox: deps.writeReceiverInbox === undefined ? defaultReceiverInboxWriter() : deps.writeReceiverInbox,
     sleep: deps.sleep ?? ((ms: number) => Bun.sleep(ms)),
     shouldAutoWake: deps.shouldAutoWake ?? defaultShouldAutoWake,
     cmdWake: deps.cmdWake ?? defaultCmdWake,
@@ -209,6 +212,45 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       const messageTo = localMessageIdentity(config);
       const messageSigned = messageSignedRequest(request);
       const local = await d.listSessions();
+      const writeInboundInbox = async (tmuxTarget?: string): Promise<ReceiverInboxResult | null> => {
+        if (!d.writeReceiverInbox) return null;
+        try {
+          return await d.writeReceiverInbox({
+            query: target,
+            target: tmuxTarget,
+            to: target,
+            from: messageFrom,
+            message,
+            config,
+          });
+        } catch (error) {
+          return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+        }
+      };
+      const queuedInboxResponse = (inbox: ReceiverInboxResult, tmuxTarget: string, reason: string) => {
+        if (!inbox.ok) return null;
+        emitLifecycle({
+          direction: "inbound",
+          state: "queued",
+          channel: "api-send",
+          route: "inbox",
+          from: messageFrom,
+          to: `${config.node ?? "local"}:${inbox.oracle}`,
+          target: tmuxTarget,
+          text: message,
+          lastLine: reason,
+          signed: messageSigned,
+        });
+        return {
+          ok: true,
+          target: tmuxTarget,
+          text,
+          source: "inbox",
+          state: "queued" as const,
+          inbox: inbox.path,
+          reason,
+        };
+      };
 
       // --- Unified resolution via resolveTarget (#201) ---
       const result = d.resolveTarget(target, config, local);
@@ -228,6 +270,9 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
             await d.sleep(500);
             idleCheck = await d.checkPaneIdle(resolved.target);
             if (!idleCheck.idle) {
+              const inbox = await writeInboundInbox(resolved.target);
+              const queued = inbox ? queuedInboxResponse(inbox, resolved.target, "pane not idle") : null;
+              if (queued) return queued;
               set.status = 409;
               emitLifecycle({
                 direction: "inbound",
@@ -247,6 +292,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           }
         }
         await d.sendKeys(resolved.target, message);
+        const inbox = await writeInboundInbox(resolved.target);
         await d.sleep(150);
         let lastLine = "";
         // Echo broadcast bug 2026-04-26: claude queues input behind a busy prompt and
@@ -272,7 +318,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           lastLine,
           signed: messageSigned,
         });
-        return { ok: true, target: resolved.target, text, source: "local", lastLine, state };
+        return { ok: true, target: resolved.target, text, source: "local", lastLine, state, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
       }
 
       // Remote peer → federation HTTP
@@ -361,6 +407,9 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                   await d.sleep(500);
                   idleCheck = await d.checkPaneIdle(retry.target);
                   if (!idleCheck.idle) {
+                    const inbox = await writeInboundInbox(retry.target);
+                    const queued = inbox ? queuedInboxResponse(inbox, retry.target, "pane not idle after wake") : null;
+                    if (queued) return queued;
                     set.status = 409;
                     emitLifecycle({
                       direction: "inbound",
@@ -380,6 +429,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                 }
               }
               await d.sendKeys(retry.target, message);
+              const inbox = await writeInboundInbox(retry.target);
               await d.sleep(150);
               let lastLine = "";
               try { const content = await d.capture(retry.target, 3); lastLine = content.split("\n").filter(l => l.trim()).pop() || ""; } catch {}
@@ -395,13 +445,16 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                 lastLine,
                 signed: messageSigned,
               });
-              return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target };
+              return { ok: true, target: retry.target, text, source: "local", lastLine, wokeFor: target, ...(inbox?.ok ? { inbox: inbox.path } : {}) };
             }
           } catch { /* wake best-effort — fall through to 404 */ }
         }
       }
 
       const errDetail = resolved?.type === "error" ? { reason: resolved.reason, detail: resolved.detail, hint: resolved.hint } : {};
+      const inbox = await writeInboundInbox(target);
+      const queued = inbox ? queuedInboxResponse(inbox, target, errDetail.detail || "target not live; persisted for receiver inbox polling") : null;
+      if (queued) return queued;
       emitLifecycle({
         direction: "inbound",
         state: "failed",

@@ -198,6 +198,7 @@ const origExit = process.exit;
 const origErr = console.error;
 const origLog = console.log;
 const origAgentName = process.env.CLAUDE_AGENT_NAME;
+const origTestMode = process.env.MAW_TEST_MODE;
 
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (ms: number) => {
   if (mockActive) sleepCalls.push(ms);
@@ -262,16 +263,21 @@ beforeEach(() => {
   trustAddError = null;
   consentDecision = { allow: true };
   process.env.CLAUDE_AGENT_NAME = "sender";
+  process.env.MAW_TEST_MODE = "1";
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
+  delete process.env.MAW_HEY_INBOX_AUTOWRITE;
 });
 
 afterEach(() => {
   mockActive = false;
   delete process.env.MAW_CONSENT;
   delete process.env.MAW_ACL_BYPASS;
+  delete process.env.MAW_HEY_INBOX_AUTOWRITE;
   if (origAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
   else process.env.CLAUDE_AGENT_NAME = origAgentName;
+  if (origTestMode === undefined) delete process.env.MAW_TEST_MODE;
+  else process.env.MAW_TEST_MODE = origTestMode;
 });
 
 afterAll(() => {
@@ -296,6 +302,34 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logs.join("\n")).toContain("accepted");
   });
 
+  test("local delivery mirrors delivered hey messages into the receiver inbox when enabled", async () => {
+    const inboxCalls: any[] = [];
+
+    await runCmd(() => cmdSend("local:session:oracle", "hello", false, {
+      receiverInbox: (input) => {
+        inboxCalls.push(input);
+        return {
+          ok: true,
+          oracle: "oracle",
+          inboxDir: "/repo/ψ/inbox",
+          path: "/repo/ψ/inbox/msg.md",
+          filename: "msg.md",
+        };
+      },
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
+    expect(inboxCalls).toEqual([{
+      query: "local:session:oracle",
+      target: "session:oracle.0",
+      to: "local:session:oracle",
+      from: "test-node:sender",
+      message: "[test-node:sender] hello",
+      config,
+    }]);
+  });
+
   test("local delivery refuses non-agent panes unless forced", async () => {
     getPaneCommandReturn = "zsh";
     await runCmd(() => cmdSend("local:session:oracle", "hello"));
@@ -303,6 +337,27 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
     expect(errs.join("\n")).toContain("no active Claude session");
+  });
+
+  test("local delivery queues to receiver inbox instead of dropping when pane is not agent", async () => {
+    getPaneCommandReturn = "zsh";
+
+    await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
+      receiverInbox: () => ({
+        ok: true,
+        oracle: "oracle",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/msg.md",
+        filename: "msg.md",
+      }),
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] offline task", route: "inbox" }]);
+    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued" });
+    expect(logs.join("\n")).toContain("queued");
+    expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
   });
 
   test("--force bypasses pane command and idle checks", async () => {
@@ -581,4 +636,3 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(errs.join("\n")).toContain("consent required");
   });
 });
-

@@ -11,6 +11,11 @@ import { AmbiguousMatchError } from "../../core/runtime/find-window";
 import { loadConfig, cfgLimit } from "../../config";
 import { logMessage, emitFeed } from "./comm-log-feed";
 import { buildMessageLifecycleFeedEvent, type MessageLifecycleInput } from "../../lib/message-events";
+import {
+  defaultReceiverInboxWriter,
+  type ReceiverInboxResult,
+  type ReceiverInboxWriter,
+} from "./receiver-inbox";
 
 /**
  * Resolve a `session:window` target to a specific pane running an agent
@@ -250,6 +255,7 @@ function assertBareLocalTarget(
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
+  receiverInbox?: ReceiverInboxWriter | false;
 }
 
 export async function cmdSend(
@@ -523,6 +529,43 @@ export async function cmdSend(
 
   const senderName = resolveMyName(config);
   const outboundMessage = formatSignedMessage(message, config, senderName);
+  const receiverInboxWriter = opts.receiverInbox === false
+    ? null
+    : opts.receiverInbox ?? defaultReceiverInboxWriter();
+  const writeReceiverInbox = async (target?: string): Promise<ReceiverInboxResult | null> => {
+    if (!receiverInboxWriter) return null;
+    try {
+      return await receiverInboxWriter({
+        query,
+        target,
+        to: query,
+        from: `${config.node ?? "local"}:${senderName}`,
+        message: outboundMessage,
+        config,
+      });
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  };
+  const logQueuedInbox = (inbox: ReceiverInboxResult | null, target: string, reason: string): boolean => {
+    if (!inbox?.ok) return false;
+    logMessage(senderName, query, outboundMessage, "inbox");
+    emitMessageFeed({
+      direction: "outbound",
+      state: "queued",
+      channel: "hey",
+      route: "inbox",
+      from: `${config.node ?? "local"}:${senderName}`,
+      to: query,
+      target,
+      text: outboundMessage,
+      lastLine: reason,
+      signed: true,
+    }, config.port || 3456);
+    console.log(`\x1b[33mqueued\x1b[0m → ${inbox.oracle} ψ/inbox/${inbox.filename}: ${outboundMessage}`);
+    console.log(`\x1b[90m  ⤷ ${reason}\x1b[0m`);
+    return true;
+  };
 
   // Local target (or self-node) → send via tmux.
   // Resolve to a specific pane first: when the oracle window has multiple
@@ -535,6 +578,7 @@ export async function cmdSend(
       const cmd = await getPaneCommand(target);
       const isAgent = isAgentCommand(cmd);
       if (!isAgent) {
+        if (logQueuedInbox(await writeReceiverInbox(target), target, `pane not running an agent (${cmd})`)) return;
         console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
         console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
         process.exit(1);
@@ -545,6 +589,7 @@ export async function cmdSend(
         await Bun.sleep(500);
         idleCheck = await checkPaneIdle(target);
         if (!idleCheck.idle) {
+          if (logQueuedInbox(await writeReceiverInbox(target), target, `pane not idle: ${idleCheck.lastInput.slice(0, 60)}`)) return;
           console.error(`\x1b[31merror\x1b[0m: pane ${target} is not idle — user appears to be typing: "${idleCheck.lastInput.slice(0, 60)}"`);
           console.error(`\x1b[33mhint\x1b[0m:  use \x1b[36m--force\x1b[0m to send anyway`);
           process.exit(1);
@@ -552,6 +597,7 @@ export async function cmdSend(
       }
     }
     await sendKeys(target, outboundMessage);
+    await writeReceiverInbox(target);
     await runHook("after_send", { to: query, message: outboundMessage });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
     logMessage(senderName, query, outboundMessage, "local");
@@ -671,6 +717,9 @@ export async function cmdSend(
     console.error(`\x1b[33mhint\x1b[0m:  check peer connectivity: maw health`);
     process.exit(1);
   }
+
+  // Try receiver inbox queue before surfacing a local-only resolver miss.
+  if (logQueuedInbox(await writeReceiverInbox(), query, "target not live; persisted for receiver inbox polling")) return;
 
   // Local-only miss — no network was attempted (#411). Show resolver's own detail.
   if (result?.type === "error") {
