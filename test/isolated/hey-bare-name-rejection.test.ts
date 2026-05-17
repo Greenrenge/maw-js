@@ -31,6 +31,7 @@ let listSessionsCalls = 0;
 let cmdWakeCalls = 0;
 let resolveTargetReturn: unknown = { type: "error", reason: "not_found", detail: "…" };
 let listSessionsReturn: Array<{ name: string; windows: Array<{ index: number; name: string; active: boolean }> }> = [];
+let origClaudeAgentName: string | undefined;
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,14 @@ mock.module(join(import.meta.dir, "../../src/config"), () => {
 
 mock.module(join(import.meta.dir, "../../src/core/runtime/hooks"), () => ({
   runHook: async () => {},
+}));
+
+mock.module(join(import.meta.dir, "../../src/core/transport/tmux"), () => ({
+  Tmux: class {
+    async run() {
+      return "0 claude";
+    }
+  },
 }));
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/comm-log-feed"), () => ({
@@ -119,6 +128,8 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 }
 
 beforeEach(() => {
+  origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
+  process.env.CLAUDE_AGENT_NAME = "test-sender";
   mockActive = true;
   sendKeysCalls = [];
   resolveTargetCalls = 0;
@@ -129,10 +140,17 @@ beforeEach(() => {
   delete process.env.MAW_QUIET;
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+});
 afterAll(() => {
   mockActive = false;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
