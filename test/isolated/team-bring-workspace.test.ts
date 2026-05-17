@@ -9,6 +9,8 @@ process.env.MAW_CONFIG_DIR = configDir;
 
 let wakeCalls: Array<{ oracle: string; opts: any }> = [];
 let layoutCalls: Array<{ target: string; layout: string }> = [];
+let sentText: Array<{ target: string; text: string }> = [];
+let captureByTarget = new Map<string, string>();
 
 mock.module("maw-js/core/paths", () => ({
   CONFIG_DIR: configDir,
@@ -22,6 +24,10 @@ mock.module("maw-js/sdk", () => ({
   tmux: {
     hasSession: async (name: string) => name === "project" || name === "myteam",
     run: async () => "54-mawjs",
+    capture: async (target: string) => captureByTarget.get(target) ?? "",
+    sendText: async (target: string, text: string) => {
+      sentText.push({ target, text });
+    },
     selectLayout: async (target: string, layout: string) => {
       layoutCalls.push({ target, layout });
     },
@@ -51,6 +57,8 @@ const { cmdTeamBring } = await import("../../src/vendor/mpr-plugins/team/team-wo
 beforeEach(() => {
   wakeCalls = [];
   layoutCalls = [];
+  sentText = [];
+  captureByTarget = new Map();
 });
 
 describe("cmdTeamBring", () => {
@@ -71,13 +79,24 @@ describe("cmdTeamBring", () => {
   });
 
   test("wakes each oracle with --session semantics and applies layout", async () => {
-    const targets = await cmdTeamBring("myteam", { session: "project", engine: "codex", split: true });
+    const targets = await cmdTeamBring("myteam", { session: "project", engine: "codex", split: true, contextLimitPollMs: 0 });
 
     expect(targets).toEqual(["project:volt", "project:odin"]);
     expect(wakeCalls).toEqual([
       { oracle: "volt", opts: { session: "project", noRehydrate: true, engine: "codex", split: true } },
       { oracle: "odin", opts: { session: "project", noRehydrate: true, engine: "codex", split: true } },
     ]);
+    expect(sentText).toEqual([]);
+    expect(layoutCalls).toEqual([{ target: "project:lead", layout: "main-vertical" }]);
+  });
+
+  test("sends /compact when a newly woken workspace pane hits context limit", async () => {
+    captureByTarget.set("project:volt", "Context limit reached · /compact or /clear to continue");
+
+    const targets = await cmdTeamBring("myteam", { session: "project", contextLimitPollMs: 0 });
+
+    expect(targets).toEqual(["project:volt", "project:odin"]);
+    expect(sentText).toEqual([{ target: "project:volt", text: "/compact" }]);
     expect(layoutCalls).toEqual([{ target: "project:lead", layout: "main-vertical" }]);
   });
 });

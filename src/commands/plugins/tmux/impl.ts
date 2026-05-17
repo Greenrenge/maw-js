@@ -7,6 +7,7 @@ import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
+import { checkPaneContextLimit, isLikelyAgentPaneCommand } from "../../shared/context-limit";
 export {
   PANE_TARGET_FORMAT,
   paneTargetCandidatesFromListPanesOutput,
@@ -154,7 +155,7 @@ export interface TmuxLsOpts {
   recentLimit?: number;
 }
 
-export type PaneStatus = "active" | "idle" | "stale" | "unknown";
+export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
 
 interface AnnotatedPane {
   id: string;
@@ -168,6 +169,16 @@ interface AnnotatedPane {
   sessionCreated?: number;
 }
 
+async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
+  await Promise.all(panes.map(async (pane) => {
+    if (!isLikelyAgentPaneCommand(pane.command)) return;
+    if (!await checkPaneContextLimit(pane.target)) return;
+    pane.status = "frozen";
+    pane.annotation = pane.annotation
+      ? `${pane.annotation}; context-limit`
+      : "context-limit";
+  }));
+}
 
 export function parseSessionCreatedList(raw: string): Map<string, number> {
   const out = new Map<string, number>();
@@ -275,6 +286,8 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       .sort((a, b) => (order.get(a.session)! - order.get(b.session)!) || a.target.localeCompare(b.target));
   }
 
+  await markContextLimitedPanes(scope);
+
   if (opts.json) {
     console.log(JSON.stringify(scope, null, 2));
     return;
@@ -288,6 +301,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   }
 
   const STATUS_DOT: Record<PaneStatus, string> = {
+    frozen: "\x1b[33m⚠\x1b[0m",
     active: "\x1b[32m●\x1b[0m",
     idle: "\x1b[33m◐\x1b[0m",
     stale: "\x1b[31m◌\x1b[0m",
@@ -309,6 +323,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       bySession.get(sess)!.push(p);
     }
     const bestStatus = (panes: AnnotatedPane[]): PaneStatus => {
+      if (panes.some(p => p.status === "frozen")) return "frozen";
       if (panes.some(p => p.status === "active")) return "active";
       if (panes.some(p => p.status === "idle")) return "idle";
       if (panes.some(p => p.status === "stale")) return "stale";
@@ -345,6 +360,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
         console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}`);
       } else {
         console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      }
+      for (const p of panes.filter(p => p.status === "frozen")) {
+        console.log(`    \x1b[33m⚠\x1b[0m \x1b[90m${p.target} context-limit — /compact needed\x1b[0m`);
       }
       const wts = wtBySession.get(sess) || [];
       for (const wt of wts) {
