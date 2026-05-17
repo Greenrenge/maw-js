@@ -73,6 +73,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-cmd"), () => (
 
 const origSleep = Bun.sleep.bind(Bun);
 (Bun as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async () => {};
+const origClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 
 const { cmdSend } = await import("../../src/commands/shared/comm-send");
 
@@ -106,12 +107,20 @@ beforeEach(() => {
   mockNamedPeers = [];
   curlFetchHandler = () => ({ ok: false, status: 500, data: {} });
   resolveTargetReturn = { type: "peer", target: "hojo", node: "phaith", peerUrl: "http://phaith:3456" };
+  process.env.CLAUDE_AGENT_NAME = "test-sender";
   process.env.MAW_QUIET = "1";
 });
 
-afterEach(() => { mockActive = false; delete process.env.MAW_QUIET; });
+afterEach(() => {
+  mockActive = false;
+  delete process.env.MAW_QUIET;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
+});
 afterAll(() => {
   mockActive = false;
+  if (origClaudeAgentName === undefined) delete process.env.CLAUDE_AGENT_NAME;
+  else process.env.CLAUDE_AGENT_NAME = origClaudeAgentName;
   (Bun as unknown as { sleep: typeof origSleep }).sleep = origSleep;
 });
 
