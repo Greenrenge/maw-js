@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T11:17:36.656Z
+Generated: 2026-05-17T11:26:08.731Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **29.0%** (14573/50230)
-Overall function coverage: **80.3%** (1651/2057)
+Overall line coverage: **29.2%** (14679/50208)
+Overall function coverage: **80.4%** (1657/2062)
 
 ## Module summary
 
@@ -15,7 +15,7 @@ Overall function coverage: **80.3%** (1651/2057)
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 90 | 15 | 59.2% (4367/7376) | 79.1% (424/536) | n/a (0/0) |
 | config/runtime | 19 | 2 | 66.0% (770/1167) | 72.9% (70/96) | n/a (0/0) |
-| fleet | 17 | 0 | 47.3% (503/1064) | 66.7% (52/78) | n/a (0/0) |
+| fleet | 17 | 0 | 58.4% (609/1042) | 69.9% (58/83) | n/a (0/0) |
 | matcher | 2 | 0 | 100.0% (41/41) | 100.0% (8/8) | n/a (0/0) |
 | other | 174 | 69 | 36.8% (5303/14402) | 74.9% (574/766) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (950/1172) | 87.2% (75/86) | n/a (0/0) |
@@ -100,6 +100,7 @@ Overall function coverage: **80.3%** (1651/2057)
 | fleet | `src/core/fleet/snapshot.ts` | 93.4% | 100.0% |
 | fleet | `src/core/fleet/validate.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/worktree-window-match.ts` | 100.0% | 100.0% |
+| fleet | `src/core/fleet/worktrees-scan.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/worktrees.ts` | 100.0% | 100.0% |
 | matcher | `src/core/matcher/normalize-target.ts` | 100.0% | 100.0% |
 | matcher | `src/core/matcher/resolve-target.ts` | 100.0% | 100.0% |
@@ -145,13 +146,13 @@ Overall function coverage: **80.3%** (1651/2057)
 | transport | `src/core/transport/pty.ts` | 150 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 146 | 0.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 134 | 0.0% |
-| fleet | `src/core/fleet/worktrees-scan.ts` | 128 | 4.5% |
 | cli/dispatch | `src/commands/shared/workspace-lifecycle.ts` | 120 | 4.0% |
 | cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 116 | 10.8% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 105 | 2.8% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 101 | 0.0% |
 | cli/dispatch | `src/commands/shared/fleet-resume.ts` | 100 | 0.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 97 | 46.4% |
+| fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 93 | 6.1% |
 
 ## Critical gaps to prioritize
 
