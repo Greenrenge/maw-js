@@ -100,8 +100,11 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
   });
 
   test("no TTY (and no --print) → falls back to 3-line print, no spawn", () => {
-    // Simulate non-TTY environment (script / pipe / CI). Bun's test runner
-    // typically already has isTTY=undefined, but force it to be safe.
+    // Simulate non-TTY environment (script / pipe / CI). The attach
+    // implementation probes TTY state through impl._tty to survive bundled
+    // Bun installs where process.stdout.isTTY can be undefined.
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => false;
     const origIsTty = process.stdout.isTTY;
     Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
     const origTmux = process.env.TMUX;
@@ -118,6 +121,7 @@ describe("cmdTmuxAttach — print fallback (no TTY / --print)", () => {
     } finally {
       console.log = origLog;
       restoreSpawn();
+      impl._tty.isStdoutTTY = origTTY;
       Object.defineProperty(process.stdout, "isTTY", { value: origIsTty, configurable: true });
       if (origTmux !== undefined) process.env.TMUX = origTmux;
     }
