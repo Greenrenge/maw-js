@@ -309,6 +309,7 @@ export async function findWorktrees(parentDir: string, repoName: string, taskSlu
 export function findReusableWorktreeBySlug(
   parentDir: string,
   slug: string,
+  repoName?: string,
   deps: { readdirSync?: typeof readdirSync; statSync?: typeof statSync } = {},
 ): { path: string; name: string } | null {
   const readDir = deps.readdirSync ?? readdirSync;
@@ -316,7 +317,19 @@ export function findReusableWorktreeBySlug(
   const suffix = `-${slug}`;
   try {
     const matches = readDir(parentDir)
-      .filter((entry) => entry.includes(".wt-") && entry.endsWith(suffix))
+      .filter((entry) => {
+        if (!entry.includes(".wt-") || !entry.endsWith(suffix)) return false;
+        // #1780 — scope to current oracle's repo name to prevent cross-oracle
+        // worktree hijacking (e.g., mother getting volt's worktree).
+        // Match: repoName.wt-*-slug OR repoName-oracle.wt-*-slug
+        if (repoName) {
+          const stem = entry.split(".wt-")[0];
+          if (stem !== repoName && stem !== `${repoName}-oracle` && !stem.endsWith(`/${repoName}`) && !stem.endsWith(`/${repoName}-oracle`)) {
+            return false;
+          }
+        }
+        return true;
+      })
       .map((entry) => join(parentDir, entry))
       .filter((path) => {
         try { return stat(path).isDirectory(); }

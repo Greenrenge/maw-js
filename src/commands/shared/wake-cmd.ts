@@ -644,11 +644,9 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const worktrees = await findWorktrees(parentDir, repoName, opts.fresh ? undefined : name);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
-      // #1775 — use the slug as the primary key across the whole ghq org path.
-      // Some oracles resolve to a different main repo name over time
-      // (homekeeper → homelab), but their preserved Claude history may live in
-      // an older sibling worktree (homekeeper-oracle.wt-2-white).
-      match = findReusableWorktreeBySlug(parentDir, name);
+      // #1775/#1780 — reuse worktree by slug, scoped to current oracle's repo.
+      // Without repoName scoping, mother-oracle could hijack volt-oracle's worktree.
+      match = findReusableWorktreeBySlug(parentDir, name, repoName);
       if (!match) {
         const resolvedTarget = resolveWorktreeTarget(name, worktrees);
         switch (resolvedTarget.kind) {
