@@ -193,6 +193,43 @@ function isBareLocalHeyTarget(query: string): boolean {
   return query.length > 0 && !query.includes(":") && !query.includes("/");
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function teamWorkspaceWindowCandidates(member: string): string[] {
+  const raw = member.trim();
+  const stripped = raw.replace(/-oracle$/i, "");
+  return uniqueStrings([
+    raw,
+    stripped,
+    stripped ? `${stripped}-oracle` : "",
+  ]);
+}
+
+/**
+ * Resolve a persistent team member to its workspace window when
+ * `maw team bring <team>` already opened that oracle inside the team session.
+ *
+ * This is intentionally scoped to team fan-out only: ordinary `maw hey
+ * <oracle>` keeps its local/home-session behavior, while `maw hey team:<team>`
+ * now targets the workspace windows that `maw team bring` created (#1742).
+ *
+ * @internal exported for regression tests.
+ */
+export function resolveTeamWorkspaceMemberTarget(
+  teamName: string,
+  member: string,
+  sessions: Awaited<ReturnType<typeof listSessions>>,
+): string | null {
+  const workspace = sessions.find((s) => s.name === teamName);
+  if (!workspace) return null;
+
+  const wanted = new Set(teamWorkspaceWindowCandidates(member).map((name) => name.toLowerCase()));
+  const win = workspace.windows.find((w) => wanted.has(w.name.toLowerCase()));
+  return win ? `${workspace.name}:${win.name}` : null;
+}
+
 function formatAmbiguousCandidates(query: string, candidates: string[]): string[] {
   if (candidates.length) return candidates;
   return [query];
@@ -295,22 +332,24 @@ export async function cmdSend(
     }
     let delivered = 0;
     let failed = 0;
+    const sessions = await listSessions();
 
     // Fan-out sends individually. cmdSend calls process.exit on failure,
     // so we override it temporarily to keep iterating (#627 resilient fan-out).
     const origExit = process.exit;
     for (const member of members) {
+      const routedMember = resolveTeamWorkspaceMemberTarget(teamName, member, sessions) ?? member;
       let memberFailed = false;
       process.exit = ((code?: number) => {
         memberFailed = true;
       }) as never;
       try {
-        await cmdSend(member, message, force);
+        await cmdSend(routedMember, message, force);
         if (!memberFailed) delivered++;
         else failed++;
       } catch (e: any) {
         failed++;
-        console.error(`  \x1b[31m✗\x1b[0m ${member}: ${e?.message || "failed"}`);
+        console.error(`  \x1b[31m✗\x1b[0m ${routedMember}: ${e?.message || "failed"}`);
       }
     }
     process.exit = origExit;

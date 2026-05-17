@@ -9,6 +9,8 @@ export interface TeamBringOptions {
   engine?: string;
   /** Preview without creating windows or launching engines. */
   dryRun?: boolean;
+  /** Open each brought oracle beside the current pane using maw wake --split. */
+  split?: boolean;
 }
 
 export function teamOracleMemberNames(members: OracleMember[]): string[] {
@@ -80,7 +82,7 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
   const targets: string[] = [];
   for (const oracle of members) {
     if (opts.dryRun) {
-      console.log(`  \x1b[90mwould wake ${oracle} --session ${session}\x1b[0m`);
+      console.log(`  \x1b[90mwould wake ${oracle} --session ${session}${opts.split ? " --split" : ""}\x1b[0m`);
       targets.push(`${session}:${oracle}`);
       continue;
     }
@@ -88,6 +90,7 @@ export async function cmdTeamBring(teamName: string, opts: TeamBringOptions = {}
       session,
       noRehydrate: true,
       engine: opts.engine,
+      split: opts.split,
     });
     targets.push(target);
   }
