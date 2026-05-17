@@ -8,7 +8,35 @@ export const command = {
   description: "tmux control verbs — peek.",
 };
 
-export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
+interface TmuxHandlerDeps {
+  cmdTmuxPeek: typeof cmdTmuxPeek;
+  cmdTmuxLs: typeof cmdTmuxLs;
+  cmdTmuxSend: typeof cmdTmuxSend;
+  cmdTmuxSplit: typeof cmdTmuxSplit;
+  cmdTmuxKill: typeof cmdTmuxKill;
+  cmdTmuxLayout: typeof cmdTmuxLayout;
+  cmdTmuxAttach: typeof cmdTmuxAttach;
+  resolveTmuxTarget: typeof resolveTmuxTarget;
+  hostExec: typeof hostExec;
+  cmdSplit: (target: string, opts: { lock?: boolean }) => Promise<void>;
+}
+
+const defaultDeps: TmuxHandlerDeps = {
+  cmdTmuxPeek,
+  cmdTmuxLs,
+  cmdTmuxSend,
+  cmdTmuxSplit,
+  cmdTmuxKill,
+  cmdTmuxLayout,
+  cmdTmuxAttach,
+  resolveTmuxTarget,
+  hostExec,
+  cmdSplit: cmdTmuxSplit as TmuxHandlerDeps["cmdSplit"],
+};
+
+export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
+  const deps = { ...defaultDeps, ...overrides };
+  return async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
@@ -47,7 +75,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux send <target> <command> [--literal] [--allow-destructive] [--force]");
         return { ok: false, error: "target and command required", output: logs.join("\n") };
       }
-      await cmdTmuxSend(target, command, {
+      await deps.cmdTmuxSend(target, command, {
         literal: !!flags["--literal"],
         allowDestructive: !!flags["--allow-destructive"],
         force: !!flags["--force"],
@@ -79,7 +107,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const recentLimitRaw = (flags._ as string[]).find((arg) => /^\d+$/.test(arg));
       const recentLimit = recentLimitRaw ? Number(recentLimitRaw) : undefined;
-      await cmdTmuxLs({
+      await deps.cmdTmuxLs({
         all: !!flags["--all"] || !!flags["--recent"],
         json: !!flags["--json"],
         compact: !!flags["--compact"] || !!flags["--recent"],
@@ -107,7 +135,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       const lines = (flags["--lines"] as number | undefined) ?? 30;
       const history = !!flags["--history"];
-      await cmdTmuxPeek(target, { lines, history });
+      await deps.cmdTmuxPeek(target, { lines, history });
     } else if (sub === "split") {
       const flags = parseFlags(args, {
         "--vertical": Boolean, "-v": "--vertical",
@@ -125,7 +153,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux split <target> [-v] [--pct N] [--cmd '<cmd>']");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      await cmdTmuxSplit(target, {
+      await deps.cmdTmuxSplit(target, {
         vertical: !!flags["--vertical"],
         pct: flags["--pct"] as number | undefined,
         cmd: flags["--cmd"] as string | undefined,
@@ -147,7 +175,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux kill <target> [--force] [--session]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      await cmdTmuxKill(target, {
+      await deps.cmdTmuxKill(target, {
         force: !!flags["--force"],
         session: !!flags["--session"],
       });
@@ -164,7 +192,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux layout <target> <preset>");
         return { ok: false, error: "target and preset required", output: logs.join("\n") };
       }
-      await cmdTmuxLayout(target, preset);
+      await deps.cmdTmuxLayout(target, preset);
     } else if (sub === "attach") {
       const flags = parseFlags(args, {
         "--print": Boolean,
@@ -181,14 +209,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux attach <target> [--print]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      cmdTmuxAttach(target, { print: !!flags["--print"] });
+      deps.cmdTmuxAttach(target, { print: !!flags["--print"] });
     } else if (sub === "close" || sub === "unsplit") {
       if (!process.env.TMUX) {
         console.log("\x1b[33m⚠\x1b[0m close requires tmux");
         return { ok: false, error: "not in tmux" };
       }
       const myPane = process.env.TMUX_PANE;
-      const paneList = (await hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
+      const paneList = (await deps.hostExec("tmux list-panes -F '#{pane_id}'")).split("\n").filter(Boolean);
       if (paneList.length <= 1) {
         console.log("\x1b[90mno panes to close\x1b[0m");
         return { ok: true };
@@ -197,7 +225,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       for (const pane of paneList) {
         if (pane === myPane) continue;
         try {
-          await hostExec(`tmux break-pane -d -t '${pane}'`);
+          await deps.hostExec(`tmux break-pane -d -t '${pane}'`);
           hidden++;
         } catch { /* already gone */ }
       }
@@ -210,8 +238,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const target = args[1];
       if (!target) {
         // No target: bring back hidden panes from other windows in this session
-        const myWindow = (await hostExec("tmux display-message -p '#{window_index}'")).trim();
-        const windowList = (await hostExec("tmux list-windows -F '#{window_index}:#{window_panes}'")).split("\n").filter(Boolean);
+        const myWindow = (await deps.hostExec("tmux display-message -p '#{window_index}'")).trim();
+        const windowList = (await deps.hostExec("tmux list-windows -F '#{window_index}:#{window_panes}'")).split("\n").filter(Boolean);
         const hiddenWindows = windowList
           .map(l => { const [idx, count] = l.split(":"); return { idx, count: parseInt(count || "0") }; })
           .filter(w => w.idx !== myWindow && w.count === 1);
@@ -222,15 +250,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         let joined = 0;
         for (const w of hiddenWindows) {
           try {
-            await hostExec(`tmux join-pane -h -s ':${w.idx}' -t '${myPane}'`);
+            await deps.hostExec(`tmux join-pane -h -s ':${w.idx}' -t '${myPane}'`);
             joined++;
           } catch { /* pane may have died */ }
         }
         console.log(`\x1b[32m✓\x1b[0m opened ${joined} hidden pane${joined !== 1 ? "s" : ""}`);
       } else {
         // Target given: split and show that session (same as split)
-        const { cmdSplit } = await import("../split/impl");
-        await cmdSplit(target, { lock: true });
+        await deps.cmdSplit(target, { lock: true });
       }
     } else if (sub === "zoom") {
       const target = args[1];
@@ -238,8 +265,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         console.log("usage: maw tmux zoom <target>");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      const { resolved } = resolveTmuxTarget(target) ?? { resolved: target };
-      await hostExec(`tmux resize-pane -Z -t '${resolved}'`);
+      const { resolved } = deps.resolveTmuxTarget(target) ?? { resolved: target };
+      await deps.hostExec(`tmux resize-pane -Z -t '${resolved}'`);
       console.log(`\x1b[32m✓\x1b[0m toggled zoom on ${resolved}`);
 
     } else if (!sub || sub === "--help" || sub === "-h") {
@@ -265,4 +292,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     console.log = origLog;
     console.error = origError;
   }
+  };
 }
+
+export default createTmuxHandler();
