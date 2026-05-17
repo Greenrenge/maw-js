@@ -16,6 +16,11 @@ Use `bun run test:all`. This is the ship gate — the alpha release script
 files, then peels each default-suite `mock.module()` file into its own Bun
 subprocess so cross-file retroactive mocks cannot leak into later tests.
 
+`bun run test:coverage` mirrors those same four lanes for coverage collection:
+default safe + isolated + mock smoke + plugin tests. It writes per-lane LCOV
+parts under `coverage/`, merges them into `coverage/lcov.info`, then refreshes
+`docs/testing/coverage-gap-analysis.md` and the public badge JSON.
+
 ## Why `bun test test/` (bare, no flags) is broken
 
 Bun's `mock.module()` is **process-global and retroactive**. Two test files

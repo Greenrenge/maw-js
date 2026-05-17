@@ -108,15 +108,14 @@ for (const abs of walkSource("src")) {
 const overall: Counts = { linesFound: 0, linesHit: 0, funcsFound: 0, funcsHit: 0 };
 for (const counts of files.values()) add(overall, counts);
 
-const functionPercent = pct(overall.funcsHit, overall.funcsFound);
 const linePercent = pct(overall.linesHit, overall.linesFound);
 const badge: Badge = {
   schemaVersion: 1,
   label: "coverage",
-  message: `${formatPercent(functionPercent)} functions`,
-  color: colorFor(functionPercent),
+  message: `${formatPercent(linePercent)} lines`,
+  color: colorFor(linePercent),
 };
 
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, `${JSON.stringify(badge, null, 2)}\n`);
-console.log(`coverage badge: ${badge.message}, ${formatPercent(linePercent)} lines → ${outPath}`);
+console.log(`coverage badge: ${badge.message} → ${outPath}`);

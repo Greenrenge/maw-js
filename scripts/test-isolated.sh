@@ -46,6 +46,37 @@ for arg in "$@"; do
   fi
 done
 
+COVERAGE_DIR=""
+RUN_ARGS=()
+EXPECT_COVERAGE_DIR_VALUE=0
+for arg in "${BUN_EXTRA_ARGS[@]}"; do
+  if [[ "$EXPECT_COVERAGE_DIR_VALUE" -eq 1 ]]; then
+    COVERAGE_DIR="$arg"
+    EXPECT_COVERAGE_DIR_VALUE=0
+    continue
+  fi
+  if [[ "$arg" == --coverage-dir=* ]]; then
+    COVERAGE_DIR="${arg#--coverage-dir=}"
+    continue
+  fi
+  if [[ "$arg" == "--coverage-dir" ]]; then
+    EXPECT_COVERAGE_DIR_VALUE=1
+    continue
+  fi
+  RUN_ARGS+=("$arg")
+done
+if [[ "$EXPECT_COVERAGE_DIR_VALUE" -eq 1 ]]; then
+  echo "error: --coverage-dir requires a value" >&2
+  exit 2
+fi
+
+append_lcov_manifest() {
+  local lcov_path="$1"
+  if [[ -n "${MAW_LCOV_MANIFEST:-}" && -f "$lcov_path" ]]; then
+    printf '%s\n' "$lcov_path" >> "$MAW_LCOV_MANIFEST"
+  fi
+}
+
 if [ "${#REQUESTED_FILES[@]}" -gt 0 ]; then
   FILES=("${REQUESTED_FILES[@]}")
 else
@@ -63,9 +94,21 @@ if [ "$TOTAL" -eq 0 ]; then
 fi
 
 echo "=== test-isolated.sh: $TOTAL files, one process each ==="
+run_index=0
 for f in "${FILES[@]}"; do
   printf -- "--- %s ---\n" "$f"
-  if bun test "$f" "${IGNORE_ARGS[@]}" "${BUN_EXTRA_ARGS[@]}"; then
+  if [[ -n "$COVERAGE_DIR" ]]; then
+    run_index=$((run_index + 1))
+    run_dir="$COVERAGE_DIR/run-$run_index"
+    mkdir -p "$run_dir"
+    if bun test "$f" "${IGNORE_ARGS[@]}" "${RUN_ARGS[@]}" --coverage-dir "$run_dir"; then
+      append_lcov_manifest "$run_dir/lcov.info"
+      PASSED=$((PASSED + 1))
+    else
+      FAILED=$((FAILED + 1))
+      FAILED_FILES+=("$f")
+    fi
+  elif bun test "$f" "${IGNORE_ARGS[@]}" "${RUN_ARGS[@]}"; then
     PASSED=$((PASSED + 1))
   else
     FAILED=$((FAILED + 1))
