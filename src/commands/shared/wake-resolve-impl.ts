@@ -2,7 +2,7 @@ import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind } from "../../core/ghq";
 import { resolveSessionTarget } from "../../core/matcher/resolve-target";
-import { readdirSync, readFileSync, existsSync } from "fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
@@ -295,11 +295,41 @@ export async function resolveOracle(
   process.exit(1);
 }
 
-export async function findWorktrees(parentDir: string, repoName: string): Promise<{ path: string; name: string }[]> {
-  const lsOut = await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
+export async function findWorktrees(parentDir: string, repoName: string, taskSlug?: string): Promise<{ path: string; name: string }[]> {
+  const safe = (s: string) => s.replace(/'/g, "'\\''");
+  let lsOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
+  if (!lsOut.trim() && taskSlug) {
+    lsOut = await hostExec(`find '${safe(parentDir)}' -maxdepth 1 -type d -name '*.wt-*-${safe(taskSlug)}' 2>/dev/null || true`);
+  }
   return lsOut.split("\n").filter(Boolean).map(p => ({
-    path: p, name: p.split("/").pop()!.replace(`${repoName}.wt-`, ""),
+    path: p, name: p.split("/").pop()!.replace(/^.*\.wt-/, ""),
   }));
+}
+
+export function findReusableWorktreeBySlug(
+  parentDir: string,
+  slug: string,
+  deps: { readdirSync?: typeof readdirSync; statSync?: typeof statSync } = {},
+): { path: string; name: string } | null {
+  const readDir = deps.readdirSync ?? readdirSync;
+  const stat = deps.statSync ?? statSync;
+  const suffix = `-${slug}`;
+  try {
+    const matches = readDir(parentDir)
+      .filter((entry) => entry.includes(".wt-") && entry.endsWith(suffix))
+      .map((entry) => join(parentDir, entry))
+      .filter((path) => {
+        try { return stat(path).isDirectory(); }
+        catch { return false; }
+      })
+      .sort();
+    const path = matches[0];
+    if (!path) return null;
+    const name = path.split("/").pop()!.split(".wt-").slice(1).join(".wt-");
+    return { path, name };
+  } catch {
+    return null;
+  }
 }
 
 export function getSessionMap(): Record<string, string> { return loadConfig().sessions; }
