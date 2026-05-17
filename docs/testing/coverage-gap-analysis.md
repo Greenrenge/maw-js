@@ -1,26 +1,26 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T22:17:58.841Z
+Generated: 2026-05-17T22:34:44.226Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **55.0%** (28181/51200)
-Overall function coverage: **87.1%** (2997/3442)
+Overall line coverage: **55.4%** (28341/51202)
+Overall function coverage: **87.1%** (3004/3448)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 8 | 77.5% (6354/8202) | 90.5% (660/729) | n/a (0/0) |
+| cli/dispatch | 91 | 8 | 78.0% (6401/8202) | 90.5% (660/729) | n/a (0/0) |
 | config/runtime | 19 | 1 | 63.5% (870/1370) | 68.2% (73/107) | n/a (0/0) |
-| fleet | 17 | 0 | 70.1% (788/1124) | 88.8% (79/89) | n/a (0/0) |
+| fleet | 17 | 0 | 76.3% (858/1125) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
 | other | 180 | 48 | 67.9% (9853/14501) | 84.5% (974/1153) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
-| transport | 28 | 1 | 79.0% (2322/2941) | 95.7% (418/437) | n/a (0/0) |
+| transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
 | vendor plugins | 245 | 192 | 29.8% (6236/20898) | 83.1% (629/757) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
@@ -30,23 +30,23 @@ Overall function coverage: **87.1%** (2997/3442)
 | 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
 | 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 160 | 82.4% | 92.6% | partial coverage |
 | 3 | medium | other | `src/commands/plugins/tmux/impl.ts` | 154 | 76.3% | 68.2% | partial coverage |
-| 4 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 148 | 65.9% | 90.0% | partial coverage |
-| 5 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 147 | 77.3% | 94.4% | partial coverage |
-| 6 | medium | config/runtime | `src/config/load.ts` | 144 | 50.0% | 47.6% | partial coverage |
-| 7 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/init/impl.ts` | 139 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/token/scan.ts` | 139 | 0.0% | n/a | absent from LCOV |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 137 | 53.4% | 72.7% | partial coverage |
-| 11 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 135 | 73.1% | 78.8% | partial coverage |
-| 12 | medium | other | `src/engine/status.ts` | 135 | 8.8% | 0.0% | partial coverage |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 133 | 0.0% | n/a | absent from LCOV |
+| 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 147 | 77.3% | 94.4% | partial coverage |
+| 5 | medium | config/runtime | `src/config/load.ts` | 144 | 50.0% | 47.6% | partial coverage |
+| 6 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/init/impl.ts` | 139 | 0.0% | n/a | absent from LCOV |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/token/scan.ts` | 139 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 137 | 53.4% | 72.7% | partial coverage |
+| 10 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 135 | 73.1% | 78.8% | partial coverage |
+| 11 | medium | other | `src/engine/status.ts` | 135 | 8.8% | 0.0% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/archive/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/done/internal/soul-sync-impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/impl.ts` | 135 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 133 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/token/index.ts` | 132 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -119,6 +119,7 @@ Overall function coverage: **87.1%** (2997/3442)
 | fleet | `src/core/fleet/registry-oracle-types.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/validate.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/worktree-window-match.ts` | 92.3% | 100.0% |
+| fleet | `src/core/fleet/worktrees-cleanup.ts` | 80.2% | 100.0% |
 | fleet | `src/core/fleet/worktrees.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/cap-infer-ast.ts` | 100.0% | 100.0% |
 | plugin dispatch | `src/plugin/default-active.ts` | 100.0% | 100.0% |
@@ -157,20 +158,19 @@ Overall function coverage: **87.1%** (2997/3442)
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
 | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% |
-| cli/dispatch | `src/cli/cmd-update.ts` | 148 | 65.9% |
 | cli/dispatch | `src/commands/shared/comm-send.ts` | 147 | 77.3% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 135 | 73.1% |
-| transport | `src/core/transport/curl-fetch.ts` | 101 | 45.7% |
+| cli/dispatch | `src/cli/cmd-update.ts` | 101 | 76.7% |
 | cli/dispatch | `src/cli/dispatch.ts` | 95 | 47.5% |
-| fleet | `src/core/fleet/worktrees-cleanup.ts` | 88 | 7.4% |
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 85 | 78.3% |
 | cli/dispatch | `src/commands/shared/wake-resolve-scan-suggest.ts` | 74 | 64.3% |
+| cli/dispatch | `src/commands/shared/fleet-validate.ts` | 69 | 0.0% |
+| cli/dispatch | `src/commands/shared/scope-acl.ts` | 67 | 11.8% |
 
 ## Critical gaps to prioritize
 
 - `src/core/transport/tmux-class.ts` (transport): 166 uncovered lines, 54.5% line coverage.
-- `src/cli/cmd-update.ts` (cli/dispatch): 148 uncovered lines, 65.9% line coverage.
 - `src/commands/shared/comm-send.ts` (cli/dispatch): 147 uncovered lines, 77.3% line coverage.
 - `src/commands/shared/wake-cmd.ts` (cli/dispatch): 135 uncovered lines, 73.1% line coverage.
 
