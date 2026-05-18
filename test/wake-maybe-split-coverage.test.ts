@@ -15,12 +15,14 @@ let throwOnLayoutProbe = false;
 let throwOnTileProbe = false;
 let throwOnRespawn = false;
 let throwOnNewWindow = false;
+let paneCommandResponse = "zsh";
 
 mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   ...realSdk,
   hostExec: async (cmd: string, ...args: unknown[]) => {
     if (!active) return realSdk.hostExec(cmd, ...(args as []));
     hostExecCalls.push(cmd);
+    if (cmd.includes("pane_current_command")) return paneCommandResponse;
     if (cmd === "tmux display-message -p '#S'") {
       if (!probeServerUp) throw new Error("no tmux server");
       return "work";
@@ -89,6 +91,7 @@ describe("wake maybe split/window coverage", () => {
     throwOnTileProbe = false;
     throwOnRespawn = false;
     throwOnNewWindow = false;
+    paneCommandResponse = "zsh";
     resetEnv(true);
     console.log = (...args: unknown[]) => logs.push(args.join(" "));
   });
@@ -117,13 +120,27 @@ describe("wake maybe split/window coverage", () => {
     process.env.TMUX_PANE = "%4'2";
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[0]).toContain("tmux split-window -t '%4'\\''2' -h -l 50%");
-    expect(hostExecCalls[0]).toContain("TMUX= tmux attach-session -t");
-    expect(hostExecCalls[1]).toContain("show-options -p -t '%4'\\''2'");
-    expect(hostExecCalls[2]).toContain("list-panes -t '%4'\\''2'");
-    expect(hostExecCalls[3]).toContain("select-layout -t '%4'\\''2' main-vertical");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window -t '%4'\\''2' -h -l 50%");
+    expect(hostExecCalls[1]).toContain("TMUX= tmux attach-session -t");
+    expect(hostExecCalls[2]).toContain("show-options -p -t '%4'\\''2'");
+    expect(hostExecCalls[3]).toContain("list-panes -t '%4'\\''2'");
+    expect(hostExecCalls[4]).toContain("select-layout -t '%4'\\''2' main-vertical");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
     expect(output()).toContain("✓ split beside — 20-homekeeper:homekeeper-oracle (50%)");
+  });
+
+
+  test("split skips Claude-like caller panes and leaves state attachable (#1562)", async () => {
+    paneCommandResponse = "2.1.139";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls).toEqual(["tmux display-message -p -t '%42' '#{pane_current_command}'"]);
+    expect(output()).toContain("--split skipped — caller pane is running Claude Code");
+    expect(output()).toContain("state created:    20-homekeeper:homekeeper-oracle");
+    expect(output()).toContain("tmux attach -t 20-homekeeper");
+    expect(output()).toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
   });
 
   test("split skips layout for two panes, tile anchors, invalid counts, and layout probe failures", async () => {

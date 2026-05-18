@@ -1,4 +1,5 @@
 import { hostExec } from "../../sdk";
+import { isClaudeLikePane } from "../plugins/tmux/safety";
 
 function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -36,6 +37,17 @@ async function refreshSplitClient(): Promise<void> {
   } catch {
     // Best-effort redraw nudge only (#1562): if tmux rejects refresh-client
     // in a headless or old-server environment, keep the successful split.
+  }
+}
+
+async function isClaudeLikeCallerPane(anchor?: string): Promise<boolean> {
+  if (!anchor) return false;
+  if (process.env.MAW_ALLOW_CLAUDE_SPLIT === "1") return false;
+  try {
+    const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{pane_current_command}'`);
+    return isClaudeLikePane(String(raw).trim());
+  } catch {
+    return false;
   }
 }
 
@@ -92,6 +104,14 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
   if (process.env.TMUX) {
     try {
       const anchor = process.env.TMUX_PANE;
+      const session = target.split(":")[0] || target;
+      if (await isClaudeLikeCallerPane(anchor)) {
+        console.log(`  \x1b[33m⚠\x1b[0m --split skipped — caller pane is running Claude Code; avoiding known redraw smear (#1562).`);
+        console.log(`      \x1b[90mstate created:    ${target}\x1b[0m`);
+        console.log(`      \x1b[90mto view:          tmux attach -t ${session}\x1b[0m`);
+        console.log(`      \x1b[90mto force anyway:  MAW_ALLOW_CLAUDE_SPLIT=1 maw wake ... --split\x1b[0m`);
+        return;
+      }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
       await hostExec(`tmux split-window ${targetFlag}-h -l 50% ${shellArg(innerCmd)}`);
