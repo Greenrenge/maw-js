@@ -95,13 +95,14 @@ describe("wake maybeSplit", () => {
   });
 
 
-  test("skips split from Claude-like caller panes to avoid redraw smear (#1562)", async () => {
+  test("warns but continues split from Claude-like caller panes when explicitly requested (#1562)", async () => {
     paneCommandResponse = "claude";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(1);
     expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
+    expect(hostExecCalls[1]).toContain("-t '%42'");
   });
 
 

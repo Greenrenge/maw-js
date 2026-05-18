@@ -104,13 +104,8 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
   if (process.env.TMUX) {
     try {
       const anchor = process.env.TMUX_PANE;
-      const session = target.split(":")[0] || target;
       if (await isClaudeLikeCallerPane(anchor)) {
-        console.log(`  \x1b[33m⚠\x1b[0m --split skipped — caller pane is running Claude Code; avoiding known redraw smear (#1562).`);
-        console.log(`      \x1b[90mstate created:    ${target}\x1b[0m`);
-        console.log(`      \x1b[90mto view:          tmux attach -t ${session}\x1b[0m`);
-        console.log(`      \x1b[90mto force anyway:  MAW_ALLOW_CLAUDE_SPLIT=1 maw wake ... --split\x1b[0m`);
-        return;
+        console.log(`  \x1b[33m⚠\x1b[0m --split requested from a Claude Code pane; continuing despite possible redraw smear (#1562).`);
       }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;

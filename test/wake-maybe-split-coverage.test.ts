@@ -131,16 +131,16 @@ describe("wake maybe split/window coverage", () => {
   });
 
 
-  test("split skips Claude-like caller panes and leaves state attachable (#1562)", async () => {
+  test("split warns but continues from Claude-like caller panes when explicitly requested (#1562)", async () => {
     paneCommandResponse = "2.1.139";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toEqual(["tmux display-message -p -t '%42' '#{pane_current_command}'"]);
-    expect(output()).toContain("--split skipped — caller pane is running Claude Code");
-    expect(output()).toContain("state created:    20-homekeeper:homekeeper-oracle");
-    expect(output()).toContain("tmux attach -t 20-homekeeper");
-    expect(output()).toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window -t '%42' -h -l 50%"))).toBe(true);
+    expect(output()).toContain("--split requested from a Claude Code pane; continuing despite possible redraw smear");
+    expect(output()).toContain("✓ split beside — 20-homekeeper:homekeeper-oracle (50%)");
+    expect(output()).not.toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
   });
 
   test("split skips layout for two panes, tile anchors, invalid counts, and layout probe failures", async () => {
