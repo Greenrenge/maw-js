@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T15:00:37.914Z
+Generated: 2026-05-18T15:18:05.737Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **94.7%** (35264/37223)
-Overall function coverage: **92.7%** (4483/4838)
+Overall line coverage: **95.5%** (35536/37216)
+Overall function coverage: **92.8%** (4528/4877)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 3 | 96.5% (6097/6317) | 92.1% (721/783) | n/a (0/0) |
+| cli/dispatch | 91 | 3 | 97.2% (6140/6318) | 92.2% (723/784) | n/a (0/0) |
 | config/runtime | 19 | 1 | 93.5% (881/942) | 93.4% (114/122) | n/a (0/0) |
 | fleet | 17 | 0 | 96.1% (754/785) | 95.1% (98/103) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 21 | 94.4% (9769/10345) | 90.9% (1256/1382) | n/a (0/0) |
+| other | 172 | 21 | 94.8% (9811/10345) | 91.3% (1265/1386) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 98.6% (499/506) | 97.3% (72/74) | n/a (0/0) |
 | transport | 28 | 1 | 98.3% (1856/1888) | 95.9% (420/438) | n/a (0/0) |
-| vendor plugins | 245 | 28 | 93.4% (14430/15455) | 92.8% (1698/1829) | n/a (0/0) |
+| vendor plugins | 245 | 19 | 94.6% (14617/15447) | 93.0% (1732/1863) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -39,23 +39,23 @@ Overall function coverage: **92.7%** (4483/4838)
 | 1 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 30 | 95.4% | 97.2% | partial coverage |
 | 2 | medium | other | `src/commands/plugins/plugin/install-impl.ts` | 22 | 61.4% | 100.0% | partial coverage |
 | 3 | medium | other | `src/core/server.ts` | 22 | 87.4% | 68.2% | partial coverage |
-| 4 | low | vendor plugins | `src/vendor/mpr-plugins/peek/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 5 | low | vendor plugins | `src/vendor/mpr-plugins/pr/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 6 | low | vendor plugins | `src/vendor/mpr-plugins/resume/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/reunion/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/token/load.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/ui/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
-| 10 | critical | cli/dispatch | `src/cli/instance-preset.ts` | 21 | 16.0% | 0.0% | partial coverage |
-| 11 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 21 | 82.6% | 68.0% | partial coverage |
-| 12 | medium | other | `src/commands/plugins/plugin/dts-gen.ts` | 21 | 25.0% | 100.0% | partial coverage |
-| 13 | critical | cli/dispatch | `src/commands/shared/plugins.ts` | 21 | 58.0% | 100.0% | partial coverage |
-| 14 | medium | other | `src/engine/engine-intervals.ts` | 21 | 69.6% | 42.9% | partial coverage |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/bun-link-detect.ts` | 21 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/health/index.ts` | 21 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/messages/index.ts` | 21 | 92.5% | 83.3% | partial coverage |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/stop/index.ts` | 21 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/triggers/index.ts` | 21 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/zenoh-scout/impl.ts` | 21 | 83.7% | 66.7% | partial coverage |
+| 4 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 21 | 82.6% | 68.0% | partial coverage |
+| 5 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/bun-link-detect.ts` | 21 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/messages/index.ts` | 21 | 92.5% | 83.3% | partial coverage |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/zenoh-scout/impl.ts` | 21 | 83.7% | 66.7% | partial coverage |
+| 8 | medium | other | `src/lib/peers/store.ts` | 20 | 66.1% | 90.0% | partial coverage |
+| 9 | critical | cli/dispatch | `src/commands/shared/wake-resolve-scan-suggest.ts` | 19 | 87.7% | 83.3% | partial coverage |
+| 10 | medium | config/runtime | `src/core/runtime/trigger-listener.ts` | 19 | 0.0% | n/a | absent from LCOV |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 19 | 92.6% | 88.9% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/whoami/index.ts` | 19 | 0.0% | n/a | absent from LCOV |
+| 13 | medium | other | `src/commands/plugins/team/index.ts` | 18 | 95.5% | 78.9% | partial coverage |
+| 14 | medium | other | `src/commands/plugins/team/team-helpers.ts` | 18 | 59.1% | 66.7% | partial coverage |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/attach/impl.ts` | 18 | 74.3% | 66.7% | partial coverage |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/token/save.ts` | 18 | 0.0% | n/a | absent from LCOV |
+| 17 | medium | other | `src/bridges/nanoclaw.ts` | 17 | 15.0% | 0.0% | partial coverage |
+| 18 | medium | other | `src/commands/plugins/plugin/build-impl.ts` | 17 | 87.1% | 62.5% | partial coverage |
+| 19 | medium | config/runtime | `src/core/runtime/triggers-idle.ts` | 17 | 10.5% | 0.0% | partial coverage |
+| 20 | medium | other | `src/engine/engine-crash.ts` | 17 | 10.5% | 0.0% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
@@ -72,6 +72,7 @@ Overall function coverage: **92.7%** (4483/4838)
 | cli/dispatch | `src/cli/dispatch-match.ts` | 90.1% | 90.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 93.6% | 85.7% |
 | cli/dispatch | `src/cli/instance-pid.ts` | 96.2% | 84.2% |
+| cli/dispatch | `src/cli/instance-preset.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/parse-args.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/plugin-bootstrap.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/update-lock.ts` | 100.0% | 71.4% |
@@ -117,6 +118,7 @@ Overall function coverage: **92.7%** (4483/4838)
 | cli/dispatch | `src/commands/shared/plugins-profile.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-toggle.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-ui.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/plugins.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/preflight.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pulse-cmd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pulse-thread.ts` | 100.0% | 100.0% |
@@ -211,8 +213,6 @@ Overall function coverage: **92.7%** (4483/4838)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| cli/dispatch | `src/cli/instance-preset.ts` | 21 | 16.0% |
-| cli/dispatch | `src/commands/shared/plugins.ts` | 21 | 58.0% |
 | transport | `src/core/transport/mqtt-publish.ts` | 15 | 0.0% |
 | fleet | `src/core/fleet/registry-oracle-cache.ts` | 13 | 56.7% |
 | cli/dispatch | `src/cli/error-handler.ts` | 11 | 0.0% |
@@ -221,11 +221,12 @@ Overall function coverage: **92.7%** (4483/4838)
 | cli/dispatch | `src/commands/shared/fleet-load.ts` | 8 | 60.0% |
 | cli/dispatch | `src/commands/shared/wake-target.ts` | 7 | 76.7% |
 | cli/dispatch | `src/commands/shared/wake-pane-size.ts` | 5 | 44.4% |
+| cli/dispatch | `src/commands/shared/fleet.ts` | 4 | 0.0% |
+| cli/dispatch | `src/commands/shared/pulse.ts` | 2 | 0.0% |
 
 ## Critical gaps to prioritize
 
-- `src/cli/instance-preset.ts` (cli/dispatch): 21 uncovered lines, 16.0% line coverage.
-- `src/commands/shared/plugins.ts` (cli/dispatch): 21 uncovered lines, 58.0% line coverage.
+- `src/commands/shared/wake-resolve-scan-suggest.ts` (cli/dispatch): 19 uncovered lines, 87.7% line coverage.
 
 ## Prioritization guidance
 
