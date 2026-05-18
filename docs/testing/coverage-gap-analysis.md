@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T10:20:23.028Z
+Generated: 2026-05-18T10:26:17.290Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **71.8%** (36565/50959)
-Overall function coverage: **90.0%** (3769/4187)
+Overall line coverage: **72.0%** (36673/50952)
+Overall function coverage: **90.1%** (3778/4193)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 7 | 80.9% (6886/8509) | 90.6% (688/759) | n/a (0/0) |
+| cli/dispatch | 91 | 6 | 82.3% (6994/8502) | 91.1% (697/765) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 79.4% (911/1148) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 2 | 0 | 73.6% (89/121) | 100.0% (15/15) | n/a (0/0) |
@@ -62,6 +62,7 @@ Overall function coverage: **90.0%** (3769/4187)
 | cli/dispatch | `src/cli/parse-args.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/update-lock.ts` | 82.9% | 71.4% |
 | cli/dispatch | `src/cli/usage.ts` | 95.8% | 92.9% |
+| cli/dispatch | `src/commands/shared/agents.ts` | 85.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/artifacts.ts` | 80.3% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-list.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-log-feed.ts` | 80.6% | 80.0% |
@@ -102,6 +103,7 @@ Overall function coverage: **90.0%** (3769/4187)
 | cli/dispatch | `src/commands/shared/receiver-inbox.ts` | 86.9% | 100.0% |
 | cli/dispatch | `src/commands/shared/scan-signals.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 85.2% | 100.0% |
+| cli/dispatch | `src/commands/shared/triggers.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 84.6% | 90.9% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 81.3% | 78.0% |
 | cli/dispatch | `src/commands/shared/wake-concurrency.ts` | 94.7% | 100.0% |
@@ -167,9 +169,9 @@ Overall function coverage: **90.0%** (3769/4187)
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
 | cli/dispatch | `src/commands/shared/wake-resolve-scan-suggest.ts` | 74 | 64.3% |
 | plugin dispatch | `src/plugin/registry-invoke.ts` | 68 | 68.4% |
-| cli/dispatch | `src/commands/shared/agents.ts` | 65 | 33.7% |
-| cli/dispatch | `src/commands/shared/triggers.ts` | 65 | 0.0% |
 | routing/aliases | `src/core/routing.ts` | 62 | 73.7% |
+| cli/dispatch | `src/commands/shared/fleet-sync.ts` | 61 | 0.0% |
+| routing/aliases | `src/cli/top-aliases.ts` | 60 | 79.6% |
 
 ## Critical gaps to prioritize
 
