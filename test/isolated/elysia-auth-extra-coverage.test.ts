@@ -65,7 +65,7 @@ function signedHeaders(method: string, path: string, timestamp = Math.floor(Date
 
 function fromSignatureHeaders(opts: {
   from?: string;
-  signedAt?: string;
+  timestamp?: number;
   method?: string;
   path?: string;
   body?: string;
@@ -73,16 +73,17 @@ function fromSignatureHeaders(opts: {
   signature?: string;
 } = {}): Record<string, string> {
   const from = opts.from ?? "oracle:peer-node";
-  const signedAt = opts.signedAt ?? new Date().toISOString();
+  const timestamp = opts.timestamp ?? Math.floor(Date.now() / 1000);
   const method = opts.method ?? "POST";
   const path = opts.path ?? "/api/send";
   const bodyHash = hashBody(opts.body ?? "");
-  const payload = buildFromSignPayload(from, signedAt, method, path, bodyHash);
+  const payload = buildFromSignPayload(from, timestamp, method, path, bodyHash);
   const signature = opts.signature ?? createHmac("sha256", opts.secret ?? PEER_SECRET).update(payload).digest("hex");
   return {
     "x-maw-from": from,
-    "x-maw-signed-at": signedAt,
-    "x-maw-signature": signature,
+    "x-maw-timestamp": String(timestamp),
+    "x-maw-signature-v3": signature,
+    "x-maw-auth-version": "v3",
   };
 }
 
@@ -291,11 +292,11 @@ describe("fromSigningAuth — per-peer continuity branches", () => {
   test("cached peer with stale from-signature → 401 includes skew delta", async () => {
     peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
     const body = JSON.stringify({ hello: "old sig" });
-    const signedAt = new Date(Date.now() - 1_000_000).toISOString();
+    const timestamp = Math.floor((Date.now() - 1_000_000) / 1000);
 
     const res = await fromAuthApp().handle(new Request("http://localhost/api/send", {
       method: "POST",
-      headers: fromSignatureHeaders({ body, signedAt }),
+      headers: fromSignatureHeaders({ body, timestamp }),
       body,
     }));
 
