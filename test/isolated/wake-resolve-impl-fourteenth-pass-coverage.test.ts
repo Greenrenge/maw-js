@@ -171,6 +171,63 @@ describe("resolveOracle local picker and fallback branches", () => {
     expect(scanSuggestArgs[0]).toEqual(["pathless", { allLocal: true }]);
   });
 
+  test("interactive ambiguity picker returns the selected local oracle path", async () => {
+    ghqListValue = ["github.com/Org/pulse-oracle", "github.com/Alt/pulse-oracle"];
+    resolveResults = [{
+      kind: "ambiguous",
+      candidates: [
+        { owner: "Org", repo: "pulse-oracle", path: "/repos/Org/pulse-oracle" },
+        { owner: "Alt", repo: "pulse-oracle", path: "/repos/Alt/pulse-oracle" },
+      ],
+    }];
+    isattyValue = true;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    pickedOracle = { owner: "Alt", repo: "pulse-oracle", path: "/repos/Alt/pulse-oracle" };
+
+    const ttyModule = require("node:tty") as typeof import("node:tty");
+    const originalIsatty = ttyModule.isatty;
+    ttyModule.isatty = (() => true) as typeof ttyModule.isatty;
+    try {
+      await expect(resolveOracle("pulse")).resolves.toEqual({
+        repoPath: "/repos/Alt/pulse-oracle",
+        repoName: "pulse-oracle",
+        parentDir: "/repos/Alt",
+      });
+    } finally {
+      ttyModule.isatty = originalIsatty;
+    }
+    expect(exitCodes).toEqual([]);
+    expect(errors.some((line) => line.includes("matches 2 local oracles"))).toBe(true);
+  });
+
+  test("interactive ambiguity picker abort falls through after reporting the abort", async () => {
+    ghqListValue = ["github.com/Org/pulse-oracle", "github.com/Alt/pulse-oracle"];
+    resolveResults = [{
+      kind: "ambiguous",
+      candidates: [
+        { owner: "Org", repo: "pulse-oracle", path: "/repos/Org/pulse-oracle" },
+        { owner: "Alt", repo: "pulse-oracle", path: "/repos/Alt/pulse-oracle" },
+      ],
+    }];
+    isattyValue = true;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    pickedOracle = null;
+    scanSuggestResult = { repoPath: "/suggested/pulse-oracle", repoName: "pulse-oracle", parentDir: "/suggested" };
+
+    const ttyModule = require("node:tty") as typeof import("node:tty");
+    const originalIsatty = ttyModule.isatty;
+    ttyModule.isatty = (() => true) as typeof ttyModule.isatty;
+    try {
+      await expect(resolveOracle("pulse")).resolves.toEqual(scanSuggestResult);
+    } finally {
+      ttyModule.isatty = originalIsatty;
+    }
+    expect(exitCodes).toContain(1);
+    expect(errors.some((line) => line.includes("aborted"))).toBe(true);
+  });
+
   test("uses stdin/stdout fallback when node tty probing fails and reports noninteractive ambiguity", async () => {
     ghqListValue = ["github.com/Org/pulse-oracle", "github.com/Alt/pulse-oracle"];
     resolveResults = [{
@@ -263,6 +320,18 @@ describe("worktree/session resolver fallback branches", () => {
     await expect(detectSession("discord")).resolves.toBeNull();
     expect(exitCodes).toEqual([]);
     expect(errors.join("\n")).not.toContain("ambiguous");
+  });
+
+  test("detectSession reports ambiguous numeric oracle-session matches before generic suffix matching", async () => {
+    sessions = [
+      { name: "24-discord-oracle" },
+      { name: "25-discord-oracle" },
+      { name: "99-homekeeper-discord" },
+    ];
+
+    await expect(detectSession("discord")).resolves.toBeNull();
+    expect(exitCodes).toContain(1);
+    expect(errors.join("\n")).toContain("'discord' is ambiguous — matches 2 fleet oracle sessions");
   });
 
   test("detectSession still accepts the oracle's own discord-oracle session shape", async () => {
