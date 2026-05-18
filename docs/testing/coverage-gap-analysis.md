@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T03:45:19.228Z
+Generated: 2026-05-18T03:54:40.758Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **67.1%** (33901/50517)
-Overall function coverage: **88.7%** (3483/3925)
+Overall line coverage: **68.0%** (34297/50458)
+Overall function coverage: **88.8%** (3517/3962)
 
 ## Module summary
 
@@ -17,11 +17,11 @@ Overall function coverage: **88.7%** (3483/3925)
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 75.3% (855/1136) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 45 | 72.2% (10428/14453) | 85.8% (1019/1187) | n/a (0/0) |
+| other | 180 | 44 | 72.8% (10518/14451) | 86.0% (1030/1198) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 80.7% (1077/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 137 | 54.6% (11065/20251) | 87.8% (1049/1195) | n/a (0/0) |
+| vendor plugins | 245 | 133 | 56.3% (11371/20194) | 87.8% (1072/1221) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -38,15 +38,15 @@ Overall function coverage: **88.7%** (3483/3925)
 | 9 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 101 | 76.7% | 90.0% | partial coverage |
 | 10 | medium | other | `src/lib/federation-auth.ts` | 99 | 66.0% | 55.6% | partial coverage |
 | 11 | medium | other | `src/commands/plugins/oracle/impl-list.ts` | 98 | 60.6% | 66.7% | partial coverage |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/attach/impl.ts` | 98 | 0.0% | n/a | absent from LCOV |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/inbox/index.ts` | 98 | 0.0% | n/a | absent from LCOV |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/panes/impl.ts` | 98 | 0.0% | n/a | absent from LCOV |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/workspace/index.ts` | 98 | 0.0% | n/a | absent from LCOV |
-| 17 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/memory.ts` | 96 | 0.0% | n/a | absent from LCOV |
-| 18 | critical | cli/dispatch | `src/cli/dispatch.ts` | 95 | 47.5% | 57.1% | partial coverage |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/health/impl.ts` | 93 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/commands/plugins/fleet/fleet-health.ts` | 92 | 0.0% | n/a | absent from LCOV |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
+| 13 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/memory.ts` | 96 | 0.0% | n/a | absent from LCOV |
+| 14 | critical | cli/dispatch | `src/cli/dispatch.ts` | 95 | 47.5% | 57.1% | partial coverage |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/health/impl.ts` | 93 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stale-peers.ts` | 91 | 0.0% | n/a | absent from LCOV |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-cleanup-zombies.ts` | 91 | 6.2% | 0.0% | partial coverage |
+| 18 | medium | other | `src/commands/plugins/fleet/fleet-init-agents.ts` | 90 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | other | `src/commands/plugins/oracle/impl-about.ts` | 89 | 6.3% | 0.0% | partial coverage |
+| 20 | medium | other | `src/commands/plugins/plugin/init-impl.ts` | 89 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
