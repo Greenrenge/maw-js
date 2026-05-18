@@ -37,7 +37,69 @@ const {
   resolveLocalOracleRepoName,
   findWorktrees,
   findReusableWorktreeBySlug,
+  resolveFromWorktrees,
+  setSessionEnv,
 } = await import("./wake-resolve-impl");
+
+
+describe("resolveFromWorktrees — injected helper coverage", () => {
+  it("resolves a main repo from a matching linked worktree", async () => {
+    const result = await resolveFromWorktrees(
+      "wireboy",
+      async () => [{ path: "/tmp/wireboy.wt-1-fix", mainRepo: "Soul-Brews-Studio/wireboy-oracle" } as any],
+      async () => "/tmp/ghq/github.com/Soul-Brews-Studio/wireboy-oracle/.git\n",
+      (path) => path === "/tmp/ghq/github.com/Soul-Brews-Studio/wireboy-oracle",
+    );
+
+    expect(result).toEqual({
+      repoPath: "/tmp/ghq/github.com/Soul-Brews-Studio/wireboy-oracle",
+      repoName: "wireboy-oracle",
+      parentDir: "/tmp/ghq/github.com/Soul-Brews-Studio",
+    });
+  });
+
+  it("returns null for empty git common-dir or missing main repos", async () => {
+    const worktrees = async () => [{ path: "/tmp/wireboy.wt-1-fix", mainRepo: "Soul-Brews-Studio/wireboy-oracle" } as any];
+
+    await expect(resolveFromWorktrees("wireboy", worktrees, async () => "", () => true)).resolves.toBeNull();
+    await expect(resolveFromWorktrees("wireboy", worktrees, async () => "/tmp/wireboy-oracle\n", () => false)).resolves.toBeNull();
+    await expect(resolveFromWorktrees("other", worktrees, async () => { throw new Error("should not run"); }, () => true)).resolves.toBeNull();
+  });
+});
+
+describe("setSessionEnv — injected helper coverage", () => {
+  it("sets plain env vars and trims pass: secrets", async () => {
+    const setCalls: Array<[string, string, string]> = [];
+
+    await setSessionEnv("88-maw", {
+      getEnvVars: () => ({ TOKEN: "pass:maw/token", PLAIN: "value" }),
+      spawn: ((cmd: string[]) => ({
+        stdout: new Blob([cmd.join(" ") === "pass show maw/token" ? "secret\n" : ""]),
+        stderr: new Blob([""]),
+        exited: Promise.resolve(0),
+      })) as any,
+      setEnvironment: async (session, key, value) => { setCalls.push([session, key, value]); },
+    });
+
+    expect(setCalls).toEqual([
+      ["88-maw", "TOKEN", "secret"],
+      ["88-maw", "PLAIN", "value"],
+    ]);
+  });
+
+  it("throws when pass exits non-zero", async () => {
+    await expect(setSessionEnv("88-maw", {
+      getEnvVars: () => ({ TOKEN: "pass:missing/token" }),
+      spawn: (() => ({
+        stdout: new Blob([""]),
+        stderr: new Blob(["missing"]),
+        exited: Promise.resolve(7),
+      })) as any,
+      setEnvironment: async () => { throw new Error("should not set"); },
+    })).rejects.toThrow("pass show 'missing/token' failed (exit 7)");
+  });
+});
+
 
 describe("sanitizeBranchName (#823 Bug A) — greedy strip", () => {
   it("strips ALL leading dashes (--no-attach → no-attach)", () => {
