@@ -17,6 +17,30 @@ function deps(overrides: Partial<ResolveDeps> = {}): ResolveDeps {
 }
 
 describe("sleep resolve target next coverage", () => {
+  test("window-name tier matches case-insensitively and ignores trailing dashes", async () => {
+    const result = await resolveSleepTarget(
+      "WORKTREE",
+      undefined,
+      deps({
+        listSessions: async () => [
+          { name: "01-alpha", windows: [{ name: "worktree-" }] },
+        ],
+      }),
+    );
+
+    expect(result).toEqual({ session: "01-alpha", window: "worktree-" });
+  });
+
+  test("session-name tier uses explicit window override before fleet primary", async () => {
+    const result = await resolveSleepTarget(
+      "alpha",
+      "override-window",
+      deps(),
+    );
+
+    expect(result).toEqual({ session: "01-alpha", window: "override-window" });
+  });
+
   test("detectSession result honors explicit window override before fleet/window fallback", async () => {
     const result = await resolveSleepTarget(
       "gamma",

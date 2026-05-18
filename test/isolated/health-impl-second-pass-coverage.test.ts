@@ -188,4 +188,18 @@ describe("health impl second-pass coverage", () => {
     expect(out).toContain("pm2 maw            stopped (pid 77)");
     expect(out).toContain("peers              none configured");
   });
+
+  test("covers probe json parse fallback for ok server responses", async () => {
+    fetchResult = {
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("invalid json");
+      },
+    };
+
+    await cmdHealth();
+
+    expect(output()).toContain("maw server         online (:4321, ? sessions, probe ok)");
+  });
 });

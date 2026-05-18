@@ -94,4 +94,20 @@ describe("comm log feed more coverage", () => {
     expect(body.oracle).toBe("sender");
     expect(body.host).toBe("m5");
   });
+
+  test("emitMessageLifecycle swallows feed delivery failures", async () => {
+    fetchReject = true;
+
+    expect(() => mod.emitMessageLifecycle({
+      direction: "outgoing",
+      phase: "queued",
+      from: "m5:sender",
+      to: "white:receiver",
+      route: "inbox",
+      message: "hello",
+    }, 4567)).not.toThrow();
+    await Promise.resolve();
+
+    expect(fetchCalls[0].url).toBe("http://localhost:4567/api/feed");
+  });
 });

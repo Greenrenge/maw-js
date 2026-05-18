@@ -36,11 +36,13 @@ beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "maw-wake-cmd-helper-"));
   process.env.CLAUDE_AGENT_NAME = "tester-oracle";
   delete process.env.MAW_TEST_MODE;
+
 });
 
 afterEach(() => {
   process.env = { ...originalEnv };
   if (tempRoot && existsSync(tempRoot)) rmSync(tempRoot, { recursive: true, force: true });
+
 });
 
 describe("wake-cmd helper coverage", () => {
@@ -238,4 +240,18 @@ describe("wake-cmd helper coverage", () => {
       { windowName: "maw-gamma", cwd: "/repo/main", source: "repo" },
     ]);
   });
+
+  test("fresh-session helpers cover default best-effort wait dependencies", async () => {
+    await waitForTmuxSessionReady("never-visible", { attempts: 2, delayMs: 1 });
+
+    let calls = 0;
+    const result = await retryFreshSessionTmuxStep("89-maw", "attach", async () => {
+      calls++;
+      if (calls === 1) throw new Error("tmux: can't find session: 89-maw");
+      return "ready";
+    }, { attempts: 2, delayMs: 1 });
+
+    expect(result).toBe("ready");
+  });
+
 });

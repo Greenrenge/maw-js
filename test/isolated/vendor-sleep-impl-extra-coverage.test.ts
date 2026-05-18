@@ -4,6 +4,7 @@ let resolvedTarget: { session: string; window: string } | null = { session: "alp
 let sessions: Array<{ name: string; windows: Array<{ name: string }> }> = [];
 let listWindowsResult: Array<{ name: string }> | Error = [];
 let calls: string[] = [];
+let appendError: Error | null = null;
 
 const realSetTimeout = globalThis.setTimeout;
 const realConsole = { log: console.log, error: console.error };
@@ -33,7 +34,10 @@ mock.module("maw-js/plugin/lifecycle", () => ({
 }));
 mock.module("fs/promises", () => ({
   mkdir: async (dir: string) => { calls.push(`mkdir:${dir}`); },
-  appendFile: async (file: string, line: string) => { calls.push(`append:${file}:${JSON.parse(line).window}`); },
+  appendFile: async (file: string, line: string) => {
+    calls.push(`append:${file}:${JSON.parse(line).window}`);
+    if (appendError) throw appendError;
+  },
 }));
 mock.module("os", () => ({ homedir: () => "/tmp/maw-vendor-sleep-home" }));
 mock.module("../../src/vendor/mpr-plugins/sleep/resolve-target", () => ({
@@ -46,6 +50,7 @@ beforeEach(() => {
   resolvedTarget = { session: "alpha", window: "neo-oracle" };
   sessions = [];
   listWindowsResult = [];
+  appendError = null;
   calls = [];
   globalThis.setTimeout = ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
     calls.push(`wait:${ms}`);
@@ -91,5 +96,15 @@ describe("vendor sleep impl extra coverage", () => {
     await cmdSleepOne("neo");
 
     expect(calls).toContain("log:  \u001b[32m✓\u001b[0m neo-oracle stopped");
+  });
+
+  test("continues sleeping when the best-effort sleep log write fails", async () => {
+    appendError = new Error("readonly log");
+    listWindowsResult = [{ name: "other" }];
+
+    await cmdSleepOne("neo");
+
+    expect(calls).toContain("error:\u001b[33m⚠\u001b[0m sleep log write failed: Error: readonly log");
+    expect(calls).toContain("log:\u001b[32msleep\u001b[0m neo (neo-oracle)");
   });
 });

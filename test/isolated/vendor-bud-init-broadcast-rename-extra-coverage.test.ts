@@ -302,6 +302,24 @@ describe("bud impl extra isolated coverage", () => {
     expect(hostExecCalls).toEqual(["tmux display-message -p '#{pane_current_path}'"]);
     expect(ensureBudRepoCalls).toEqual([]);
   });
+
+  test("dry-run root bud reports nickname, root seed fallback, scaffold-only, and skipped wake", async () => {
+    await cmdBud("sprout", {
+      root: true,
+      dryRun: true,
+      nickname: "Sprout Nick",
+      seed: true,
+      scaffoldOnly: true,
+    });
+
+    expect(ensureBudRepoCalls).toEqual([]);
+    expect(finalizeBudCalls).toEqual([]);
+    const text = output();
+    expect(text).toContain("[dry-run] would write nickname: Sprout Nick");
+    expect(text).toContain("[dry-run] root oracle — no parent");
+    expect(text).toContain("[dry-run] scaffold-only: would stop before git commit/push, wake, attach, parent sync_peers, and /awaken");
+    expect(text).not.toContain("[dry-run] would wake sprout");
+  });
 });
 
 describe("init write-config extra isolated coverage", () => {

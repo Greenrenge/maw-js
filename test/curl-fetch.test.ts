@@ -239,6 +239,83 @@ describe("curlFetch body size cap (#653)", () => {
   });
 });
 
+
+describe("curlFetch curl subprocess transport", () => {
+  beforeEach(() => {
+    mockToken = undefined;
+    mockConfigThrows = false;
+    process.env.MAW_CURL_FETCH_TRANSPORT = "curl";
+  });
+
+  test("parses successful curl stdout and passes method, headers, body, and limits", async () => {
+    const origSpawn = Bun.spawn;
+    const calls: unknown[][] = [];
+    try {
+      (Bun as any).spawn = (args: string[]) => {
+        calls.push(args);
+        return {
+          stdout: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(JSON.stringify({ ok: true })));
+              controller.close();
+            },
+          }),
+          stderr: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
+      };
+
+      const res = await curlFetch("http://example.invalid/api", {
+        method: "POST",
+        body: JSON.stringify({ hello: "curl" }),
+        timeout: 2500,
+        maxBytes: 2048,
+      });
+
+      expect(res).toEqual({ ok: true, status: 200, data: { ok: true } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain("--max-time");
+      expect(calls[0]).toContain("3");
+      expect(calls[0]).toContain("--max-filesize");
+      expect(calls[0]).toContain("2048");
+      expect(calls[0]).toContain("-X");
+      expect(calls[0]).toContain("POST");
+      expect(calls[0]).toContain("-d");
+      expect(calls[0]).toContain(JSON.stringify({ hello: "curl" }));
+    } finally {
+      (Bun as any).spawn = origSpawn;
+    }
+  });
+
+  test("kills curl when streamed stdout exceeds maxBytes", async () => {
+    const origSpawn = Bun.spawn;
+    let killed = false;
+    try {
+      (Bun as any).spawn = () => ({
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(8));
+            controller.enqueue(new Uint8Array(8));
+            controller.close();
+          },
+        }),
+        stderr: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+        exited: Promise.resolve(0),
+        kill: () => { killed = true; },
+      });
+
+      const res = await curlFetch("http://example.invalid/huge", { maxBytes: 10, timeout: 1000 });
+
+      expect(res.ok).toBe(false);
+      expect(res.data?.error).toMatch(/body exceeded 10 bytes/);
+      expect(killed).toBe(true);
+    } finally {
+      (Bun as any).spawn = origSpawn;
+    }
+  });
+});
+
 describe("curlFetch federation auth", () => {
   liveTest("protected endpoint with wrong token gets rejected", async () => {
     delete process.env.MAW_CURL_FETCH_TRANSPORT;

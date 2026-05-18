@@ -168,6 +168,33 @@ describe("bud from-repo coverage", () => {
     expect(rendered).toContain("skip");
   });
 
+  test("plans and applies seed-without-parent as a non-blocking skip", async () => {
+    const repo = makeRepo("seedless");
+
+    const plan = planFromRepoInjection(baseOpts(repo, { seed: true }));
+    expect(plan.blockers).toEqual([]);
+    expect(plan.actions).toContainEqual({
+      kind: "skip",
+      path: "ψ/memory/ (seed)",
+      reason: "--seed requires --from <parent> — nothing to seed from",
+    });
+
+    await cmdBudFromRepo(baseOpts(repo, { seed: true }));
+
+    expect(appliedPlans).toHaveLength(1);
+    expect(seeded).toEqual([]);
+    expect(logs.join("\n")).toContain("--seed ignored (no --from <parent> to seed from)");
+  });
+
+  test("local execution refuses blocker plans before applying writes", async () => {
+    const missing = join(tempRoot, "missing");
+
+    await expect(cmdBudFromRepo(baseOpts(missing))).rejects.toThrow("plan has 1 blocker(s) — see above");
+
+    expect(appliedPlans).toEqual([]);
+    expect(logs.join("\n")).toContain("target path does not exist");
+  });
+
   test("dry-run local plans without applying writes and URL dry-runs refuse side effects", async () => {
     const repo = makeRepo("dry");
     await cmdBudFromRepo(baseOpts(repo, { dryRun: true }));

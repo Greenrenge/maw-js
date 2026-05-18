@@ -349,6 +349,21 @@ describe("vendor pair/impl coverage", () => {
     });
   });
 
+  test("pairGenerate ignores transient status-poll network failures until expiry", async () => {
+    let call = 0;
+    globalThis.fetch = (async () => {
+      call += 1;
+      if (call === 1) return Response.json({ code: "ABC345", expiresAt: Date.now() + 1 });
+      throw new Error("status offline");
+    }) as any;
+
+    await expect(pairImpl.pairGenerate({ localUrl: "http://local.test", pollIntervalMs: 0 })).resolves.toEqual({
+      ok: false,
+      error: "pair code expired — no acceptor",
+    });
+    expect(call).toBeGreaterThanOrEqual(2);
+  });
+
   test("pairGenerate expires cleanly when status polling never reports consumption", async () => {
     let call = 0;
     globalThis.fetch = (async () => {

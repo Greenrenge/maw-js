@@ -32,6 +32,7 @@ let sleepLogs: string[] = [];
 let sleepError: Error | null = null;
 let dreamCalls: any[] = [];
 let dreamLogs: string[] = [];
+let dreamErrorLogs: string[] = [];
 let dreamError: Error | null = null;
 
 const originalConsole = {
@@ -104,6 +105,7 @@ mock.module(dreamImplPath, () => ({
   cmdDream: async (flags: any) => {
     dreamCalls.push(flags);
     for (const line of dreamLogs) console.log(line);
+    for (const line of dreamErrorLogs) console.error(line);
     if (dreamError) throw dreamError;
   },
 }));
@@ -174,6 +176,7 @@ beforeEach(() => {
   sleepError = null;
   dreamCalls = [];
   dreamLogs = [];
+  dreamErrorLogs = [];
   dreamError = null;
 });
 
@@ -420,6 +423,18 @@ describe("dream plugin entrypoint", () => {
       error: "before dream fail",
       output: "before dream fail",
     });
+  });
+
+  test("routes dream stderr through writer when provided", async () => {
+    const written: string[] = [];
+    dreamErrorLogs = ["stderr dream line"];
+
+    await expect(dreamHandler(ctx("cli", ["--between"], (...args) => written.push(args.map(String).join(" "))))).resolves.toEqual({
+      ok: true,
+      output: undefined,
+    });
+
+    expect(written).toEqual(["stderr dream line"]);
   });
 });
 

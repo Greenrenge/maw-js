@@ -125,6 +125,34 @@ describe("bud repo path resolution", () => {
     expect(hostExecCalls).toContain("ghq get github.com/org/clone-oracle");
   });
 
+  test("creates missing GitHub repos and treats already-exists create failures as idempotent", async () => {
+    const actual = join(tmpRoot, "actual-created");
+    mkdirSync(actual, { recursive: true });
+    let listCount = 0;
+    hostExecImpl = async (cmd: string) => {
+      if (cmd.startsWith("ghq list")) return ++listCount === 1 ? "" : `${actual}\n`;
+      if (cmd.startsWith("gh repo view")) return "";
+      if (cmd.startsWith("gh repo create")) return "";
+      return "";
+    };
+
+    await expect(ensureBudRepo("org/created-oracle", join(tmpRoot, "created"), "created-oracle", "org")).resolves.toBe(actual);
+    expect(hostExecCalls).toContain("gh repo create org/created-oracle --private --add-readme");
+
+    const actualExisting = join(tmpRoot, "actual-existing-after-create");
+    mkdirSync(actualExisting, { recursive: true });
+    listCount = 0;
+    hostExecCalls = [];
+    hostExecImpl = async (cmd: string) => {
+      if (cmd.startsWith("ghq list")) return ++listCount === 1 ? "" : `${actualExisting}\n`;
+      if (cmd.startsWith("gh repo view")) return "";
+      if (cmd.startsWith("gh repo create")) throw new Error("repository already exists");
+      return "";
+    };
+
+    await expect(ensureBudRepo("org/exists-oracle", join(tmpRoot, "exists"), "exists-oracle", "org")).resolves.toBe(actualExisting);
+  });
+
   test("reports org permission failures with a useful admin message", async () => {
     hostExecImpl = async (cmd: string) => {
       if (cmd.startsWith("gh repo view")) return "";
@@ -135,6 +163,18 @@ describe("bud repo path resolution", () => {
     await expect(ensureBudRepo("org/nope-oracle", join(tmpRoot, "nope"), "nope-oracle", "org")).rejects.toThrow(
       "no permission to create repos in org",
     );
+  });
+
+  test("continues after ghq precheck errors and rethrows unexpected repo creation failures", async () => {
+    hostExecImpl = async (cmd: string) => {
+      if (cmd.startsWith("ghq list")) throw new Error("ghq unavailable");
+      if (cmd.startsWith("gh repo view")) return "";
+      if (cmd.startsWith("gh repo create")) throw new Error("rate limited");
+      return "";
+    };
+
+    await expect(ensureBudRepo("org/rate-oracle", join(tmpRoot, "rate"), "rate-oracle", "org")).rejects.toThrow("rate limited");
+    expect(hostExecCalls[0]).toBe("ghq list --exact --full-path github.com/org/rate-oracle");
   });
 
   test("fails loudly when ghq get succeeds but ghq list cannot find the clone", async () => {
@@ -183,6 +223,16 @@ describe("pair plugin dispatcher", () => {
     expect(unexpected.ok).toBe(false);
     expect(unexpected.error).toContain("unexpected args");
     expect(unexpected.output).toContain("maw pair generate");
+  });
+
+  test("dispatches successful URL accept and returns captured warning output", async () => {
+    pairAcceptResult = { ok: true };
+
+    const accepted = await pairHandler(ctx("cli", ["http://peer:5002", "W4K-7F3"]));
+
+    expect(accepted.ok).toBe(true);
+    expect(stripAnsi(accepted.output)).toContain("accepting pair");
+    expect(pairAcceptCalls).toEqual([{ url: "http://peer:5002", code: "W4K-7F3" }]);
   });
 
   test("returns thrown errors from pairGenerate", async () => {

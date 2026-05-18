@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   attachToSession,
   createWorktree,
+  wakeSessionDeps,
   ensureSessionRunning,
   isPaneIdle,
 } from "../src/commands/shared/wake-session";
@@ -24,6 +25,23 @@ function makeTmux(overrides: Record<string, unknown> = {}) {
 }
 
 describe("wake-session dependency seam", () => {
+
+  test("wakeSessionDeps exposes usable default helpers with overrides", async () => {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+    try {
+      const d = wakeSessionDeps({ fresh: true, named: true });
+      expect(d.fresh).toBe(true);
+      expect(d.named).toBe(true);
+      await d.sleep(0);
+      d.log("wake-session deps smoke");
+      expect(logs).toEqual(["wake-session deps smoke"]);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
   test("attachToSession switches tmux clients inside tmux", async () => {
     process.env.TMUX = "/tmp/tmux-501/default,1,0";
     const calls: string[] = [];
