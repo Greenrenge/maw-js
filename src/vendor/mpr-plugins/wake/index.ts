@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh|--new] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
         };
       }
 
@@ -46,7 +46,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--wt": String,
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
-        "--fresh": Boolean, "--new": "--fresh", "--attach": Boolean, "-a": "--attach",
+        "--fresh": Boolean, "--new": "--fresh", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
         "--no-attach": Boolean, // #823 Bug B — register so it doesn't fall through to positional → wakeOpts.task
         "--list": Boolean, "--ls": "--list",
         "--dry-run": Boolean,
@@ -64,7 +64,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const wakeOpts: {
         task?: string; wt?: string; prompt?: string;
-        incubate?: string; fresh?: boolean; attach?: boolean; listWt?: boolean;
+        incubate?: string; fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; listWt?: boolean;
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
         fromSnapshot?: boolean; snapshotId?: string;
@@ -85,6 +85,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (flags["--wt"]) wakeOpts.wt = flags["--wt"];
       if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
       if (flags["--fresh"]) wakeOpts.fresh = true;
+      if (flags["--pick"]) wakeOpts.pick = true;
+      if (flags["--name"]) wakeOpts.name = flags["--name"];
       if (flags["--attach"]) wakeOpts.attach = true;
       if (flags["--no-attach"]) wakeOpts.attach = false; // #823 Bug B — explicit opt-out; preserves default when neither flag is set
       if (flags["--list"]) wakeOpts.listWt = true;
@@ -127,7 +129,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const wakeOpts: {
       task?: string; prompt?: string; wt?: string;
-      fresh?: boolean; attach?: boolean; dryRun?: boolean; noRehydrate?: boolean;
+      fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; dryRun?: boolean; noRehydrate?: boolean;
       fromSnapshot?: boolean; snapshotId?: string;
     } = {};
     if (body.task) wakeOpts.task = body.task as string;
@@ -143,6 +145,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!wakeOpts.task) wakeOpts.task = `pr-${prNum}`;
     }
     if (body.fresh) wakeOpts.fresh = true;
+    if (body.pick) wakeOpts.pick = true;
+    if (typeof body.name === "string") wakeOpts.name = body.name;
     if (body.attach) wakeOpts.attach = true;
     if (body.dryRun) wakeOpts.dryRun = true;
     if (body.noRehydrate || body.main || body.solo) wakeOpts.noRehydrate = true;
@@ -195,6 +199,8 @@ async function forwardToPeer(
   if (flags["--pr"]) body.pr = flags["--pr"];
   if (flags["--repo"]) body.repo = flags["--repo"];
   if (flags["--fresh"]) body.fresh = true;
+  if (flags["--pick"]) body.pick = true;
+  if (flags["--name"]) body.name = flags["--name"];
 
   const { callPeerWake } = await import("./internal/peer-call");
   let res: { ok: boolean; status?: number; data?: any };

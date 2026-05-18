@@ -231,6 +231,42 @@ describe("createWorktree", () => {
     expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-8-white' -b 'agents/8-white'");
   });
 
+  test("named mode creates an exact reusable worktree and branch without numeric prefix", async () => {
+    const commands: string[] = [];
+
+    const result = await createWorktree("/repo", "/tmp", "repo", "oracle", "osmosis-white", [], {
+      named: true,
+      hostExec: async (cmd: string) => {
+        commands.push(cmd);
+        if (cmd.includes("rev-parse HEAD")) return "abc\n";
+        if (cmd.includes("show-ref")) throw new Error("missing branch");
+        return "";
+      },
+      log: () => {},
+    });
+
+    expect(result).toEqual({ wtPath: "/tmp/repo.wt-osmosis-white", windowName: "oracle-osmosis-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' -b 'agents/osmosis-white'");
+  });
+
+  test("named mode reattaches an exact stale named branch", async () => {
+    const commands: string[] = [];
+
+    const result = await createWorktree("/repo", "/tmp", "repo", "oracle", "osmosis-white", [], {
+      named: true,
+      hostExec: async (cmd: string) => {
+        commands.push(cmd);
+        if (cmd.includes("rev-parse HEAD")) return "abc\n";
+        if (cmd.includes("show-ref")) return "";
+        return "";
+      },
+      log: () => {},
+    });
+
+    expect(result.wtPath).toBe("/tmp/repo.wt-osmosis-white");
+    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' 'agents/osmosis-white'");
+  });
+
   test("bootstraps unborn repos, escapes shell args, and errors after allocation exhaustion", async () => {
     const commands: string[] = [];
     await createWorktree("/repo's", "/tmp", "repo", "oracle", "white", [], {

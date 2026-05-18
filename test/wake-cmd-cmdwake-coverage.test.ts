@@ -150,6 +150,7 @@ let createdWorktrees: Array<{
   repoName: string;
   oracle: string;
   name: string;
+  deps?: any;
 }>;
 
 function sanitizeForTest(value: string): string {
@@ -391,6 +392,7 @@ mock.module(
         repoName: repoNameArg,
         oracle: oracleArg,
         name,
+        deps,
       });
       const wtPath = join(parentDirArg, `${repoNameArg}.wt-${name}`);
       mkdirSync(wtPath, { recursive: true });
@@ -493,7 +495,9 @@ mock.module(
   }),
 );
 
-const { cmdWake } = await import("../src/commands/shared/wake-cmd");
+const { cmdWake, _wtPicker } = await import("../src/commands/shared/wake-cmd");
+const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
+const originalWtPickerReadChoice = _wtPicker.readChoice;
 
 beforeEach(() => {
   mockActive = true;
@@ -554,6 +558,8 @@ beforeEach(() => {
 
 afterEach(() => {
   mockActive = false;
+  _wtPicker.isStdoutTTY = originalWtPickerIsStdoutTTY;
+  _wtPicker.readChoice = originalWtPickerReadChoice;
   if (tempRoot && existsSync(tempRoot))
     rmSync(tempRoot, { recursive: true, force: true });
 });
@@ -762,6 +768,64 @@ describe("cmdWake main-suite coverage", () => {
     expect(logs.join("\n")).toContain("reusing worktree");
   });
 
+  test("creates a stable named worktree for --wt plus --name (#1768)", async () => {
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "04-homekeeper" }];
+    hasSessions = new Set(["04-homekeeper"]);
+    detectSessionReturn = "04-homekeeper";
+    windowsBySession = {
+      "04-homekeeper": [{ index: 0, name: "homekeeper-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result } = await captureLogs(() => cmdWake("homekeeper", { wt: "white", name: "osmosis" }));
+
+    const wtPath = join(parentDir, "homelab.wt-osmosis-white");
+    expect(result).toBe("04-homekeeper:homekeeper-osmosis-white");
+    expect(findWorktreesCalls).toContainEqual({
+      parentDir,
+      repoName: "homelab",
+      taskSlug: "osmosis-white",
+      scopeStem: "homekeeper-oracle",
+    });
+    expect(createdWorktrees).toEqual([
+      { repoPath, parentDir, repoName: "homelab", oracle: "homekeeper", name: "osmosis-white", deps: { fresh: false, named: true } },
+    ]);
+    expect(newWindowCalls).toContainEqual({
+      session: "04-homekeeper",
+      name: "homekeeper-osmosis-white",
+      opts: { cwd: wtPath },
+    });
+  });
+
+  test("--pick forces the reusable worktree picker even for a single fuzzy match (#1768)", async () => {
+    repoName = "homelab";
+    repoPath = join(parentDir, repoName);
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "04-homekeeper" }];
+    hasSessions = new Set(["04-homekeeper"]);
+    detectSessionReturn = "04-homekeeper";
+    windowsBySession = {
+      "04-homekeeper": [{ index: 0, name: "homekeeper-oracle", active: true, cwd: repoPath }],
+    };
+    worktrees = [{ name: "2-white", path: join(parentDir, "homelab.wt-2-white") }];
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "1";
+
+    const { result } = await captureLogs(() => cmdWake("homekeeper", { wt: "white", pick: true }));
+
+    expect(result).toBe("04-homekeeper:homekeeper-white");
+    expect(createdWorktrees).toEqual([]);
+    expect(newWindowCalls).toContainEqual({
+      session: "04-homekeeper",
+      name: "homekeeper-white",
+      opts: { cwd: join(parentDir, "homelab.wt-2-white") },
+    });
+  });
+
   test("creates a wake-bud worktree, stamps lineage, emits birth signal, and launches with prompt", async () => {
     branchName = "feature/fix-a";
 
@@ -778,7 +842,7 @@ describe("cmdWake main-suite coverage", () => {
     const wtPath = join(parentDir, `${repoName}.wt-fix-a`);
     expect(result).toBe("54-mawjs:mawjs-fix-a");
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName, oracle: "mawjs", name: "fix-a" },
+      { repoPath, parentDir, repoName, oracle: "mawjs", name: "fix-a", deps: { fresh: false, named: false } },
     ]);
     expect(newWindowCalls).toContainEqual({
       session: "54-mawjs",

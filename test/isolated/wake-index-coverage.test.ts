@@ -102,6 +102,25 @@ describe("wake plugin index", () => {
     ]);
   });
 
+  test("maps cli reusable worktree picker flags", async () => {
+    const result = await handler({
+      source: "cli",
+      args: ["homekeeper", "--wt", "white", "--pick", "--name", "osmosis"],
+    } as any);
+
+    expect(result.ok).toBe(true);
+    expect(wakeCalls).toEqual([
+      {
+        oracle: "homekeeper",
+        opts: {
+          wt: "white",
+          pick: true,
+          name: "osmosis",
+        },
+      },
+    ]);
+  });
+
   test("maps api pr body into wake options", async () => {
     fetchedPrompt = "pr body";
 
@@ -112,6 +131,8 @@ describe("wake plugin index", () => {
         pr: 7,
         repo: "owner/repo",
         wt: "feature-slot",
+        pick: true,
+        name: "named-slot",
         dryRun: true,
         solo: true,
         snapshot: "snap-1",
@@ -125,6 +146,8 @@ describe("wake plugin index", () => {
         oracle: "neo",
         opts: {
           wt: "feature-slot",
+          pick: true,
+          name: "named-slot",
           prompt: "pr body",
           task: "pr-7",
           dryRun: true,

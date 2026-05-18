@@ -130,6 +130,9 @@ export interface WakeOptions {
   session?: string;
   incubate?: string;
   fresh?: boolean;
+  pick?: boolean;
+  /** Stable reusable worktree name used with --wt/--task (#1768). */
+  name?: string;
   attach?: boolean;
   listWt?: boolean;
   dryRun?: boolean;
@@ -485,43 +488,61 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   let windowName = mainWindowName;
 
   if (opts.wt || opts.task) {
-    const name = sanitizeBranchName(opts.wt || opts.task!);
+    const requestedName = sanitizeBranchName(opts.wt || opts.task!);
+    const stableName = opts.name ? sanitizeBranchName(opts.name) : "";
+    const name = stableName
+      ? sanitizeBranchName(opts.wt && requestedName !== stableName ? `${stableName}-${requestedName}` : stableName)
+      : requestedName;
     const worktreeScopeStem = mainWindowName;
     const worktrees = await findWorktrees(parentDir, repoName, opts.fresh ? undefined : name, worktreeScopeStem);
     let match: { path: string; name: string } | null = null;
     if (!opts.fresh) {
-      // #1775/#1780 — preserve cross-repo reuse for the target oracle's
-      // historical worktrees without allowing another oracle's matching slug
-      // to hijack the wake target.
-      match = findReusableWorktreeBySlug(parentDir, name, worktreeScopeStem);
-      if (!match) {
+      if (opts.pick) {
         const resolvedTarget = resolveWorktreeTarget(name, worktrees);
-        switch (resolvedTarget.kind) {
-          case "exact":
-          case "fuzzy":
-            match = resolvedTarget.match;
-            break;
-          case "ambiguous": {
-            // #1768 — show a numbered picker on TTY so users with multiple
-            // `<N>-<host>` worktrees can keep working on the right one instead
-            // of being forced to retype the exact name. Non-TTY (CI, scripts,
-            // redirected stdout) and invalid input fall back to the loud error
-            // so automation still fails fast.
-            const picked = promptAmbiguousWorktreePick(name, resolvedTarget.candidates);
-            if (picked) {
-              match = picked;
+        const candidates = resolvedTarget.kind === "exact" || resolvedTarget.kind === "fuzzy"
+          ? [resolvedTarget.match]
+          : resolvedTarget.kind === "ambiguous"
+            ? resolvedTarget.candidates
+            : [];
+        if (candidates.length > 0) {
+          const picked = promptAmbiguousWorktreePick(name, candidates);
+          if (!picked) throw new Error(`--pick requires an interactive selection for '${name}'`);
+          match = picked;
+        }
+      } else {
+        // #1775/#1780 — preserve cross-repo reuse for the target oracle's
+        // historical worktrees without allowing another oracle's matching slug
+        // to hijack the wake target.
+        match = findReusableWorktreeBySlug(parentDir, name, worktreeScopeStem);
+        if (!match) {
+          const resolvedTarget = resolveWorktreeTarget(name, worktrees);
+          switch (resolvedTarget.kind) {
+            case "exact":
+            case "fuzzy":
+              match = resolvedTarget.match;
               break;
+            case "ambiguous": {
+              // #1768 — show a numbered picker on TTY so users with multiple
+              // `<N>-<host>` worktrees can keep working on the right one instead
+              // of being forced to retype the exact name. Non-TTY (CI, scripts,
+              // redirected stdout) and invalid input fall back to the loud error
+              // so automation still fails fast.
+              const picked = promptAmbiguousWorktreePick(name, resolvedTarget.candidates);
+              if (picked) {
+                match = picked;
+                break;
+              }
+              const lines = [
+                `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolvedTarget.candidates.length} worktrees:`,
+                ...resolvedTarget.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
+                `\x1b[90m  use the full name: maw wake ${oracle} --task <exact-worktree>\x1b[0m`,
+              ];
+              throw new Error(lines.join("\n"));
             }
-            const lines = [
-              `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolvedTarget.candidates.length} worktrees:`,
-              ...resolvedTarget.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
-              `\x1b[90m  use the full name: maw wake ${oracle} --task <exact-worktree>\x1b[0m`,
-            ];
-            throw new Error(lines.join("\n"));
+            case "none":
+              match = null;
+              break;
           }
-          case "none":
-            match = null;
-            break;
         }
       }
     }
@@ -531,7 +552,10 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {
-      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, { fresh: !!opts.fresh });
+      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
+        fresh: !!opts.fresh,
+        named: Boolean(stableName && !opts.fresh),
+      });
       targetPath = result.wtPath;
       windowName = result.windowName;
     }

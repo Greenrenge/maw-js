@@ -57,4 +57,12 @@ describe("createWorktree", () => {
     expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/1-tile-1'");
     expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-2-tile-1' -b 'agents/2-tile-1'");
   });
+
+  test("named mode uses the exact reusable worktree and branch name", async () => {
+    await createWorktree("/repo", "/tmp", "repo", "oracle", "osmosis-white", [], { named: true });
+
+    expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
+    expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/osmosis-white'");
+    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' -b 'agents/osmosis-white'");
+  });
 });

@@ -15,6 +15,8 @@ export interface WakeSessionDeps {
   log: (...args: unknown[]) => void;
   /** Force a new numbered worktree slot instead of preferring a stable reusable slot. */
   fresh: boolean;
+  /** Use an exact stable worktree/branch name instead of a numbered slot (#1768 --name). */
+  named: boolean;
 }
 
 export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
@@ -28,6 +30,7 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log: console.log.bind(console),
     fresh: false,
+    named: false,
     ...overrides,
   };
 }
@@ -121,27 +124,43 @@ export async function createWorktree(
   let branch = "";
   let branchExists = false;
   let allocated = false;
-  for (let attempts = 0; attempts < 1000; attempts++) {
-    wtName = `${nextNum}-${name}`;
+  if (d.named) {
+    wtName = name;
     wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
     branch = `agents/${wtName}`;
     const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
-    if (knownWorktree) {
-      nextNum++;
-      continue;
+    if (!knownWorktree) {
+      try {
+        await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
+        branchExists = true;
+      } catch {
+        branchExists = false;
+      }
+      allocated = true;
     }
-    try {
-      await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
-      branchExists = true;
-      if (d.fresh) {
+  } else {
+    for (let attempts = 0; attempts < 1000; attempts++) {
+      wtName = `${nextNum}-${name}`;
+      wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
+      branch = `agents/${wtName}`;
+      const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
+      if (knownWorktree) {
         nextNum++;
         continue;
       }
-    } catch {
-      branchExists = false;
+      try {
+        await d.hostExec(`git -C '${safe(repoPath)}' show-ref --verify --quiet 'refs/heads/${safe(branch)}'`);
+        branchExists = true;
+        if (d.fresh) {
+          nextNum++;
+          continue;
+        }
+      } catch {
+        branchExists = false;
+      }
+      allocated = true;
+      break;
     }
-    allocated = true;
-    break;
   }
 
   if (!allocated || !wtName || !wtPath || !branch) {
