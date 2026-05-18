@@ -11,6 +11,7 @@ const wakeCmdPath = import.meta.resolve("../../src/commands/shared/wake-cmd");
 let initCalls: Array<Record<string, unknown>> = [];
 let initAgentsCalls: Array<Record<string, unknown>> = [];
 let lsCalls = 0;
+let renameCalls: Array<Record<string, unknown>> = [];
 let renumberCalls = 0;
 let validateCalls = 0;
 let healthCalls = 0;
@@ -44,6 +45,10 @@ mock.module(sharedFleetPath, () => ({
     lsCalls += 1;
     if (throwLabel === "ls") throw new Error("ls exploded");
     console.log("fleet ls");
+  },
+  cmdFleetRename: async (opts: Record<string, unknown>) => {
+    renameCalls.push(opts);
+    console.log("fleet rename");
   },
   cmdFleetRenumber: async () => {
     renumberCalls += 1;
@@ -109,6 +114,7 @@ beforeEach(() => {
   initCalls = [];
   initAgentsCalls = [];
   lsCalls = 0;
+  renameCalls = [];
   renumberCalls = 0;
   validateCalls = 0;
   healthCalls = 0;
@@ -157,7 +163,7 @@ describe("fleet plugin index", () => {
     expect(writes).toEqual(["fleet ls"]);
   });
 
-  test("routes init, health, doctor alias, consolidate, sync, sync-windows, renumber, and validate branches", async () => {
+  test("routes init, health, doctor alias, consolidate, sync, sync-windows, rename, renumber, and validate branches", async () => {
     await handler({ source: "cli", args: ["init"] } as any);
     await handler({ source: "cli", args: ["init", "--agents", "--dry-run"] } as any);
     await handler({ source: "cli", args: ["health"] } as any);
@@ -165,6 +171,7 @@ describe("fleet plugin index", () => {
     await handler({ source: "cli", args: ["consolidate", "--dry-run", "--remove"] } as any);
     await handler({ source: "cli", args: ["sync"] } as any);
     await handler({ source: "cli", args: ["sync-windows"] } as any);
+    await handler({ source: "cli", args: ["rename", "23-old", "23-new", "--dry-run", "--force"] } as any);
     await handler({ source: "cli", args: ["renumber"] } as any);
     await handler({ source: "cli", args: ["validate"] } as any);
 
@@ -175,6 +182,7 @@ describe("fleet plugin index", () => {
     expect(consolidateCalls).toEqual([{ dryRun: true, remove: true }]);
     expect(syncConfigsCalls).toBe(1);
     expect(syncWindowsCalls).toBe(1);
+    expect(renameCalls).toEqual([{ oldName: "23-old", newName: "23-new", dryRun: true, force: true }]);
     expect(renumberCalls).toBe(1);
     expect(validateCalls).toBe(1);
   });
@@ -254,10 +262,16 @@ describe("fleet plugin index", () => {
     });
     expect(takeSnapshotCalls).toEqual(["nightly"]);
 
+    result = await handler({ source: "cli", args: ["rename", "only-old"] } as any);
+    expect(result).toEqual({
+      ok: false,
+      error: "usage: maw fleet rename <old-name> <new-name> [--dry-run] [--force]",
+    });
+
     result = await handler({ source: "cli", args: ["mystery"] } as any);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("unknown fleet subcommand: mystery");
-    expect(result.error).toContain("usage: maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>");
+    expect(result.error).toContain("usage: maw fleet <init|ls|rename|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>");
 
     throwLabel = "health";
     result = await handler({ source: "cli", args: ["health"] } as any);

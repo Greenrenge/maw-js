@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   cmdFleetLs,
+  cmdFleetRename,
   cmdFleetRenumber,
   fleetManageDeps,
   renderFleetLs,
@@ -120,6 +121,82 @@ describe("cmdFleetLs", () => {
     expect(out).toContain("1 active, 2 disabled");
     expect(out).toContain("01-alpha");
     expect(out).toContain("running");
+  });
+});
+
+
+describe("cmdFleetRename", () => {
+  test("renames a non-live fleet config without tmux side effects", async () => {
+    const h = makeDeps([
+      entry("23-discord-admin.json", 23, "discord-admin", session("23-discord-admin", [{ name: "discord-oracle" }])),
+    ], {
+      exists: path => !path.endsWith("23-discord.json"),
+      running: [],
+    });
+
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps);
+
+    expect(h.writes.map(w => w.path)).toEqual(["/fleet/.tmp-23-discord.json"]);
+    expect(JSON.parse(h.writes[0].contents)).toMatchObject({
+      name: "23-discord",
+      windows: [{ name: "discord-oracle", repo: "Soul-Brews-Studio/example" }],
+    });
+    expect(h.renames).toEqual([{ from: "/fleet/.tmp-23-discord.json", to: "/fleet/23-discord.json" }]);
+    expect(h.unlinks).toEqual(["/fleet/23-discord-admin.json"]);
+    expect(h.tmuxRuns).toEqual([]);
+    expect(text(h.logs)).toContain("23-discord-admin.json");
+    expect(text(h.logs)).toContain("23-discord.json");
+  });
+
+  test("renames a live fleet session and keeps config plus tmux in lockstep", async () => {
+    const h = makeDeps([
+      entry("23-discord-admin.json", 23, "discord-admin", session("23-discord-admin")),
+    ], {
+      exists: path => !path.endsWith("23-discord.json"),
+      running: ["23-discord-admin"],
+    });
+
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps);
+
+    expect(h.tmuxRuns).toEqual([["rename-session", "-t", "23-discord-admin", "23-discord"]]);
+    expect(h.unlinks).toEqual(["/fleet/23-discord-admin.json"]);
+    expect(text(h.logs)).toContain("tmux: 23-discord-admin → 23-discord");
+  });
+
+  test("refuses to rename when another fleet sync_peers references the old name unless forced", async () => {
+    const target = entry("23-discord-admin.json", 23, "discord-admin", session("23-discord-admin"));
+    const peer = entry("24-helper.json", 24, "helper", { ...session("24-helper"), sync_peers: ["23-discord-admin"] });
+    const h = makeDeps([target, peer], { exists: path => !path.endsWith("23-discord.json") });
+
+    await expect(cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps))
+      .rejects.toThrow(/sync_peers/);
+    expect(h.writes).toEqual([]);
+
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord", force: true }, h.deps);
+    expect(h.writes).toHaveLength(1);
+    expect(text(h.logs)).toContain("leaving sync_peers references");
+  });
+
+  test("refuses to rename to an existing fleet and supports dry-run with no side effects", async () => {
+    const entries = [
+      entry("23-discord-admin.json", 23, "discord-admin", session("23-discord-admin")),
+      entry("23-discord.json", 23, "discord", session("23-discord")),
+    ];
+    const h = makeDeps(entries);
+
+    await expect(cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps))
+      .rejects.toThrow(/already exists/);
+
+    const dry = makeDeps([entries[0]], {
+      exists: path => !path.endsWith("23-discord.json"),
+      running: ["23-discord-admin"],
+    });
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord", dryRun: true }, dry.deps);
+    expect(dry.writes).toEqual([]);
+    expect(dry.renames).toEqual([]);
+    expect(dry.unlinks).toEqual([]);
+    expect(dry.tmuxRuns).toEqual([]);
+    expect(text(dry.logs)).toContain("dry-run: would tmux rename 23-discord-admin → 23-discord");
   });
 });
 

@@ -36,6 +36,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "renumber") {
       const { cmdFleetRenumber } = await import("../../shared/fleet");
       await cmdFleetRenumber();
+    } else if (sub === "rename") {
+      const oldName = args[1];
+      const newName = args[2];
+      if (!oldName || !newName) {
+        return { ok: false, error: "usage: maw fleet rename <old-name> <new-name> [--dry-run] [--force]" };
+      }
+      const { cmdFleetRename } = await import("../../shared/fleet");
+      await cmdFleetRename({ oldName, newName, dryRun: args.includes("--dry-run"), force: args.includes("--force") });
     } else if (sub === "validate") {
       const { cmdFleetValidate } = await import("../../shared/fleet");
       await cmdFleetValidate();
@@ -136,7 +144,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet ls shows registered fleet config; maw ls shows live sessions`,
+        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|rename|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet ls shows registered fleet config; maw ls shows live sessions`,
       };
     }
 

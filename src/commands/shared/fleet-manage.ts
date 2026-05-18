@@ -17,6 +17,33 @@ export interface FleetManageDeps {
   log: (...args: unknown[]) => void;
 }
 
+export interface FleetRenameOptions {
+  oldName: string;
+  newName: string;
+  dryRun?: boolean;
+  force?: boolean;
+}
+
+function stripJson(name: string): string {
+  return name.replace(/\.json$/i, "");
+}
+
+function stripNumberPrefix(name: string): string {
+  return stripJson(name).replace(/^\d+-/, "");
+}
+
+function validateFleetRenameName(label: string, name: string): void {
+  if (!name || !/^[A-Za-z0-9._-]+$/.test(name) || name.startsWith("-") || name.includes("..")) {
+    throw new Error(`invalid ${label}: ${JSON.stringify(name)}`);
+  }
+}
+
+function peerAliases(name: string): Set<string> {
+  const clean = stripJson(name);
+  const stem = stripNumberPrefix(clean);
+  return new Set([clean, stem]);
+}
+
 export function fleetManageDeps(overrides: Partial<FleetManageDeps> = {}): FleetManageDeps {
   return {
     loadFleetEntries,
@@ -96,6 +123,86 @@ export async function cmdFleetLs(deps: Partial<FleetManageDeps> = {}) {
 
   const runningSessions = await io.getSessionNames();
   for (const line of renderFleetLs(entries, disabled, runningSessions)) io.log(line);
+}
+
+export async function cmdFleetRename(
+  options: FleetRenameOptions,
+  deps: Partial<FleetManageDeps> = {},
+) {
+  const io = fleetManageDeps(deps);
+  const oldName = stripJson(options.oldName);
+  const newName = stripJson(options.newName);
+  validateFleetRenameName("old fleet name", oldName);
+  validateFleetRenameName("new fleet name", newName);
+  if (oldName === newName) throw new Error("old and new fleet names are identical");
+
+  const entries = io.loadFleetEntries();
+  const target = entries.find(e =>
+    stripJson(e.file) === oldName ||
+    displaySessionName(e) === oldName ||
+    e.groupName === oldName ||
+    stripNumberPrefix(displaySessionName(e)) === oldName
+  );
+  if (!target) throw new Error(`fleet not found: ${oldName}`);
+
+  const existing = entries.find(e => e !== target && (
+    stripJson(e.file) === newName ||
+    displaySessionName(e) === newName ||
+    e.groupName === newName
+  ));
+  const newFile = `${newName}.json`;
+  const oldPath = io.join(io.fleetDir, target.file);
+  const newPath = io.join(io.fleetDir, newFile);
+  if (existing || (newPath !== oldPath && io.existsSync(newPath))) throw new Error(`target fleet already exists: ${newName}`);
+
+  const aliases = peerAliases(oldName);
+  aliases.add(displaySessionName(target));
+  aliases.add(target.groupName);
+  const peerRefs = entries
+    .filter(e => e !== target)
+    .filter(e => (e.session.sync_peers || []).some(peer => aliases.has(peer)));
+  if (peerRefs.length > 0 && !options.force) {
+    throw new Error(
+      `refusing to rename ${oldName}; referenced by sync_peers in ${peerRefs.map(e => e.file).join(", ")} (use --force to break)`,
+    );
+  }
+
+  const oldSessionName = displaySessionName(target);
+  const newSession = { ...target.session, name: newName };
+  const runningSessions = await io.getSessionNames();
+  const runningMatch = runningSessions.find(s => s === oldSessionName || s === oldName)
+    || runningSessions.find(s => stripNumberPrefix(s) === stripNumberPrefix(oldSessionName));
+
+  io.log(`\n  \x1b[36mRenaming fleet...\x1b[0m ${oldSessionName} → ${newName}\n`);
+  if (peerRefs.length > 0 && options.force) {
+    io.log(`  \x1b[33m⚠\x1b[0m leaving sync_peers references in ${peerRefs.map(e => e.file).join(", ")}`);
+  }
+
+  if (options.dryRun) {
+    io.log(`  dry-run: would write ${newFile}`);
+    if (target.file !== newFile) io.log(`  dry-run: would delete ${target.file}`);
+    if (runningMatch && runningMatch !== newName) io.log(`  dry-run: would tmux rename ${runningMatch} → ${newName}`);
+    io.log("\n  \x1b[32mDry run complete.\x1b[0m No files changed.\n");
+    return;
+  }
+
+  const tmpPath = io.join(io.fleetDir, `.tmp-${newFile}`);
+  await io.writeFile(tmpPath, JSON.stringify(newSession, null, 2) + "\n");
+  io.renameSync(tmpPath, newPath);
+  if (target.file !== newFile && io.existsSync(oldPath)) io.unlinkSync(oldPath);
+
+  if (runningMatch && runningMatch !== newName) {
+    try {
+      await io.tmuxRun("rename-session", "-t", runningMatch, newName);
+      io.log(`  ${target.file.padEnd(28)} → ${newFile}  (tmux: ${runningMatch} → ${newName})`);
+    } catch {
+      io.log(`  ${target.file.padEnd(28)} → ${newFile}  (tmux rename failed: ${runningMatch})`);
+    }
+  } else {
+    io.log(`  ${target.file.padEnd(28)} → ${newFile}`);
+  }
+
+  io.log("\n  \x1b[32mDone.\x1b[0m Run \x1b[36mmaw fleet doctor\x1b[0m to validate.\n");
 }
 
 export async function cmdFleetRenumber(deps: Partial<FleetManageDeps> = {}) {
