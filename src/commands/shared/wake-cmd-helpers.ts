@@ -67,7 +67,7 @@ export function shouldOfferExistingSessionAttach(
   return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY) && env.MAW_TEST_MODE !== "1";
 }
 
-const FRESH_SESSION_READY_ATTEMPTS = 20;
+const FRESH_SESSION_READY_ATTEMPTS = 120;
 const FRESH_SESSION_READY_DELAY_MS = 250;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -92,19 +92,26 @@ export async function waitForTmuxSessionReady(
     sleep?: (ms: number) => Promise<void>;
     attempts?: number;
     delayMs?: number;
+    throwOnTimeout?: boolean;
   } = {},
 ): Promise<void> {
   const hasSession = deps.hasSession ?? (async () => false);
   const wait = deps.sleep ?? sleep;
   const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
   const delayMs = deps.delayMs ?? FRESH_SESSION_READY_DELAY_MS;
+  const throwOnTimeout = deps.throwOnTimeout ?? false;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     if (await hasSession(session)) return;
     if (attempt < attempts) await wait(delayMs);
   }
 
-  throw new Error(`tmux did not report fresh session '${session}' ready after ${attempts} checks`);
+  // Best-effort only: a just-created tmux session can be attachable even when
+  // external visibility probes lag on loaded tmux servers. Wake should continue
+  // to the concrete tmux operation/attach instead of aborting here (#1794).
+  if (throwOnTimeout) {
+    throw new Error(`tmux did not report fresh session '${session}' ready after ${attempts} checks`);
+  }
 }
 
 export async function retryFreshSessionTmuxStep<T>(

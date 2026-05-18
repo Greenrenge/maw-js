@@ -129,6 +129,7 @@ describe("wake-cmd helper coverage", () => {
       delayMs: 9,
       hasSession: async () => false,
       sleep: async (ms) => { waits.push(ms); },
+      throwOnTimeout: true,
     })).rejects.toThrow("tmux did not report fresh session 'missing' ready after 2 checks");
   });
 

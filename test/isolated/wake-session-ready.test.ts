@@ -24,6 +24,19 @@ describe("fresh wake tmux session readiness (#1440)", () => {
     expect(sleeps).toEqual([5, 5]);
   });
 
+  test("waitForTmuxSessionReady is best-effort when external tmux visibility lags", async () => {
+    const sleeps: number[] = [];
+
+    await waitForTmuxSessionReady("63-calliope-oracle", {
+      attempts: 2,
+      delayMs: 5,
+      sleep: async ms => { sleeps.push(ms); },
+      hasSession: async () => false,
+    });
+
+    expect(sleeps).toEqual([5]);
+  });
+
   test("retryFreshSessionTmuxStep retries transient can't-find-session startup races", async () => {
     let attempts = 0;
     const result = await retryFreshSessionTmuxStep("47-mawjs", "launch main window", async () => {

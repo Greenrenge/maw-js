@@ -168,6 +168,7 @@ describe("fresh wake tmux readiness — default coverage", () => {
       delayMs: 7,
       sleep: async ms => { sleeps.push(ms); },
       hasSession: async () => false,
+      throwOnTimeout: true,
     })).rejects.toThrow("tmux did not report fresh session '47-mawjs' ready after 3 checks");
     expect(sleeps).toEqual([7, 7]);
   });
