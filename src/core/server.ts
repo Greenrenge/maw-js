@@ -28,11 +28,12 @@ import {
 
 function getVersionString(): string {
   try {
-    const pkg = require("../package.json");
-    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
+    const rootDir = join(import.meta.dir, "..", "..");
+    const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf-8"));
+    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: rootDir }).toString().trim(); } catch {}
     let buildDate = "";
     try {
-      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir }).toString().trim();
+      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: rootDir }).toString().trim();
       const d = new Date(raw);
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
@@ -49,39 +50,46 @@ import { resolveBindHost } from "./bind-host";
 
 // --- Views + static (Hono keeps these) ---
 
-const views = new Hono();
+export function createViews(
+  mawUiDir = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist"),
+  doorHtmlPath = join(import.meta.dir, "static", "door.html"),
+) {
+  const views = new Hono();
 
-// Fleet topology visualization
-views.get("/topology", async (c) => {
-  const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
-  try {
-    const html = require("fs").readFileSync(path, "utf-8");
-    return c.html(html);
-  } catch { return c.text("fleet-topology.html not found", 404); }
-});
+  // Fleet topology visualization
+  views.get("/topology", async (c) => {
+    const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
+    try {
+      const html = require("fs").readFileSync(path, "utf-8");
+      return c.html(html);
+    } catch { return c.text("fleet-topology.html not found", 404); }
+  });
 
-mountViews(views);
+  mountViews(views);
 
-// Serve packed maw-ui dist (Shape A — single port, single process)
-const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
-if (existsSync(MAW_UI_DIR)) {
-  views.use("/*", serveStatic({ root: MAW_UI_DIR }));
-} else {
-  // The Door — minimal landing page when no packed maw-ui is installed.
-  // Lets users connect to any federation by pasting an address.
-  let doorHtml: string;
-  try {
-    doorHtml = readFileSync(join(import.meta.dir, "static", "door.html"), "utf-8");
-  } catch {
-    // door.html missing (e.g. fresh clone without assets) — serve inline stub
-    process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
-    doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+  // Serve packed maw-ui dist (Shape A — single port, single process)
+  if (existsSync(mawUiDir)) {
+    views.use("/*", serveStatic({ root: mawUiDir }));
+  } else {
+    // The Door — minimal landing page when no packed maw-ui is installed.
+    // Lets users connect to any federation by pasting an address.
+    let doorHtml: string;
+    try {
+      doorHtml = readFileSync(doorHtmlPath, "utf-8");
+    } catch {
+      // door.html missing (e.g. fresh clone without assets) — serve inline stub
+      process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
+      doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+    }
+    views.get("/", (c) => c.html(doorHtml));
   }
-  views.get("/", (c) => c.html(doorHtml));
+
+  views.onError((err, c) => c.json({ error: err.message }, 500));
+
+  return views;
 }
 
-views.onError((err, c) => c.json({ error: err.message }, 500));
-
+const views = createViews();
 export { views };
 
 // --- Server ---

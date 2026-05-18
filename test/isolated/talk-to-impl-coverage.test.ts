@@ -212,6 +212,79 @@ describe("talk-to impl isolated coverage", () => {
     }
   });
 
+
+
+  test("thread info fetch failures fall back to unknown message count but still notify", async () => {
+    for (const cmdTalkTo of talkToCommands) {
+      fetchQueue = [
+        jsonResponse({ threads: [{ id: 17, title: "channel:alpha", status: "open" }] }),
+        jsonResponse({ thread_id: 17, message_id: 33, status: "ok" }),
+        new Error("thread info offline"),
+      ];
+      sendKeysCalls = [];
+      runHookCalls = [];
+
+      await cmdTalkTo("alpha", "short hello");
+
+      expect(sendKeysCalls).toHaveLength(1);
+      expect(sendKeysCalls[0]?.message).toContain("💬 channel:alpha (#17) — ? msgs");
+      expect(runHookCalls).toEqual([
+        { name: "after_send", payload: { to: "alpha", message: sendKeysCalls[0]?.message } },
+      ]);
+    }
+  });
+
+  test("when thread post and target resolution both fail it throws the resolver detail", async () => {
+    resolveTargetValue = { type: "error", detail: "ambiguous target" };
+
+    for (const cmdTalkTo of talkToCommands) {
+      fetchQueue = [
+        new Error("threads offline"),
+        jsonResponse({}, 500),
+      ];
+      sendKeysCalls = [];
+
+      await expect(cmdTalkTo("alpha", "hello")).rejects.toThrow("ambiguous target");
+      expect(sendKeysCalls).toEqual([]);
+    }
+  });
+
+
+
+  test("thread post network errors after channel lookup fall back to forced notification", async () => {
+    for (const cmdTalkTo of talkToCommands) {
+      fetchQueue = [
+        jsonResponse({ threads: [{ id: 21, title: "channel:alpha", status: "open" }] }),
+        new Error("post offline"),
+      ];
+      sendKeysCalls = [];
+
+      await cmdTalkTo("alpha", "post fallback", true);
+
+      expect(sendKeysCalls).toEqual([{ target: "alpha:oracle.0", message: '💬 from mawjs-codex\n"post fallback"' }]);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Oracle unreachable"));
+    }
+  });
+
+  test("non-agent panes with a successful thread post save to thread only", async () => {
+    getPaneCommandValue = "bash";
+
+    for (const cmdTalkTo of talkToCommands) {
+      fetchQueue = [
+        jsonResponse({ threads: [] }),
+        jsonResponse({ thread_id: 44, message_id: 55, status: "ok" }),
+        jsonResponse({ thread: { id: 44, title: "channel:alpha", status: "open", created_at: "now" }, messages: [] }),
+      ];
+      sendKeysCalls = [];
+
+      await cmdTalkTo("alpha", "saved only");
+
+      expect(sendKeysCalls).toEqual([]);
+      expect(console.log).toHaveBeenCalledWith("[32m✓[0m thread #44 updated");
+      expect(console.log).toHaveBeenCalledWith("[33mwarn[0m: no active Claude in alpha:oracle.0 — message saved to thread only");
+    }
+  });
+
   test("without force, a non-agent pane throws when the thread post also failed", async () => {
     getPaneCommandValue = "bash";
 

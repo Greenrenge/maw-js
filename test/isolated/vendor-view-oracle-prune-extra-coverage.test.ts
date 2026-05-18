@@ -217,6 +217,18 @@ describe("vendor view extra branch coverage", () => {
     expect(splitCalls).toEqual([["mawjs-view", { anchorPane: "anchor-view:0" }]]);
   });
 
+
+
+  test("bare split anchors throw when neither an existing view nor source session can be resolved", async () => {
+    sessions.push({ name: "101-mawjs", windows: [{ index: 0, name: "shell" }] });
+    resolveImpl = (agent, candidates) => {
+      const match = candidates.find((s) => s.name === agent);
+      return match ? { kind: "exact", match } : { kind: "none", hints: [] };
+    };
+
+    await expect(view.cmdView("101-mawjs", { splitAnchor: "ghost" })).rejects.toThrow("--split=ghost: no matching session or existing view");
+  });
+
   test("logs failed local attach attempts without throwing", async () => {
     delete process.env.TMUX;
     socketValue = undefined;

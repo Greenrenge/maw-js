@@ -315,6 +315,56 @@ describe("view impl coverage", () => {
     expect(logs.join("\n")).toContain("waking 'sleepy'");
   });
 
+
+
+  test("declining a TTY wake prompt falls through to the not-found guidance", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    resolveImpl = () => ({ kind: "none", hints: [] });
+
+    await expect(cmdView("sleepy", { ask: async () => "no" })).rejects.toThrow("session not found for: sleepy");
+
+    expect(defaultWakeCalls).toEqual([]);
+    expect(errors.join("\n")).toContain("try: maw ls");
+  });
+
+  test("unavailable TTY prompts fall through to the existing not-found error", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    resolveImpl = () => ({ kind: "none", hints: [] });
+
+    await expect(cmdView("sleepy", { ask: async () => { throw new Error("no tty"); } })).rejects.toThrow("session not found for: sleepy");
+
+    expect(defaultWakeCalls).toEqual([]);
+  });
+
+  test("grouped views warn when a requested window hint misses", async () => {
+    sessionsRef.push({ name: "101-mawjs", windows: [{ index: 0, name: "shell" }] });
+    resolveImpl = () => ({ kind: "exact", match: sessionsRef[0] });
+
+    await cmdView("mawjs", { windowHint: "logs" });
+
+    expect(errors.join("\n")).toContain("window 'logs' not found");
+    expect(tmuxInstances[0].calls).toContainEqual({ method: "switchClient", args: ["mawjs-view-logs"] });
+  });
+
+  test("existing view attach failures are logged without throwing outside tmux", async () => {
+    delete process.env.TMUX;
+    execFileCalls.length = 0;
+    sessionsRef.push({ name: "mawjs-view", windows: [{ index: 0, name: "shell" }] });
+    resolveImpl = () => ({ kind: "exact", match: sessionsRef[0] });
+    const previousExec = execFileCalls.push.bind(execFileCalls);
+    execFileCalls.push = ((...items: unknown[]) => {
+      previousExec(...items);
+      throw new Error("recording push failed");
+    }) as typeof execFileCalls.push;
+    try {
+      await cmdView("mawjs-view");
+    } finally {
+      execFileCalls.push = previousExec as typeof execFileCalls.push;
+    }
+
+    expect(errors.join("\n")).toContain("attach exited non-zero");
+  });
+
   test("prints resolver hints and maw ls guidance when a missing target is not woken", async () => {
     resolveImpl = () => ({ kind: "none", hints: [{ name: "mawjs" }, { name: "maw-m5" }] });
 

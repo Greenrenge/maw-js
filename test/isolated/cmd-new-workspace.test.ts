@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { join } from "path";
 
 let sessions = new Set<string>();
@@ -19,7 +19,7 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () 
   attachToSession: async (name: string) => { attached.push(name); },
 }));
 
-const { cmdNew } = await import("../../src/cli/cmd-new");
+const { cmdNew, decideNewWorkspaceAttach, isTruthyEnv, validateWorkspaceSessionName } = await import("../../src/cli/cmd-new");
 
 beforeEach(() => {
   sessions = new Set<string>();
@@ -28,6 +28,45 @@ beforeEach(() => {
 });
 
 describe("cmdNew workspace session factory", () => {
+  test("pure helpers cover env truthiness, attach decisions, and reserved names", () => {
+    expect(isTruthyEnv(undefined)).toBe(false);
+    expect(isTruthyEnv("YES")).toBe(true);
+    expect(isTruthyEnv("off")).toBe(false);
+    expect(decideNewWorkspaceAttach({
+      attach: false,
+      noAttach: false,
+      envNoPrompt: false,
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    })).toEqual({ action: "attach", reason: "interactive-tty" });
+    expect(decideNewWorkspaceAttach({
+      attach: true,
+      noAttach: true,
+      envNoPrompt: false,
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    })).toEqual({ action: "skip", reason: "no-attach-flag" });
+    expect(() => validateWorkspaceSessionName("bad name")).toThrow("invalid session name");
+    expect(() => validateWorkspaceSessionName("maw-view")).toThrow("reserved");
+  });
+
+  test("usage errors print help for missing, help, and flag-shaped session names", async () => {
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation((line: string) => {
+      errors.push(String(line));
+    });
+    try {
+      await expect(cmdNew([])).rejects.toThrow("missing session name");
+      await expect(cmdNew(["--help"])).rejects.toThrow("missing session name");
+      await expect(cmdNew(["--bad"])).rejects.toThrow("invalid session name");
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(errors.filter((line) => line.startsWith("usage: maw new"))).toHaveLength(3);
+    expect(newSessionCalls).toEqual([]);
+    expect(attached).toEqual([]);
+  });
+
   test("creates a detached tmux session with a lead shell window", async () => {
     await cmdNew(["my-project", "--no-attach"]);
 

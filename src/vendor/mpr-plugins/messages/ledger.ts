@@ -34,44 +34,14 @@ function openDb(): Database {
   const file = messageLedgerDbPath();
   mkdirSync(dirname(file), { recursive: true });
   const db = new Database(file);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      ts TEXT NOT NULL,
-      direction TEXT NOT NULL,
-      state TEXT NOT NULL,
-      channel TEXT NOT NULL,
-      route TEXT NOT NULL,
-      from_id TEXT NOT NULL,
-      to_id TEXT NOT NULL,
-      target TEXT,
-      peer_url TEXT,
-      text TEXT NOT NULL,
-      error TEXT,
-      last_line TEXT,
-      signed INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
-    CREATE INDEX IF NOT EXISTS idx_messages_from ON messages(from_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_direction ON messages(direction);
-    CREATE INDEX IF NOT EXISTS idx_messages_state ON messages(state);
-  `);
+  db.exec("CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, ts TEXT NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL, channel TEXT NOT NULL, route TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, target TEXT, peer_url TEXT, text TEXT NOT NULL, error TEXT, last_line TEXT, signed INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts); CREATE INDEX IF NOT EXISTS idx_messages_from ON messages(from_id); CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id); CREATE INDEX IF NOT EXISTS idx_messages_direction ON messages(direction); CREATE INDEX IF NOT EXISTS idx_messages_state ON messages(state);");
   return db;
 }
 
 export function recordMessageLedgerEvent(event: MessageLifecycleData): void {
   const db = openDb();
   try {
-    db.query(`
-      INSERT OR REPLACE INTO messages (
-        id, ts, direction, state, channel, route, from_id, to_id, target, peer_url,
-        text, error, last_line, signed
-      ) VALUES (
-        $id, $ts, $direction, $state, $channel, $route, $from, $to, $target, $peerUrl,
-        $text, $error, $lastLine, $signed
-      )
-    `).run({
+    db.query("INSERT OR REPLACE INTO messages (id, ts, direction, state, channel, route, from_id, to_id, target, peer_url, text, error, last_line, signed) VALUES ($id, $ts, $direction, $state, $channel, $route, $from, $to, $target, $peerUrl, $text, $error, $lastLine, $signed)").run({
       $id: event.id,
       $ts: event.ts,
       $direction: event.direction,
@@ -107,13 +77,7 @@ export function listMessageLedgerEvents(query: MessageLedgerQuery = {}): Message
     }
     const limit = Math.max(1, Math.min(Number(query.limit || 100) || 100, 1000));
     params.$limit = limit;
-    const sql = `
-      SELECT id, ts, direction, state, channel, route, from_id, to_id, target, peer_url, text, error, last_line, signed
-      FROM messages
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY ts DESC
-      LIMIT $limit
-    `;
+    const sql = `SELECT id, ts, direction, state, channel, route, from_id, to_id, target, peer_url, text, error, last_line, signed FROM messages ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC LIMIT $limit`;
     return db.query(sql).all(params).map((row: any) => ({
       id: String(row.id),
       ts: String(row.ts),

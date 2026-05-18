@@ -167,15 +167,20 @@ describe("runtime websocket handlers", () => {
     expect(engine.pushedCapture).toBe(1);
   });
 
-  test("send force/reject, sleep, stop, and wake paths report action results", async () => {
+  test("send force/reject, sleep, stop, wake, and restart paths report action results", async () => {
     const { handlers } = makeEngine();
     const { ws, sent } = makeWs();
+    const captureEngine = { pushCapture: () => {} };
 
-    await handlers.get("send")!(ws, { target: "alpha:0", text: "hello", force: true }, {});
+    await handlers.get("send")!(ws, { target: "alpha:0", text: "hello", force: true }, captureEngine);
     expect(sendKeyCalls.at(-1)).toEqual({ target: "alpha:0", text: "hello" });
 
     sendReject = new Error("cannot send");
-    await handlers.get("send")!(ws, { target: "alpha:0", text: "oops", force: true }, {});
+    await handlers.get("send")!(ws, { target: "alpha:0", text: "oops", force: true }, captureEngine);
+    await Promise.resolve();
+    expect(JSON.parse(sent.at(-1)!)).toEqual({ type: "error", error: "cannot send" });
+
+    await handlers.get("sleep")!(ws, { target: "alpha:0" }, {});
     await Promise.resolve();
     expect(JSON.parse(sent.at(-1)!)).toEqual({ type: "error", error: "cannot send" });
     sendReject = null;
@@ -184,9 +189,18 @@ describe("runtime websocket handlers", () => {
     await handlers.get("stop")!(ws, { target: "alpha" }, {});
     await handlers.get("wake")!(ws, { target: "known:0" }, {});
 
+    const restartPromise = handlers.get("restart")!(ws, { target: "plain:0", command: "custom-cmd" }, {});
+    await new Promise(resolve => setTimeout(resolve, 2510));
+    await restartPromise;
+
     expect(sendKeyCalls).toContainEqual({ target: "alpha:0", text: "\x03" });
     expect(killedWindows).toEqual(["alpha"]);
-    expect(sendKeyCalls.at(-1)?.text).toContain(`cd '${join(tmpHome, "known-oracle")}' &&`);
+    expect(sendKeyCalls.find(call => call.text.includes("known-oracle"))?.text).toContain(`cd '${join(tmpHome, "known-oracle")}' &&`);
+    expect(sendKeyCalls.slice(-3)).toEqual([
+      { target: "plain:0", text: "\x03" },
+      { target: "plain:0", text: "\x03" },
+      { target: "plain:0", text: "custom-cmd\r" },
+    ]);
     expect(sent.map(s => JSON.parse(s).type)).toContain("action-ok");
   });
 });

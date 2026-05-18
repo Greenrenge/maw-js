@@ -10,6 +10,7 @@ const saved = {
   engineUrl: process.env.MAW_ENGINE_URL,
   mawPort: process.env.MAW_PORT,
   messagesPort: process.env.MAW_MESSAGES_PORT,
+  testMode: process.env.MAW_TEST_MODE,
   kill: process.kill,
   dateNow: Date.now,
   bunSleep: Bun.sleep,
@@ -55,6 +56,10 @@ function engineStub(options: {
       if (req.method === "GET" && url.pathname === "/api/_engine/registrations") {
         return Response.json({ ok: true, registrations });
       }
+      if (req.method === "POST" && url.pathname === "/api/_engine/register") {
+        registrations = [await req.json() as Record<string, unknown>];
+        return Response.json({ ok: true });
+      }
       if (req.method === "POST" && url.pathname === "/api/_engine/unregister") {
         unregisterCalls += 1;
         if (!options.unregisterKeepsRegistration) registrations = [];
@@ -87,6 +92,7 @@ beforeEach(() => {
   delete process.env.MAW_ENGINE_URL;
   delete process.env.MAW_PORT;
   delete process.env.MAW_MESSAGES_PORT;
+  delete process.env.MAW_TEST_MODE;
   process.kill = saved.kill;
   Date.now = saved.dateNow;
   Bun.sleep = saved.bunSleep;
@@ -98,6 +104,7 @@ afterEach(() => {
   restoreEnv("MAW_ENGINE_URL", saved.engineUrl);
   restoreEnv("MAW_PORT", saved.mawPort);
   restoreEnv("MAW_MESSAGES_PORT", saved.messagesPort);
+  restoreEnv("MAW_TEST_MODE", saved.testMode);
   process.kill = saved.kill;
   Date.now = saved.dateNow;
   Bun.sleep = saved.bunSleep;
@@ -222,6 +229,53 @@ describe("messages ledger and index extra coverage", () => {
     delete process.env.MAW_MESSAGES_PORT;
     const status = await messages.default({ source: "cli", args: ["status"] } as any);
     expect(status.output).toContain("engine: http://127.0.0.1:9");
+  });
+
+  test("serve success can return in test mode and shutdown is idempotent", async () => {
+    const engine = engineStub();
+    process.env.MAW_TEST_MODE = "1";
+    const messages = await importMessages("serve-success-test-mode");
+
+    try {
+      const result = await messages.default({ source: "cli", args: ["serve", "--engine", engine.url] } as any);
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain("maw messages serve → http://127.0.0.1:");
+      expect(result.output).toContain(`registered /api/message-ledger on ${engine.url}`);
+
+      const callbacks: Record<string, () => void> = {};
+      const stops: Array<boolean | undefined> = [];
+      const unregisterCalls: string[] = [];
+      const exits: number[] = [];
+      const shutdown = messages.installServeShutdown("http://engine.local", {
+        stop: (force?: boolean) => {
+          stops.push(force);
+        },
+      }, {
+        once: ((event: string, callback: () => void) => {
+          callbacks[event] = callback;
+          return process;
+        }) as typeof process.once,
+        unregister: async (url: string) => {
+          unregisterCalls.push(url);
+        },
+        exit: ((code?: number) => {
+          exits.push(code ?? 0);
+          return undefined as never;
+        }) as typeof process.exit,
+      });
+
+      expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
+      shutdown();
+      callbacks.SIGINT();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(unregisterCalls).toEqual(["http://engine.local"]);
+      expect(stops).toEqual([true]);
+      expect(exits).toEqual([0]);
+    } finally {
+      engine.stop();
+    }
   });
 
   test("status reports EPERM pids as running and preserves unknown registration fields", async () => {

@@ -256,6 +256,34 @@ async function unregisterFromEngine(engineUrl: string): Promise<void> {
   }).catch(() => undefined);
 }
 
+type ServeHandle = { stop(force?: boolean): void };
+
+export function installServeShutdown(
+  engineUrl: string,
+  server: ServeHandle,
+  deps: {
+    once?: typeof process.once;
+    unregister?: typeof unregisterFromEngine;
+    exit?: typeof process.exit;
+  } = {},
+): () => void {
+  const once = deps.once ?? process.once.bind(process);
+  const unregister = deps.unregister ?? unregisterFromEngine;
+  const exit = deps.exit ?? process.exit.bind(process);
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    unregister(engineUrl).finally(() => {
+      server.stop(true);
+      exit(0);
+    });
+  };
+  once("SIGTERM", shutdown);
+  once("SIGINT", shutdown);
+  return shutdown;
+}
+
 async function serveEngine(ctx: InvokeContext, args: string[]): Promise<InvokeResult> {
   const logs: string[] = [];
   if (args.includes("--detach")) return detachEngine(ctx, args.filter((arg) => arg !== "--detach"));
@@ -278,17 +306,9 @@ async function serveEngine(ctx: InvokeContext, args: string[]): Promise<InvokeRe
   emit(ctx, logs, `maw messages serve → ${upstream} (registered ${ENGINE_PREFIX} on ${engineUrl})`);
   emit(ctx, logs, `events: ${ENGINE_EVENTS.join(", ")} → /events`);
 
-  let shuttingDown = false;
-  const shutdown = () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    unregisterFromEngine(engineUrl).finally(() => {
-      server.stop(true);
-      process.exit(0);
-    });
-  };
-  process.once("SIGTERM", shutdown);
-  process.once("SIGINT", shutdown);
+  installServeShutdown(engineUrl, server);
+
+  if (process.env.MAW_TEST_MODE === "1") return { ok: true, output: logs.join("\n") };
 
   await new Promise(() => undefined);
   return { ok: true, output: logs.join("\n") };

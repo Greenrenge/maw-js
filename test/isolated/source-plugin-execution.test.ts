@@ -22,7 +22,12 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { resolvePluginMatch, pluginCliNames } from "../../src/cli/dispatch-match";
+import {
+  pluginNonCliSurfaces,
+  resolvePluginMatch,
+  pluginCliNames,
+  validatePluginCliFlags,
+} from "../../src/cli/dispatch-match";
 import type { LoadedPlugin } from "../../src/plugin/types";
 
 // ─── Fixture builders ────────────────────────────────────────────────────────
@@ -249,5 +254,53 @@ describe("#899 — resolvePluginMatch routes default-name plugins", () => {
       expect(out.plugin.manifest.name).toBe("done");
       expect(out.matchedName).toBe("finish");
     }
+  });
+});
+
+describe("dispatch-match coverage for non-CLI surfaces and flag validation", () => {
+  test("pluginNonCliSurfaces formats every headless manifest surface", () => {
+    const p = {
+      manifest: {
+        name: "multi",
+        version: "1.0.0",
+        sdk: "^1.0.0",
+        api: { path: "/multi", methods: ["GET", "POST"] },
+        capabilities: ["attach:strategy", "queue"],
+        hooks: { install: "scripts/install.ts", remove: "scripts/remove.ts" },
+        cron: { schedule: "* * * * *", command: "tick" },
+        module: { exports: ["run", "stop"] },
+        transport: { peer: true },
+      },
+      dir: "/tmp/multi",
+      entryPath: "/tmp/multi/src/index.ts",
+      wasmPath: "",
+      kind: "ts",
+    } as LoadedPlugin;
+
+    expect(pluginNonCliSurfaces(p)).toEqual([
+      "api:GET/POST /multi",
+      "capability:attach:strategy,queue",
+      "hooks:install,remove",
+      "cron:* * * * *",
+      "module:run,stop",
+      "peer",
+    ]);
+  });
+
+  test("validatePluginCliFlags keeps permissive legacy mode and honors flag parsing edges", () => {
+    const legacy = tsPlugin({ name: "legacy" });
+    expect(validatePluginCliFlags(legacy, ["--anything"])).toEqual({ ok: true });
+
+    const p = tsPlugin({ name: "flags", cli: { command: "flags" } });
+    p.manifest.cli!.flags = { "--name": "string", "--dry-run": "boolean" } as any;
+
+    expect(validatePluginCliFlags(p, ["--name", "neo", "-1", "--", "--bad"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--name=neo", "--dry-run", "--help"])).toEqual({ ok: true });
+    expect(validatePluginCliFlags(p, ["--nmae"])).toEqual({
+      ok: false,
+      flag: "--nmae",
+      suggestion: "--name",
+      allowedFlags: ["--dry-run", "--name"],
+    });
   });
 });

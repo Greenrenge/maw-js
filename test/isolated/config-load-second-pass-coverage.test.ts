@@ -15,6 +15,7 @@ let validateError: Error | null = null;
 
 let loadFleetResult: Record<string, string> = {};
 let stderrWrites: string[] = [];
+let infoMessages: string[] = [];
 let oldStderrWrite: typeof process.stderr.write;
 
 await mock.module("fs", () => ({
@@ -48,8 +49,10 @@ await mock.module(import.meta.resolve("../../src/lib/context"), () => ({
 }));
 
 await mock.module(import.meta.resolve("../../src/cli/verbosity"), () => ({
-  verbose: () => {},
-  info: () => {},
+  verbose: (fn: () => void) => fn(),
+  info: (message: string) => {
+    infoMessages.push(message);
+  },
 }));
 
 await mock.module(import.meta.resolve("../../src/config/validate-ext"), () => ({
@@ -63,7 +66,7 @@ await mock.module(import.meta.resolve("../../src/config/fleet-merge"), () => ({
   loadFleetAgents: () => ({ ...loadFleetResult }),
 }));
 
-const config = await import("../../src/config/load.ts?config-load-second-pass-coverage");
+const config = await import("../../src/config/load.ts");
 
 beforeEach(() => {
   rawConfigText = "{}";
@@ -74,6 +77,7 @@ beforeEach(() => {
   validateError = null;
   loadFleetResult = {};
   stderrWrites = [];
+  infoMessages = [];
   oldStderrWrite = process.stderr.write;
   process.stderr.write = ((chunk: any) => {
     stderrWrites.push(String(chunk));
@@ -187,6 +191,94 @@ describe("config load second pass coverage", () => {
     expect(config.cfgInterval("capture")).toBe(12);
     expect(config.cfgTimeout("http")).toBe(34);
     expect(config.cfgLimit("messageTruncate")).toBe(56);
+  });
+
+
+  test("saveConfig merges updates, refreshes cache, and reloads from persisted data", () => {
+    rawConfigText = JSON.stringify({ host: "persisted-old", env: { OLD: "1" } });
+    validatedConfig = { host: "persisted-old", env: { OLD: "1" } };
+
+    const saved = config.saveConfig({ host: "persisted-new", env: { NEW: "2" } });
+
+    expect(writeCalls).toHaveLength(1);
+    const persisted = JSON.parse(writeCalls[0]!.data);
+    expect(persisted.host).toBe("persisted-new");
+    expect(persisted.env).toEqual({ NEW: "2" });
+    expect(saved.host).toBe("persisted-old");
+  });
+
+  test("skips already-marked migrations while continuing unmarked later waves", () => {
+    validatedConfig = {
+      disabledPlugins: ["shellenv", "completions", "learn", "manual"],
+      migrations: {
+        defaultActivePlugins1500: true,
+        defaultActivePlugins1514: true,
+      },
+    };
+
+    const loaded = config.loadConfig();
+
+    expect(loaded.disabledPlugins).toEqual(["manual"]);
+    expect(loaded.migrations).toEqual({
+      defaultActivePlugins1500: true,
+      defaultActivePlugins1514: true,
+      defaultActivePlugins1523: true,
+      defaultActivePlugins1524: true,
+      defaultActivePlugins1531: true,
+    });
+    expect(writeCalls).toHaveLength(3);
+  });
+
+  test("reports migration persist failures for stale plugin heals", () => {
+    validatedConfig = { disabledPlugins: staleProfileDisabled, migrations: {} };
+    writeError = new Error("readonly config");
+
+    const loaded = config.loadConfig();
+
+    expect(loaded.disabledPlugins).toEqual(["manual-a", "manual-b", "manual-c", "manual-d", "manual-e"]);
+    expect(writeCalls.length).toBeGreaterThanOrEqual(1);
+    expect(stderrWrites.join("")).toContain("in-memory heal applied but disk persist failed: readonly config");
+  });
+
+
+  test("covers fallback, bind, host-node, ghq, verbose summary, and token masking paths", () => {
+    readError = new Error("missing");
+    loadFleetResult = {};
+    let loaded = config.loadConfig();
+    expect(loaded.host).toBe("local");
+
+    config.resetConfig();
+    readError = null;
+    validatedConfig = { host: "::", node: "m5" };
+    loaded = config.loadConfig();
+    expect(loaded.host).toBe("local");
+    expect(loaded.bind).toBe("::");
+    expect(stderrWrites.join("")).toContain("is a bind address");
+
+    config.resetConfig();
+    validatedConfig = { host: "m5", node: "m5" };
+    loaded = config.loadConfig();
+    expect(loaded.host).toBe("local");
+    expect(writeCalls.at(-1)?.data).toContain('"host": "local"');
+    expect(stderrWrites.join("")).toContain("legacy init bug (#906)");
+
+    config.resetConfig();
+    validatedConfig = {
+      ghqRoot: "/legacy",
+      env: { SECRET: "abcdef" },
+      federationToken: "abcdefghijklmnop",
+      triggers: [{ id: "a" }, { id: "b" }],
+      pluginSources: [{ name: "p1" }, { name: "p2" }],
+      peers: [{ name: "peer" }],
+    };
+    const display = config.configForDisplay();
+    expect(display.federationToken).toBe("abcd••••••••••••");
+    expect(stderrWrites.join("")).toContain("config.ghqRoot is deprecated");
+    expect(config.cfgInterval("capture")).toBe(50);
+    expect(config.cfgTimeout("http")).toBe(5000);
+    expect(config.cfgLimit("messageTruncate")).toBe(100);
+    expect(config.cfg("host")).toBe("local");
+    expect(infoMessages.some((message) => message.includes("loaded config:"))).toBe(true);
   });
 
 });

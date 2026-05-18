@@ -20,6 +20,8 @@ let removedFleetEntries: string[] = [];
 let snapshots: string[] = [];
 let currentSession = "work";
 let tmuxRunFails = false;
+let killWindowFails = false;
+let signalErrorFor: string | null = null;
 
 mock.module("maw-js/sdk", () => ({
   listSessions: async () => sessions,
@@ -34,6 +36,7 @@ mock.module("maw-js/sdk", () => ({
     },
     killWindow: async (target: string) => {
       tmuxCommands.push(`kill ${target}`);
+      if (killWindowFails) throw new Error("kill failed");
     },
   },
 }));
@@ -49,6 +52,7 @@ mock.module("maw-js/core/matcher/normalize-target", () => ({
 mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/done/done-autosave"), () => ({
   signalParentInbox: async (windowName: string, sessionName: string) => {
     inboxSignals.push({ windowName, sessionName });
+    if (signalErrorFor === windowName) throw new Error("inbox failed");
   },
   autoSave: async (windowName: string, sessionName: string, opts: { dryRun?: boolean }) => {
     autoSaveCalls.push({ windowName, sessionName, dryRun: opts.dryRun });
@@ -99,6 +103,8 @@ beforeEach(() => {
   removedFleetEntries = [];
   snapshots = [];
   tmuxRunFails = false;
+  killWindowFails = false;
+  signalErrorFor = null;
 });
 
 describe("cmdDoneAll", () => {
@@ -150,6 +156,40 @@ describe("cmdDoneAll", () => {
     expect(autoSaveCalls).toEqual([]);
     expect(inboxSignals).toEqual([]);
     expect(worktreeLookups).toEqual([]);
+  });
+
+
+
+  test("reports a stale current session and an empty current session without processing", async () => {
+    currentSession = "ghost";
+    let summary = await cmdDoneAll({ force: true });
+    expect(summary).toEqual({ sessionName: null, processed: [], skipped: [] });
+
+    sessions = [{ name: "solo", windows: [{ index: 0, name: "lead", active: true }] }];
+    currentSession = "solo";
+    summary = await cmdDoneAll({ force: true });
+    expect(summary).toEqual({ sessionName: "solo", processed: [], skipped: [] });
+    expect(tmuxCommands).not.toContain("kill solo:lead");
+  });
+
+  test("cmdDone logs already-closed windows and dry-run missing windows", async () => {
+    killWindowFails = true;
+    await cmdDoneAll({ force: true });
+    expect(tmuxCommands).toContain("kill work:alpha");
+
+    const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
+    await cmdDone("missing-window", { dryRun: true });
+    expect(autoSaveCalls.map(c => c.windowName)).not.toContain("missing-window");
+  });
+
+  test("cmdDoneAll records skipped windows when the single-window lifecycle throws", async () => {
+    signalErrorFor = "alpha";
+
+    const summary = await cmdDoneAll({});
+
+    expect(summary.processed).toEqual(["duplicate"]);
+    expect(summary.skipped).toEqual(["alpha"]);
+    expect(inboxSignals).toContainEqual({ windowName: "alpha", sessionName: "work" });
   });
 
   test("plugin CLI parses --all without a positional window name", async () => {
