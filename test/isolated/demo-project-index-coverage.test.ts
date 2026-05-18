@@ -4,10 +4,15 @@ import { join } from "node:path";
 
 let demoCalls: Array<{ fast: boolean; hasSleep: boolean }> = [];
 let demoError: Error | null = null;
+let demoEmitConsole = false;
 
 mock.module(join(import.meta.dir, "../../src/vendor/mpr-plugins/demo/impl"), () => ({
   cmdDemo: async (opts: { fast?: boolean; sleep?: unknown }) => {
     demoCalls.push({ fast: !!opts.fast, hasSleep: typeof opts.sleep === "function" });
+    if (demoEmitConsole) {
+      console.log("demo log");
+      console.error("demo err");
+    }
     if (demoError) throw demoError;
   },
 }));
@@ -19,6 +24,7 @@ const projectImpl = await import("../../src/vendor/mpr-plugins/project/impl.ts?d
 beforeEach(() => {
   demoCalls = [];
   demoError = null;
+  demoEmitConsole = false;
 });
 
 function writerSink() {
@@ -56,6 +62,21 @@ describe("demo plugin index coverage", () => {
 
     expect(result).toMatchObject({ ok: false, error: "demo exploded" });
     expect(writes).toEqual([]);
+  });
+
+  test("forwards demo console output to ctx.writer and restores console methods", async () => {
+    demoEmitConsole = true;
+    const origLog = console.log;
+    const origError = console.error;
+    const { writes, writer } = writerSink();
+
+    const result = await demoPlugin.default({ source: "cli", args: [], writer } as any);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(result.output).toBeUndefined();
+    expect(writes).toEqual(["demo log", "demo err"]);
+    expect(console.log).toBe(origLog);
+    expect(console.error).toBe(origError);
   });
 });
 

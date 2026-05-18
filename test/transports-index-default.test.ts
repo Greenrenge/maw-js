@@ -38,6 +38,8 @@ let loadConfigCalls = 0;
 let loadWorkspaceConfigsCalls = 0;
 let readZenohScoutConfigCalls: any[] = [];
 let zenohConnectReject: unknown = null;
+let connectRejectByName = new Map<string, unknown>();
+let disconnectAllReject: unknown = null;
 let transportInstances: FakeTransport[] = [];
 let routerInstances: FakeRouter[] = [];
 
@@ -45,7 +47,10 @@ function makeTransport(name: string, options?: unknown): FakeTransport {
   const transport: FakeTransport = {
     name,
     options,
-    connect: mock(async () => undefined),
+    connect: mock(async () => {
+      if (connectRejectByName.has(name)) throw connectRejectByName.get(name);
+      return undefined;
+    }),
     disconnect: mock(async () => undefined),
     send: mock(async () => true),
     publishPresence: mock(async () => undefined),
@@ -69,6 +74,7 @@ class FakeRouter {
     transport.onFeed.mock.calls.length;
   });
   disconnectAll = mock(async () => {
+    if (disconnectAllReject) throw disconnectAllReject;
     await Promise.all(this.registered.map((transport) => transport.disconnect()));
   });
 
@@ -185,6 +191,8 @@ beforeEach(() => {
   loadWorkspaceConfigsCalls = 0;
   readZenohScoutConfigCalls = [];
   zenohConnectReject = null;
+  connectRejectByName = new Map();
+  disconnectAllReject = null;
   transportInstances = [];
   routerInstances = [];
 });
@@ -317,6 +325,38 @@ describe("transport registry default coverage", () => {
     } finally {
       console.warn = originalWarn;
     }
+  });
+
+  test("best-effort connect and reset catch handlers swallow transport failures", async () => {
+    connectRejectByName = new Map<string, unknown>([
+      ["tmux", new Error("tmux offline")],
+      ["scout", new Error("scout offline")],
+      ["zenoh-scout", new Error("zenoh scout offline")],
+    ]);
+    configValue = {
+      ...defaultConfig,
+      discovery: { transport: "both" },
+      zenoh: { scout: { enabled: true } },
+    };
+
+    const router = createTransportRouter() as unknown as FakeRouter;
+    await waitForAsyncTransportWork();
+
+    expect(router.registered.map((transport) => transport.name)).toEqual([
+      "tmux",
+      "scout",
+      "zenoh-scout",
+      "nanoclaw",
+      "lora",
+    ]);
+    expect(transportInstances.find((transport) => transport.name === "tmux")?.connect).toHaveBeenCalledTimes(1);
+    expect(transportInstances.find((transport) => transport.name === "scout")?.connect).toHaveBeenCalledTimes(1);
+    expect(transportInstances.find((transport) => transport.name === "zenoh-scout")?.connect).toHaveBeenCalledTimes(1);
+
+    disconnectAllReject = new Error("disconnect failed");
+    expect(() => resetTransportRouter()).not.toThrow();
+    await waitForAsyncTransportWork();
+    expect(router.disconnectAll).toHaveBeenCalledTimes(1);
   });
 
   test("reset disconnects the singleton router and get creates a fresh one afterward", () => {

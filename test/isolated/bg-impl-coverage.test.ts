@@ -34,6 +34,7 @@ let newSessionFailure: SpawnSyncResult | null = null;
 let killFailure: SpawnSyncResult | null = null;
 let captureFailure: SpawnSyncResult | null = null;
 let listFailure: SpawnSyncResult | null = null;
+let spawnSyncError: (Error & { code?: string }) | null = null;
 let spawnError: (Error & { code?: string }) | null = null;
 let spawnExitCode = 0;
 let dropSessionOnNextHasSession = false;
@@ -56,6 +57,7 @@ function mockSpawnSync(cmd: string, args: string[] = [], opts: unknown = {}): Sp
     error.code = "ENOENT";
     return { error };
   }
+  if (spawnSyncError) return { error: spawnSyncError };
   const [subcommand] = args;
   if (subcommand === "has-session") {
     const slug = stripPrefix(args.at(-1) ?? "");
@@ -144,6 +146,7 @@ beforeEach(() => {
   killFailure = null;
   captureFailure = null;
   listFailure = null;
+  spawnSyncError = null;
   spawnError = null;
   spawnExitCode = 0;
   dropSessionOnNextHasSession = false;
@@ -227,6 +230,34 @@ describe("vendored bg impl coverage", () => {
     expect(bgList()).toEqual([]);
     listFailure = { status: 2, stdout: "", stderr: "unexpected but empty" };
     expect(bgList()).toEqual([]);
+  });
+
+  test("bgList ignores non-maw sessions, handles capture failure, and rethrows non-ENOENT tmux errors", () => {
+    sessions.set("visible-a111", { created: now - 12, paneCommand: "node", lastLine: "hidden" });
+    listFailure = {
+      status: 0,
+      stdout: [
+        "maw-bg-visible-a111\t1699999988\tnode",
+        "plain-shell\t1699999999\tzsh",
+      ].join("\n"),
+      stderr: "",
+    };
+    captureFailure = { status: 9, stdout: "", stderr: "capture denied" };
+
+    expect(bgList()).toEqual([{
+      slug: "visible-a111",
+      session: "maw-bg-visible-a111",
+      ageSeconds: 12,
+      status: "running",
+      lastLine: "",
+    }]);
+
+    captureFailure = null;
+    listFailure = null;
+    const error = new Error("permission denied") as Error & { code: string };
+    error.code = "EACCES";
+    spawnSyncError = error;
+    expect(() => bgList()).toThrow("permission denied");
   });
 
   test("bgTail resolves refs, captures requested lines, follows initial snapshot, and reports capture failures", async () => {

@@ -517,6 +517,36 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     )).rejects.toThrow("--pick requires an interactive selection for 'alpha'");
   });
 
+  test("--pick accepts an interactive ambiguous worktree choice", async () => {
+    const originalIsTTY = _wtPicker.isStdoutTTY;
+    const originalReadChoice = _wtPicker.readChoice;
+    findWorktreesReturn = [
+      { name: "1-alpha", path: "/tmp/neo-oracle.wt-1-alpha" },
+      { name: "2-alpha", path: "/tmp/neo-oracle.wt-2-alpha" },
+    ];
+    try {
+      _wtPicker.isStdoutTTY = () => true;
+      _wtPicker.readChoice = () => "2";
+
+      const result = await captureLogs(() =>
+        cmdWake("neo", { repoPath, task: "alpha", prompt: "selected", pick: true }),
+      );
+
+      expect(result).toBe("54-neo:neo-alpha");
+      expect(worktreeCreates).toEqual([]);
+      expect(newWindows).toEqual([
+        { session: "54-neo", window: "neo-alpha", opts: { cwd: "/tmp/neo-oracle.wt-2-alpha" } },
+      ]);
+      expect(sentText.at(-1)).toEqual({
+        target: "54-neo:neo-alpha",
+        text: "cd /tmp/neo-oracle.wt-2-alpha && codex --agent neo-alpha -p 'selected'",
+      });
+    } finally {
+      _wtPicker.isStdoutTTY = originalIsTTY;
+      _wtPicker.readChoice = originalReadChoice;
+    }
+  });
+
   test("fuzzy worktree reuse launches a new prompted window with attach", async () => {
     findWorktreesReturn = [{ name: "1-alpha", path: "/tmp/neo-oracle.wt-1-alpha" }];
 
@@ -556,5 +586,20 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     listWindowsThrows = true;
     await expect(captureLogs(() => cmdWake("neo", { repoPath, task: "new" })))
       .rejects.toThrow("could not list windows for session '54-neo'");
+  });
+
+  test("plain live existing windows attach without relaunching", async () => {
+    paneCommand = "codex";
+    listWindowsReturn = [{ name: "neo-oracle" }];
+
+    const result = await captureLogs(() => cmdWake("neo", { repoPath, noRehydrate: true, attach: true }));
+
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(sentText).toEqual([]);
+    expect(respawnCalls).toEqual([]);
+    expect(selectedWindows).toEqual(["54-neo:neo-oracle"]);
+    expect(attachCalls).toEqual(["54-neo"]);
+    expect(splitCalls).toEqual(["54-neo:neo-oracle"]);
+    expect(openCalls).toEqual(["54-neo:neo-oracle"]);
   });
 });

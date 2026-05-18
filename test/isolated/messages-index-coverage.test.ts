@@ -225,6 +225,74 @@ describe("messages plugin coverage slice", () => {
     expect(JSON.parse(result.output!)).toEqual({ ok: true, messages: [], total: 0, dbPath: messageLedgerDbPath() });
   });
 
+  test("cli json query applies all filters before limiting", async () => {
+    const matching = buildMessageLifecycleFeedEvent({
+      id: "filter-match",
+      ts: "2026-05-16T02:30:00.000Z",
+      direction: "outbound",
+      state: "delivered",
+      channel: "hey",
+      route: "local",
+      from: "node/a",
+      to: "node/b",
+      text: "needle text",
+      signed: true,
+    });
+    const decoys = [
+      buildMessageLifecycleFeedEvent({
+        id: "filter-inbound",
+        ts: "2026-05-16T02:31:00.000Z",
+        direction: "inbound",
+        state: "delivered",
+        channel: "hey",
+        route: "local",
+        from: "node/a",
+        to: "node/b",
+        text: "needle text",
+        signed: false,
+      }),
+      buildMessageLifecycleFeedEvent({
+        id: "filter-state",
+        ts: "2026-05-16T02:32:00.000Z",
+        direction: "outbound",
+        state: "failed",
+        channel: "hey",
+        route: "local",
+        from: "node/a",
+        to: "node/b",
+        text: "needle text",
+        signed: true,
+      }),
+    ];
+
+    await onEvent(decoys[0]);
+    await onEvent(matching);
+    await onEvent(decoys[1]);
+
+    const result = await messagesHandler({
+      source: "cli",
+      args: [
+        "--json",
+        "--limit",
+        "1",
+        "--from",
+        "node/a",
+        "--to",
+        "node/b",
+        "--direction",
+        "outbound",
+        "--state",
+        "delivered",
+        "--q",
+        "needle",
+      ],
+    });
+    const payload = JSON.parse(result.output!);
+    expect(payload.total).toBe(1);
+    expect(payload.messages).toHaveLength(1);
+    expect(payload.messages[0].id).toBe("filter-match");
+  });
+
   test("messagesEngineFetch exposes health/events/messages endpoints and 404", async () => {
     const health = await messagesEngineFetch(new Request("http://plugin.local/health"));
     const healthBody = await health.json();

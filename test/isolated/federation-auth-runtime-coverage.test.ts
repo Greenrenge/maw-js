@@ -26,9 +26,13 @@ mock.module(join(import.meta.dir, "../../src/config"), () => ({
 
 const {
   buildFromSignPayload,
+  DEFAULT_ORACLE,
   federationAuth,
   hashBody,
+  resolveFromAddress,
   sign,
+  signHeaders,
+  signRequestV3,
   signHeadersV3,
   verifyRequest,
 } = await import("../../src/lib/federation-auth");
@@ -217,5 +221,42 @@ describe("verifyRequest current-v3 malformed and edge branches", () => {
     });
 
     expect(decision).toEqual({ kind: "accept-verified", reason: "cache-sig-valid", from: FROM });
+  });
+});
+
+describe("federation auth helper edge branches", () => {
+  test("signHeaders treats empty bodies as legacy v1 and non-empty typed bodies as v2", () => {
+    const empty = signHeaders(TOKEN, "POST", "/api/send", new Uint8Array());
+    expect(empty["X-Maw-Auth-Version"]).toBeUndefined();
+
+    const body = new TextEncoder().encode("hello");
+    const signed = signHeaders(TOKEN, "POST", "/api/send", body);
+    const timestamp = Number(signed["X-Maw-Timestamp"]);
+    expect(signed["X-Maw-Auth-Version"]).toBe("v2");
+    expect(signed["X-Maw-Signature"]).toBe(sign(TOKEN, "POST", "/api/send", timestamp, hashBody(body)));
+  });
+
+  test("signRequestV3 validates required peer key and from-address before signing", () => {
+    expect(() => signRequestV3({
+      peerKey: "",
+      fromAddress: FROM,
+      method: "POST",
+      path: "/api/send",
+      timestamp: 1,
+    })).toThrow("peerKey is required");
+    expect(() => signRequestV3({
+      peerKey: PEER_KEY,
+      fromAddress: "",
+      method: "POST",
+      path: "/api/send",
+      timestamp: 1,
+    })).toThrow("fromAddress is required");
+  });
+
+  test("resolveFromAddress uses mawjs fallback oracle and returns null without node", () => {
+    expect(DEFAULT_ORACLE).toBe("mawjs");
+    expect(resolveFromAddress({ node: "white" })).toBe("mawjs:white");
+    expect(resolveFromAddress({ oracle: "pulse", node: "m5" })).toBe("pulse:m5");
+    expect(resolveFromAddress({ oracle: "pulse" })).toBeNull();
   });
 });

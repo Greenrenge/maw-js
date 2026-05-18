@@ -121,4 +121,30 @@ describe("demo impl coverage", () => {
     expect(output).toContain("writing agent scripts");
     expect(output).toContain("spawning agent-1 in left pane");
   });
+
+  test("cmdDemo falls back to caller pane when pane id discovery fails", async () => {
+    process.env.TMUX = "/tmp/tmux-100/default,100,0";
+    process.env.TMUX_PANE = "%caller";
+
+    const calls: ExecCall[] = [];
+
+    await cmdDemo({
+      fast: true,
+      sleep: async () => undefined,
+      exec: async (cmd) => {
+        calls.push({ cmd });
+        if (cmd === "tmux list-panes -a -F #{pane_id}") throw new Error("list panes unavailable");
+        return "";
+      },
+    });
+
+    const commands = calls.map((c) => c.cmd);
+    expect(commands.filter((cmd) => cmd.startsWith("chmod +x '/tmp/maw-demo-")).length).toBe(2);
+    expect(commands.some((cmd) => cmd.includes("tmux split-window -t '%caller' -h -l 50%"))).toBe(true);
+    expect(commands.some((cmd) => cmd.includes("tmux split-window -t '%caller' -v -l 50%"))).toBe(true);
+    expect(commands.some((cmd) => cmd.startsWith("tmux kill-pane"))).toBe(false);
+    expect(commands.filter((cmd) => cmd.startsWith("rm -f '/tmp/maw-demo-")).length).toBe(2);
+    expect(output).toContain("agent-1 spawned");
+    expect(output).toContain("agent-2 spawned");
+  });
 });

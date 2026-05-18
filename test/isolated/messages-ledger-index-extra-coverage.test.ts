@@ -231,6 +231,16 @@ describe("messages ledger and index extra coverage", () => {
     expect(status.output).toContain("engine: http://127.0.0.1:9");
   });
 
+  test("status falls back to MAW_PORT when MAW_ENGINE_URL is unset", async () => {
+    process.env.MAW_PORT = "4567";
+    const messages = await importMessages("status-maw-port");
+
+    const status = await messages.default({ source: "cli", args: ["status"] } as any);
+
+    expect(status.ok).toBe(true);
+    expect(status.output).toContain("engine: http://127.0.0.1:4567");
+  });
+
   test("serve success can return in test mode and shutdown is idempotent", async () => {
     const engine = engineStub();
     process.env.MAW_TEST_MODE = "1";
