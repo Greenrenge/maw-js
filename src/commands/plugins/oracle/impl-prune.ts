@@ -91,7 +91,7 @@ export function buildStaleCandidates(staleEntries: StaleEntry[]): PruneCandidate
 
 // ─── Raw registry I/O ─────────────────────────────────────────────────────────
 
-function readRaw(file: string): Record<string, unknown> {
+export function readRawRegistry(file: string): Record<string, unknown> {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));
   } catch { /* fall through */ }
@@ -129,7 +129,7 @@ export async function runPrune(
     now?: () => Date;
   } = {},
 ): Promise<PruneCandidate[]> {
-  const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
   const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const rawCache = readRawCache();
@@ -166,7 +166,7 @@ export async function cmdOraclePrune(
     now?: () => Date;
   } = {},
 ): Promise<void> {
-  const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
   const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const candidates = await runPrune(opts, deps);

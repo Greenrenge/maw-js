@@ -14,6 +14,7 @@ let hostExecCalls: string[] = [];
 let listSessionsReturn: Array<{ name: string }> = [];
 let hasSessionReturn = true;
 let listWindowsReturn: WindowInfo[] = [];
+let listWindowsThrows = false;
 let detectSessionReturn: string | null = "54-neo";
 let detectSessionCalls: Array<{ oracle: string; urlRepoName?: string }> = [];
 let shouldWake = false;
@@ -46,6 +47,8 @@ let openCalls: string[] = [];
 let snapshots: string[] = [];
 let respawnCalls: any[][] = [];
 let worktreeCreates: any[] = [];
+let parseWakeTargetReturn: null | { slug: string; oracle: string } = null;
+let ghqFindReturn: string | null = null;
 
 function resetState(): void {
   logs = [];
@@ -55,6 +58,7 @@ function resetState(): void {
   listSessionsReturn = [];
   hasSessionReturn = true;
   listWindowsReturn = [{ name: "neo-oracle" }];
+  listWindowsThrows = false;
   detectSessionReturn = "54-neo";
   detectSessionCalls = [];
   shouldWake = false;
@@ -87,6 +91,8 @@ function resetState(): void {
   snapshots = [];
   respawnCalls = [];
   worktreeCreates = [];
+  parseWakeTargetReturn = null;
+  ghqFindReturn = null;
 }
 
 async function captureLogs<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -128,7 +134,10 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
   tmux: {
     hasSession: async () => hasSessionReturn,
     listSessions: async () => listSessionsReturn,
-    listWindows: async () => listWindowsReturn,
+    listWindows: async () => {
+      if (listWindowsThrows) throw new Error("list-windows failed");
+      return listWindowsReturn;
+    },
     newSession: async (session: string, opts: any) => {
       newSessions.push({ session, opts });
     },
@@ -150,7 +159,7 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
 }));
 
 mock.module(import.meta.resolve("../../src/core/ghq"), () => ({
-  ghqFind: async () => null,
+  ghqFind: async () => ghqFindReturn,
 }));
 
 mock.module(import.meta.resolve("../../src/config"), () => ({
@@ -218,7 +227,7 @@ mock.module(import.meta.resolve("../../src/plugin/lifecycle"), () => ({
 }));
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-target"), () => ({
-  parseWakeTarget: () => null,
+  parseWakeTarget: () => parseWakeTargetReturn,
   ensureCloned: async () => {},
 }));
 
@@ -364,6 +373,70 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(plain()).toContain("would reuse session: 54-neo");
   });
 
+  test("full repo target dry-run preserves parsed clone path and url repo name", async () => {
+    parseWakeTargetReturn = { slug: "Soul-Brews-Studio/neo-oracle", oracle: "neo" };
+    ghqFindReturn = repoPath;
+    detectSessionReturn = null;
+    shouldWake = true;
+    listSessionsReturn = [{ name: "09-other" }];
+
+    const result = await captureLogs(() => cmdWake("Soul-Brews-Studio/neo-oracle", { dryRun: true }));
+
+    expect(result).toBe("neo:dry-run");
+    expect(detectSessionCalls).toEqual([{ oracle: "neo", urlRepoName: "neo-oracle" }]);
+    expect(plain()).toContain("would create session '10-neo-oracle' (main: neo-oracle)");
+  });
+
+  test("incubate dry-run prefixes short slugs and defaults the worktree slug", async () => {
+    ghqFindReturn = repoPath;
+    detectSessionReturn = null;
+    shouldWake = true;
+
+    const result = await captureLogs(() => cmdWake("neo", { incubate: "Soul-Brews-Studio/neo-oracle", dryRun: true, bud: true, signalOnBirth: true }));
+
+    expect(result).toBe("neo:dry-run");
+    expect(hostExecCalls).toContain("ghq get -u github.com/Soul-Brews-Studio/neo-oracle");
+    expect(plain()).toContain("would wake worktree/task: neooracle");
+    expect(plain()).toContain("would stamp wake-bud lineage");
+    expect(plain()).toContain("would drop wake-bud birth signal");
+  });
+
+  test("foreign session dry-run validates, skips rehydrate, and reports missing sessions", async () => {
+    let result = await captureLogs(() => cmdWake("neo", { repoPath, session: "workspace", dryRun: true }));
+
+    expect(result).toBe("workspace:neo");
+    expect(plain()).toContain("would wake window 'neo' in workspace session 'workspace'");
+    expect(plain()).toContain("worktree rehydrate skipped (foreign workspace session)");
+
+    await expect(captureLogs(() => cmdWake("neo", { repoPath, session: "bad/session" })))
+      .rejects.toThrow("invalid target session 'bad/session'");
+
+    hasSessionReturn = false;
+    await expect(captureLogs(() => cmdWake("neo", { repoPath, session: "missing" })))
+      .rejects.toThrow("target session 'missing' not found");
+  });
+
+  test("dry-run snapshot planning reports empty and concrete restore windows", async () => {
+    snapshotReturn = { timestamp: "2026-05-18T00:00:00.000Z", sessions: [{ name: "54-neo", windows: [] }] };
+    snapshotSessionReturn = { name: "54-neo", windows: [] };
+    findWorktreesReturn = [{ name: "1-alpha", path: "/tmp/neo-oracle.wt-1-alpha" }];
+
+    plannedSnapshotWindows = [];
+    let result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("would restore snapshot windows: none");
+
+    logs = [];
+    plannedSnapshotWindows = [{ windowName: "neo-alpha", cwd: "/tmp/neo-oracle.wt-1-alpha", source: "worktree" }];
+    result = await captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true, dryRun: true }));
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(plain()).toContain("would restore snapshot window: neo-alpha");
+
+    snapshotSessionReturn = null;
+    await expect(captureLogs(() => cmdWake("neo", { repoPath, fromSnapshot: true })))
+      .rejects.toThrow("snapshot 2026-05-18T00:00:00.000Z has no session for neo");
+  });
+
   test("missing sessions restore snapshot windows, rehydrate worktrees, and reuse the live main window", async () => {
     detectSessionReturn = null;
     shouldWake = true;
@@ -465,5 +538,23 @@ describe("wake-cmd thirteenth-pass isolated coverage", () => {
     expect(splitCalls).toEqual(["54-neo:neo-alpha"]);
     expect(openCalls).toEqual(["54-neo:neo-alpha"]);
     expect(snapshots).toEqual(["wake"]);
+  });
+
+  test("dead existing windows relaunch, and unreliable window listings refuse duplicate creation", async () => {
+    paneCommand = "zsh";
+    let result = await captureLogs(() => cmdWake("neo", { repoPath, noRehydrate: true, attach: true }));
+
+    expect(result).toBe("54-neo:neo-oracle");
+    expect(sentText).toContainEqual({
+      target: "54-neo:neo-oracle",
+      text: `cd ${repoPath} && codex --agent neo-oracle`,
+    });
+    expect(selectedWindows).toEqual(["54-neo:neo-oracle"]);
+    expect(attachCalls).toEqual(["54-neo"]);
+
+    resetState();
+    listWindowsThrows = true;
+    await expect(captureLogs(() => cmdWake("neo", { repoPath, task: "new" })))
+      .rejects.toThrow("could not list windows for session '54-neo'");
   });
 });

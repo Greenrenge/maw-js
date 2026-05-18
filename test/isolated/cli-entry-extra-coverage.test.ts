@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const instancePresetPath = import.meta.resolve("../../src/cli/instance-preset.ts");
 const auditPath = import.meta.resolve("../../src/core/fleet/audit.ts");
@@ -141,6 +144,59 @@ describe("cli entrypoint side-effect flow", () => {
     expect(calls.maybeAutoRestore).toEqual([[undefined]]);
     expect(calls.usage).toHaveLength(1);
   });
+
+  test("version alias, update success, and short help take their early returns", async () => {
+    await importCli("version-word", ["version"]);
+    expect(calls.getVersionString).toHaveLength(1);
+    expect(logs).toEqual(["maw-test-version"]);
+    expect(calls.runBootstrap).toEqual([]);
+
+    resetCalls();
+    logs = [];
+    await importCli("update-ok", ["update", "--check"]);
+    expect(calls.runUpdate).toEqual([[["update", "--check"]]]);
+    expect(calls.handleTopLevelError).toEqual([]);
+    expect(calls.runBootstrap).toEqual([]);
+
+    resetCalls();
+    await importCli("short-help", ["-h"]);
+    expect(calls.maybeAutoRestore).toEqual([["-h"]]);
+    expect(calls.usage).toHaveLength(1);
+    expect(calls.dispatchCommand).toEqual([]);
+  });
+
+  test("real CLI subprocesses cover early-return dispatch branches for LCOV", () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "maw-cli-entry-lcov-"));
+    const env = {
+      ...process.env,
+      MAW_TEST_MODE: "1",
+      MAW_HOME: tempHome,
+      MAW_PLUGINS_DIR: join(tempHome, "plugins"),
+    };
+
+    try {
+      const version = Bun.spawnSync(["bun", "src/cli.ts", "--version"], { cwd: process.cwd(), env });
+      expect(version.exitCode).toBe(0);
+      // Under Bun's coverage runner, nested `bun src/cli.ts` can report a
+      // successful early return with captured stdout elided. The mocked import
+      // tests above assert the copy; this subprocess smoke exists to keep the
+      // real entrypoint branch executable under LCOV.
+      const versionOutput = `${version.stdout.toString()}${version.stderr.toString()}`;
+      if (versionOutput.length > 0) expect(versionOutput).toContain("maw ");
+
+      const updateHelp = Bun.spawnSync(["bun", "src/cli.ts", "update", "--help"], { cwd: process.cwd(), env });
+      expect(updateHelp.exitCode).toBe(0);
+      const updateOutput = `${updateHelp.stdout.toString()}${updateHelp.stderr.toString()}`;
+      if (updateOutput.length > 0) expect(updateOutput).toContain("usage: maw update");
+
+      const help = Bun.spawnSync(["bun", "src/cli.ts", "--help"], { cwd: process.cwd(), env });
+      expect(help.exitCode).toBe(0);
+      const helpOutput = `${help.stdout.toString()}${help.stderr.toString()}`;
+      if (helpOutput.length > 0) expect(helpOutput).toContain("maw");
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  }, 10_000);
 
   test("dispatches regular commands and forwards dispatch failures to the top-level handler", async () => {
     await importCli("dispatch-ok", ["wake", "mawjs"]);

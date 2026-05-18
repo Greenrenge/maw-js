@@ -102,6 +102,19 @@ describe("maw serve PID lock UX (#1434)", () => {
     expect(serveStatus()).toEqual({ pid: null, alive: false, file: pidFile() });
   });
 
+  test("exit cleanup listener removes the acquired PID file", () => {
+    acquirePidLock(null);
+    expect(readFileSync(pidFile(), "utf-8")).toBe(String(process.pid));
+
+    const exitListeners = process.listeners("exit");
+    const cleanup = exitListeners.at(-1) as ((code?: number) => void) | undefined;
+    expect(cleanup).toBeFunction();
+    cleanup?.(0);
+
+    expect(serveStatus()).toEqual({ pid: null, alive: false, file: pidFile() });
+    if (cleanup) process.off("exit", cleanup);
+  });
+
   test("serve status includes registered engine plugins when the gateway is reachable", async () => {
     const server = Bun.serve({
       port: 0,

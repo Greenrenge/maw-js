@@ -13,6 +13,7 @@ let fleetFiles: string[] = [];
 let fleetWindows: Record<string, string[]> = {};
 let ghqRepos: string[] = [];
 let worktrees: any[] = [];
+let tmuxCaptures = new Map<string, string>();
 
 mock.module(join(srcRoot, "src/sdk"), () => ({
   hostExec: async (cmd: string) => {
@@ -32,7 +33,7 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
   },
   tmux: {
     listPanes: async () => panes,
-    capture: async () => "",
+    capture: async (target: string) => tmuxCaptures.get(target) ?? "",
   },
   tmuxCmd: () => "tmux",
 }));
@@ -68,7 +69,11 @@ const {
   cmdTmuxPeek,
   cmdTmuxSend,
   cmdTmuxSplit,
+  annotatePane,
+  formatSessionCreated,
+  parseSessionCreatedList,
   resolveTmuxTarget,
+  similarOracleCandidatesFromRepos,
 } = impl;
 
 const original = {
@@ -104,6 +109,7 @@ beforeEach(() => {
   fleetWindows = {};
   ghqRepos = [];
   worktrees = [];
+  tmuxCaptures = new Map();
   _sendTracker.clear();
   delete process.env.TMUX;
   Date.now = original.dateNow;
@@ -216,6 +222,96 @@ describe("tmux impl extra coverage", () => {
     expect(logs).toContain("stale");
     expect(logs).toContain("sleepy-oracle");
     expect(logs).toContain("sleeping");
+  });
+
+  test("ls renders recent verbose detail and hides infrastructure channel sessions by default", async () => {
+    Date.now = () => 2_000_000_000_000;
+    const now = Math.floor(Date.now() / 1000);
+    fleetFiles = ["11-fleet-session.json"];
+    panes = [
+      { id: "%1", target: "11-fleet-session:0.0", command: "node", title: "fleet pane", lastActivity: now - 10 },
+      { id: "%2", target: "maw-view:0.0", command: "zsh", title: "view pane", lastActivity: now - 70 },
+      { id: "%3", target: "orphan:0.0", command: "claude", title: "orphan pane", lastActivity: now - 3700 },
+      { id: "%4", target: "plain:0.0", command: "fish", title: "plain pane" },
+      { id: "%5", target: "mawjs-oracle-discord:0.0", command: "claude", title: "channel pane", lastActivity: now - 5 },
+    ];
+    tmuxCaptures.set("11-fleet-session:0.0", "Context limit reached. /compact or /clear to continue.");
+    hostResponses.set(
+      "list-sessions -F",
+      [
+        "orphan\t1999990000",
+        "maw-view\t1999999900",
+        "11-fleet-session\t1999999990",
+        "plain\t1999999800",
+        "mawjs-oracle-discord\t1999999999",
+      ].join("\n"),
+    );
+
+    const { logs } = await capture(() => cmdTmuxLs({ all: true, verbose: true, recent: true }));
+
+    expect(logs).toContain("CREATED");
+    expect(logs).toContain("11-fleet-session:0.0");
+    expect(logs).toContain("context-limit");
+    expect(logs).toContain("fleet: fleet-session");
+    expect(logs).toContain("view: maw-view");
+    expect(logs).toContain("orphan");
+    expect(logs).toContain("1h1m");
+    expect(logs).not.toContain("mawjs-oracle-discord");
+  });
+
+  test("ls supports recent compact limiting, filtered JSON, and explicit channel visibility", async () => {
+    Date.now = () => 2_000_000_000_000;
+    const now = Math.floor(Date.now() / 1000);
+    panes = [
+      { id: "%1", target: "newest:0.0", command: "node", title: "new", lastActivity: now - 10 },
+      { id: "%2", target: "middle:0.0", command: "zsh", title: "middle", lastActivity: now - 120 },
+      { id: "%3", target: "oldest:0.0", command: "fish", title: "old", lastActivity: now - 600 },
+      { id: "%4", target: "bridge-oracle-discord:0.0", command: "claude", title: "channel", lastActivity: now - 1 },
+    ];
+    worktrees = [
+      { mainRepo: "/opt/Code/newest", name: "newest.wt-1-active", status: "active" },
+      { mainRepo: "/opt/Code/middle", name: "middle.wt-2-orphan", status: "orphan" },
+    ];
+    hostResponses.set(
+      "list-sessions -F",
+      [
+        "oldest\t1999990000",
+        "middle\t1999999000",
+        "newest\t1999999999",
+        "bridge-oracle-discord\t1999999998",
+      ].join("\n"),
+    );
+
+    const compact = await capture(() => cmdTmuxLs({ all: true, compact: true, recent: true, recentLimit: 2 }));
+    expect(compact.logs).toContain("SESSION");
+    expect(compact.logs).toContain("newest");
+    expect(compact.logs).toContain("middle");
+    expect(compact.logs).not.toContain("oldest");
+    expect(compact.logs).not.toContain("bridge-oracle-discord");
+    expect(compact.logs).toContain("newest.wt-1-active");
+    expect(compact.logs).toContain("middle.wt-2-orphan");
+
+    const json = await capture(() => cmdTmuxLs({ all: true, json: true, filter: "discord", channels: true }));
+    expect(JSON.parse(json.logs)).toMatchObject([
+      { session: "bridge-oracle-discord" },
+    ]);
+  });
+
+  test("tmux helpers format sessions, parse creation times, annotate panes, and dedupe similar oracles", () => {
+    expect(parseSessionCreatedList("alpha\t123\nbad\t0\nmissing\nbeta\t456\n")).toEqual(new Map([["alpha", 123], ["beta", 456]]));
+    expect(formatSessionCreated()).toBe("—");
+    expect(formatSessionCreated(Number.NaN)).toBe("—");
+    expect(formatSessionCreated(1)).toMatch(/^1970-01-0[1-2] /);
+    expect(annotatePane({ id: "%1", target: "session:0.0", command: "zsh" }, new Set(), new Map([["%1", "lead @ team"]]))).toBe("team: lead @ team");
+    expect(annotatePane({ id: "%2", target: "10-demo:0.0", command: "zsh" }, new Set(["10-demo"]), new Map())).toBe("fleet: demo");
+    expect(annotatePane({ id: "%3", target: "demo-view:0.0", command: "zsh" }, new Set(), new Map())).toBe("view: demo-view");
+    expect(annotatePane({ id: "%4", target: "shell:0.0", command: "claude" }, new Set(), new Map())).toBe("orphan");
+    expect(annotatePane({ id: "%5", target: "shell:0.0", command: "zsh" }, new Set(), new Map())).toBe("");
+    expect(similarOracleCandidatesFromRepos("pulse", [
+      "/opt/Code/github.com/Soul-Brews-Studio/pulse-oracle",
+      "/opt/Code/github.com/Soul-Brews-Studio/pulse-oracle",
+      "/opt/Code/github.com/Soul-Brews-Studio/not-pulse",
+    ])).toEqual(["Soul-Brews-Studio/pulse-oracle"]);
   });
 
   test("peek wraps capture-pane failures with target source", async () => {

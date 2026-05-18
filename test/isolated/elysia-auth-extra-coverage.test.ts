@@ -246,6 +246,26 @@ describe("fromSigningAuth — per-peer continuity branches", () => {
     expect(await res.json()).toMatchObject({ ok: true, route: "send" });
   });
 
+  test.each([
+    ["text/plain", "plain-body"],
+    ["application/x-www-form-urlencoded", "alpha=one&beta=two"],
+    ["application/octet-stream", "raw-bytes"],
+  ])("cached peer accepts signed %s bodies captured by onParse", async (contentType, body) => {
+    peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
+
+    const res = await fromAuthApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      headers: {
+        "content-type": contentType,
+        ...fromSignatureHeaders({ body }),
+      },
+      body,
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, route: "send" });
+  });
+
   test("typed protected routes verify from-signing against raw JSON bytes before Elysia body parsing (#1790)", async () => {
     peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
     const body = JSON.stringify({ target: "0", task: "hello" });

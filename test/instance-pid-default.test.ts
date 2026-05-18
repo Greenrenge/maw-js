@@ -13,6 +13,7 @@ import {
 const originalHome = process.env.MAW_HOME;
 const originalEngineUrl = process.env.MAW_ENGINE_URL;
 const originalLog = console.log;
+const originalKill = process.kill;
 let tempHome = "";
 let lines: string[] = [];
 
@@ -30,6 +31,7 @@ afterEach(() => {
   if (originalEngineUrl === undefined) delete process.env.MAW_ENGINE_URL;
   else process.env.MAW_ENGINE_URL = originalEngineUrl;
   console.log = originalLog;
+  process.kill = originalKill;
   rmSync(tempHome, { recursive: true, force: true });
 });
 
@@ -59,6 +61,35 @@ describe("maw serve PID status helpers in the default suite", () => {
     stopServe();
 
     expect(lines).toEqual(["maw serve: already stopped"]);
+  });
+
+  test("printServeStatus and stopServe report stale PID cleanup paths", () => {
+    writeFileSync(pidFile(), "99999999");
+    printServeStatus();
+    expect(lines.at(-1)).toBe(`maw serve: stopped — removed stale PID 99999999 (${pidFile()})`);
+
+    lines = [];
+    writeFileSync(pidFile(), "99999998");
+    stopServe();
+    expect(lines).toEqual(["maw serve: removed stale PID 99999998"]);
+  });
+
+  test("stopServe sends SIGTERM for a live PID and removes the file", () => {
+    writeFileSync(pidFile(), "4242");
+    const kills: Array<{ pid: number; signal?: string | number }> = [];
+    process.kill = ((pid: number, signal?: string | number) => {
+      kills.push({ pid, signal });
+      return true;
+    }) as typeof process.kill;
+
+    stopServe();
+
+    expect(kills).toEqual([
+      { pid: 4242, signal: 0 },
+      { pid: 4242, signal: "SIGTERM" },
+    ]);
+    expect(lines).toEqual(["maw serve: stopped PID 4242"]);
+    expect(serveStatus()).toEqual({ pid: null, alive: false, file: pidFile() });
   });
 
   test("printServeStatusWithPlugins reports registered engine plugins for a live serve", async () => {

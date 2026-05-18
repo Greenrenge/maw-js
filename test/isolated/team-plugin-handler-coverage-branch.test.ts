@@ -276,17 +276,34 @@ describe("team handler coverage slice: remaining branches", () => {
     expect(noTmux.error).toBe("not in tmux");
 
     process.env.TMUX = "1";
+    hostExecMap["tmux list-panes -F '#{pane_id}'"] = "Y";
+    let close = await teamHandler({ source: "cli", args: ["close"] });
+    expect(close.ok).toBe(true);
+
     hostExecMap["tmux list-panes -F '#{pane_id}'"] = "X\nY\nZ";
     hostExecMap["tmux kill-pane -t 'X'"] = "";
     hostExecMap["tmux kill-pane -t 'Z'"] = "";
     process.env.TMUX_PANE = "Y";
-    const close = await teamHandler({ source: "cli", args: ["close"] });
+    close = await teamHandler({ source: "cli", args: ["close"] });
     expect(close.ok).toBe(true);
-    expect(calls.hostExec).toEqual([
+    expect(calls.hostExec.slice(-3)).toEqual([
       "tmux list-panes -F '#{pane_id}'",
       "tmux kill-pane -t 'X'",
       "tmux kill-pane -t 'Z'",
     ]);
+  });
+
+  test("prep and layout reject non-tmux or invalid counts before side effects", async () => {
+    let result = await teamHandler({ source: "cli", args: ["prep", "2"] });
+    expect(result.error).toBe("not in tmux");
+
+    process.env.TMUX = "1";
+    result = await teamHandler({ source: "cli", args: ["prep", "0"] });
+    expect(result.error).toBe("count required (1-10)");
+
+    delete process.env.TMUX;
+    result = await teamHandler({ source: "cli", args: ["layout"] });
+    expect(result.error).toBe("not in tmux");
   });
 
   test("prep branches without existing config and applies layout", async () => {
@@ -365,11 +382,13 @@ describe("team handler coverage slice: remaining branches", () => {
       savedAt: Date.now() - 120_000,
       panes: [
         { agentId: "a1", tmuxPaneId: "P1", color: "green", name: "n1" },
+        { agentId: "a2", tmuxPaneId: "P3", color: "blue", name: "n2" },
       ],
     };
     hostExecMap["tmux list-panes -a -F '#{pane_id}'"] = "P1\nP2";
     const ok = await teamHandler({ source: "cli", args: ["recover", "env-team"] });
     expect(ok.ok).toBe(true);
+    expect(ok.output).toContain("1 dead");
   });
 
   test("unknown subcommand returns usage", async () => {
