@@ -8,7 +8,7 @@
 import { describe, test, expect, mock, beforeAll, beforeEach, afterEach } from "bun:test";
 import { createHmac } from "crypto";
 import { join } from "path";
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import type { MawConfig } from "../../src/config";
 
 const root = join(import.meta.dir, "../..");
@@ -66,14 +66,18 @@ function signedHeaders(method: string, path: string, timestamp = Math.floor(Date
 function fromSignatureHeaders(opts: {
   from?: string;
   signedAt?: string;
+  method?: string;
+  path?: string;
   body?: string;
   secret?: string;
   signature?: string;
 } = {}): Record<string, string> {
   const from = opts.from ?? "oracle:peer-node";
   const signedAt = opts.signedAt ?? new Date().toISOString();
+  const method = opts.method ?? "POST";
+  const path = opts.path ?? "/api/send";
   const bodyHash = hashBody(opts.body ?? "");
-  const payload = buildFromSignPayload(from, signedAt, "POST", "/api/send", bodyHash);
+  const payload = buildFromSignPayload(from, signedAt, method, path, bodyHash);
   const signature = opts.signature ?? createHmac("sha256", opts.secret ?? PEER_SECRET).update(payload).digest("hex");
   return {
     "x-maw-from": from,
@@ -239,6 +243,30 @@ describe("fromSigningAuth — per-peer continuity branches", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, route: "send" });
+  });
+
+  test("typed protected routes verify from-signing against raw JSON bytes before Elysia body parsing (#1790)", async () => {
+    peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
+    const body = JSON.stringify({ target: "0", task: "hello" });
+    const app = new Elysia({ prefix: "/api" })
+      .use(fromSigningAuth)
+      .post(
+        "/wake",
+        ({ body }) => ({ ok: true, target: body.target, task: body.task }),
+        { body: t.Object({ target: t.String(), task: t.Optional(t.String()) }) },
+      );
+
+    const res = await app.handle(new Request("http://localhost/api/wake", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...fromSignatureHeaders({ path: "/api/wake", body }),
+      },
+      body,
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, target: "0", task: "hello" });
   });
 
   test("cached peer with invalid from-signature → 401 includes kind/reason/from", async () => {
