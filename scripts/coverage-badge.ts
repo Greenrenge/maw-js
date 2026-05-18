@@ -17,6 +17,8 @@ const outPath = process.argv[3] || "coverage/maw-js-coverage.json";
 
 const excludedSourceRoots = [
   "src/wasm/maw-plugin-sdk-assemblyscript/assembly/",
+  "src/wasm/examples/hello-as/assembly/",
+  "src/wasm/examples/hello-package/assembly/",
 ] as const;
 
 function relPath(file: string): string {

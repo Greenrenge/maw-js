@@ -1,59 +1,61 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T14:04:50.014Z
+Generated: 2026-05-18T14:13:27.427Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **89.7%** (33455/37277)
-Overall function coverage: **91.7%** (4236/4617)
+Overall line coverage: **91.5%** (34026/37206)
+Overall function coverage: **92.0%** (4311/4688)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 3 | 95.2% (6014/6316) | 91.9% (717/780) | n/a (0/0) |
+| cli/dispatch | 91 | 3 | 95.7% (6046/6316) | 91.9% (717/780) | n/a (0/0) |
 | config/runtime | 19 | 1 | 91.2% (856/939) | 90.0% (108/120) | n/a (0/0) |
 | fleet | 17 | 0 | 93.1% (730/784) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 176 | 33 | 89.7% (9321/10392) | 89.4% (1179/1319) | n/a (0/0) |
+| other | 172 | 25 | 91.8% (9484/10326) | 89.6% (1203/1342) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 98.6% (492/499) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 98.3% (1856/1888) | 95.9% (420/438) | n/a (0/0) |
-| vendor plugins | 245 | 60 | 85.4% (13208/15474) | 91.9% (1543/1679) | n/a (0/0) |
+| vendor plugins | 245 | 52 | 87.8% (13584/15469) | 92.3% (1594/1727) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
 | Source root | Files | Source lines | Reason |
 | --- | ---: | ---: | --- |
+| `src/wasm/examples/hello-as/assembly/` | 2 | 20 | AssemblyScript example source is compiled with asc to WebAssembly as a plugin template; Bun LCOV cannot map wasm execution back to these TypeScript-like sources. |
+| `src/wasm/examples/hello-package/assembly/` | 2 | 44 | AssemblyScript packaged example source is compiled with asc to WebAssembly as a plugin template; Bun LCOV cannot map wasm execution back to these TypeScript-like sources. |
 | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/` | 5 | 232 | AssemblyScript SDK source is compiled with asc to WebAssembly; Bun LCOV cannot map wasm execution back to these TypeScript-like sources. |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 42 | 82.1% | 70.8% | partial coverage |
-| 2 | medium | other | `src/wasm/examples/hello-package/assembly/index.ts` | 42 | 0.0% | n/a | absent from LCOV |
-| 3 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/peers-impl.ts` | 39 | 65.2% | 86.4% | partial coverage |
-| 4 | medium | other | `src/commands/plugins/pane/index.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 5 | medium | other | `src/commands/plugins/plugin/lock-cli.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 6 | critical | cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 34 | 37.0% | 100.0% | partial coverage |
-| 7 | medium | other | `src/lib/peers/duplicate-detect.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 8 | low | vendor plugins | `src/vendor/mpr-plugins/avengers/index.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/peers/discovered.ts` | 34 | 37.0% | 71.4% | partial coverage |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/peers/duplicate-detect.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 11 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-reincarnation.ts` | 34 | 46.0% | 75.0% | partial coverage |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 34 | 82.0% | 92.9% | partial coverage |
-| 13 | medium | other | `src/views/info.ts` | 34 | 0.0% | n/a | absent from LCOV |
-| 14 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 33 | 72.5% | 60.9% | partial coverage |
-| 15 | medium | other | `src/lib/peers/impl.ts` | 33 | 73.8% | 66.7% | partial coverage |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/index.ts` | 33 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/learn/index.ts` | 33 | 0.0% | n/a | absent from LCOV |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/about/index.ts` | 32 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/shellenv/src/index.ts` | 32 | 0.0% | n/a | absent from LCOV |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/bud/from-repo-seed.ts` | 31 | 0.0% | n/a | absent from LCOV |
+| 1 | low | vendor plugins | `src/vendor/mpr-plugins/view/impl.ts` | 34 | 82.0% | 92.9% | partial coverage |
+| 2 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 33 | 72.5% | 60.9% | partial coverage |
+| 3 | low | vendor plugins | `src/vendor/mpr-plugins/mega/index.ts` | 31 | 0.0% | n/a | absent from LCOV |
+| 4 | low | vendor plugins | `src/vendor/mpr-plugins/pair/codes.ts` | 31 | 18.4% | 30.0% | partial coverage |
+| 5 | medium | other | `src/engine/index.ts` | 30 | 63.9% | 58.8% | partial coverage |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/bud/impl.ts` | 30 | 73.2% | 100.0% | partial coverage |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 30 | 95.4% | 97.2% | partial coverage |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/init/write-config.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/locate/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 10 | low | vendor plugins | `src/vendor/mpr-plugins/run/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/send-enter/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/send-text/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/send/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/soul-sync/index.ts` | 30 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/broadcast/impl.ts` | 29 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/rename/src/impl.ts` | 29 | 0.0% | n/a | absent from LCOV |
+| 17 | medium | other | `src/api/workspace-storage.ts` | 28 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/archive/index.ts` | 28 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 28 | 89.1% | 88.9% | partial coverage |
+| 20 | critical | cli/dispatch | `src/commands/shared/audit.ts` | 27 | 6.9% | 0.0% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
@@ -105,6 +107,7 @@ Overall function coverage: **91.7%** (4236/4617)
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pane-target-resolver.ts` | 94.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-as.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 96.3% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 82.1% | 75.0% |
 | cli/dispatch | `src/commands/shared/plugin-create.ts` | 100.0% | 100.0% |
@@ -206,7 +209,6 @@ Overall function coverage: **91.7%** (4236/4617)
 
 | Module | File | Uncovered | Line coverage |
 | --- | --- | ---: | ---: |
-| cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 34 | 37.0% |
 | cli/dispatch | `src/commands/shared/audit.ts` | 27 | 6.9% |
 | fleet | `src/core/fleet/registry-oracle-orchestrate.ts` | 23 | 17.9% |
 | cli/dispatch | `src/cli/instance-preset.ts` | 21 | 16.0% |
@@ -216,10 +218,11 @@ Overall function coverage: **91.7%** (4236/4617)
 | cli/dispatch | `src/cli/error-handler.ts` | 11 | 0.0% |
 | fleet | `src/core/fleet/audit.ts` | 10 | 58.3% |
 | cli/dispatch | `src/cli/auto-restore.ts` | 8 | 75.0% |
+| cli/dispatch | `src/commands/shared/fleet-load.ts` | 8 | 60.0% |
 
 ## Critical gaps to prioritize
 
-- `src/commands/shared/plugin-create-cmd.ts` (cli/dispatch): 34 uncovered lines, 37.0% line coverage.
+- `src/commands/shared/audit.ts` (cli/dispatch): 27 uncovered lines, 6.9% line coverage.
 
 ## Prioritization guidance
 
@@ -233,4 +236,4 @@ Overall function coverage: **91.7%** (4236/4617)
 - Low-risk = vendor plugin surfaces and UI/cosmetic code where smoke/manual tests often provide better value than line-driven unit tests.
 - Bun DA entries are source-line-normalized to ignore comments, syntactic separators, and type-only declarations that cannot be exercised at runtime.
 - Files absent from LCOV are counted as zero-covered using the same source-line normalization so the report exposes untouched modules, not only imported files.
-- AssemblyScript SDK sources under `src/wasm/maw-plugin-sdk-assemblyscript/assembly/` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.
+- AssemblyScript sources under `src/wasm/maw-plugin-sdk-assemblyscript/assembly/` and `src/wasm/examples/*/assembly/` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.

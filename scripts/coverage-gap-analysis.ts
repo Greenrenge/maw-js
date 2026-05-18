@@ -17,6 +17,14 @@ const excludedSourceRoots = [
     root: "src/wasm/maw-plugin-sdk-assemblyscript/assembly/",
     reason: "AssemblyScript SDK source is compiled with asc to WebAssembly; Bun LCOV cannot map wasm execution back to these TypeScript-like sources.",
   },
+  {
+    root: "src/wasm/examples/hello-as/assembly/",
+    reason: "AssemblyScript example source is compiled with asc to WebAssembly as a plugin template; Bun LCOV cannot map wasm execution back to these TypeScript-like sources.",
+  },
+  {
+    root: "src/wasm/examples/hello-package/assembly/",
+    reason: "AssemblyScript packaged example source is compiled with asc to WebAssembly as a plugin template; Bun LCOV cannot map wasm execution back to these TypeScript-like sources.",
+  },
 ] as const;
 
 function relPath(file: string): string {
@@ -319,7 +327,7 @@ md.push(`- Critical = routing/aliases, CLI dispatch, transports, fleet, matcher,
 md.push(`- Low-risk = vendor plugin surfaces and UI/cosmetic code where smoke/manual tests often provide better value than line-driven unit tests.`);
 md.push(`- Bun DA entries are source-line-normalized to ignore comments, syntactic separators, and type-only declarations that cannot be exercised at runtime.
 - Files absent from LCOV are counted as zero-covered using the same source-line normalization so the report exposes untouched modules, not only imported files.`);
-md.push(`- AssemblyScript SDK sources under \`src/wasm/maw-plugin-sdk-assemblyscript/assembly/\` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.`);
+md.push(`- AssemblyScript sources under \`src/wasm/maw-plugin-sdk-assemblyscript/assembly/\` and \`src/wasm/examples/*/assembly/\` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.`);
 md.push("");
 
 mkdirSync(dirname(outPath), { recursive: true });

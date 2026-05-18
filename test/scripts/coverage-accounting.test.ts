@@ -10,6 +10,7 @@ const badgeScript = join(repoRoot, "scripts/coverage-badge.ts");
 
 function writeFixture(root: string): void {
   mkdirSync(join(root, "src/wasm/maw-plugin-sdk-assemblyscript/assembly"), { recursive: true });
+  mkdirSync(join(root, "src/wasm/examples/hello-package/assembly"), { recursive: true });
   mkdirSync(join(root, "coverage"), { recursive: true });
   mkdirSync(join(root, "docs/testing"), { recursive: true });
 
@@ -29,6 +30,10 @@ function writeFixture(root: string): void {
   writeFileSync(
     join(root, "src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts"),
     "export function wasmOnly(): i32 { return 1; }\n",
+  );
+  writeFileSync(
+    join(root, "src/wasm/examples/hello-package/assembly/index.ts"),
+    "export function templateOnly(): i32 { return 2; }\n",
   );
   writeFileSync(
     join(root, "coverage/lcov.info"),
@@ -73,9 +78,11 @@ describe("coverage accounting for non-Bun AssemblyScript sources", () => {
     expect(report).not.toContain("Overall line coverage: **14.3%** (1/7)");
     expect(report).toContain("Source handled outside Bun LCOV");
     expect(report).toContain("src/wasm/maw-plugin-sdk-assemblyscript/assembly/");
+    expect(report).toContain("src/wasm/examples/hello-package/assembly/");
     expect(report).toContain("asc-compiled WebAssembly");
     expect(report).toContain("`src/uncovered.ts`");
     expect(report).not.toContain("`src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts`");
+    expect(report).not.toContain("`src/wasm/examples/hello-package/assembly/index.ts`");
   });
 
   test("coverage badge uses the same Bun-runtime scope as the gap report", () => {
