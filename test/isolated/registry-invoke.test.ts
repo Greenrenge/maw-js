@@ -712,4 +712,22 @@ describe("invokePlugin — WASM handle result", () => {
     });
     expect(result).toEqual({ ok: true });
   });
+
+  test("timeout guard rejects stalled WASM execution", async () => {
+    const plug = writeWasmPlugin("timeout", WASM_HANDLE_ZERO);
+    const result = await invokePlugin(
+      plug,
+      { source: "cli", args: [] },
+      {
+        preCacheBridge: async () => new Promise<void>(() => {}),
+        setTimeout: ((callback: () => void) => {
+          callback();
+          return 0;
+        }) as unknown as typeof setTimeout,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("[wasm-safety] timed out after 5s");
+  });
 });

@@ -237,6 +237,22 @@ describe("curlFetch extra subprocess coverage", () => {
 
     expect(res).toEqual({ ok: false, status: 0, data: null });
   });
+
+  test("curlFetch fails closed when signing setup throws", async () => {
+    configStore = { federationToken: "test-token-16chars!" };
+
+    const logs: string[] = [];
+    const origError = console.error;
+    console.error = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+    try {
+      const res = await curlFetch("not a url", { method: "POST", body: "{}" });
+
+      expect(res).toEqual({ ok: false, status: 0, data: null });
+      expect(logs.join("\n")).toContain("[curl-fetch] signing failed for not a url");
+    } finally {
+      console.error = origError;
+    }
+  });
 });
 
 describe("curlFetch extra native coverage", () => {
@@ -247,6 +263,53 @@ describe("curlFetch extra native coverage", () => {
     const res = await curlFetch("http://peer.invalid/no-body");
 
     expect(res).toEqual({ ok: true, status: 204, data: null });
+  });
+
+  test("native transport rejects declared oversized responses before reading", async () => {
+    process.env.MAW_CURL_FETCH_TRANSPORT = "native";
+    let seenSignal: AbortSignal | undefined;
+    globalThis.fetch = (async (_url, init) => {
+      seenSignal = init?.signal as AbortSignal | undefined;
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-length": "5" },
+      });
+    }) as typeof fetch;
+
+    const res = await curlFetch("http://peer.invalid/declared-too-large", { maxBytes: 4 });
+
+    expect(res).toEqual({
+      ok: false,
+      status: 200,
+      data: { error: "body exceeded 4 bytes" },
+    });
+    expect(seenSignal?.aborted).toBe(true);
+  });
+
+  test("native transport cancels streaming responses that exceed the byte cap", async () => {
+    process.env.MAW_CURL_FETCH_TRANSPORT = "native";
+    let seenSignal: AbortSignal | undefined;
+    const chunks = [encode("1234"), encode("5")];
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk) controller.enqueue(chunk);
+        else controller.close();
+      },
+    });
+    globalThis.fetch = (async (_url, init) => {
+      seenSignal = init?.signal as AbortSignal | undefined;
+      return new Response(body, { status: 206 });
+    }) as typeof fetch;
+
+    const res = await curlFetch("http://peer.invalid/stream-too-large", { maxBytes: 4 });
+
+    expect(seenSignal?.aborted).toBe(true);
+    expect(res).toEqual({
+      ok: false,
+      status: 206,
+      data: { error: "body exceeded 4 bytes" },
+    });
   });
 
   test("native transport warns and returns false on invalid JSON", async () => {
