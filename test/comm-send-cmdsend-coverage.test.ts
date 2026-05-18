@@ -79,6 +79,7 @@ let oracleRegistry: { members: string[] } | null;
 let findOracleResult: any;
 let cmdWakeCalls: Array<{ oracle: string; opts: any }>;
 let scopes: any[];
+let aclError: Error | null;
 let aclDecision: "allow" | "queue";
 let savePendingCalls: any[];
 let trustAddCalls: Array<{ sender: string; target: string }>;
@@ -167,9 +168,14 @@ mock.module(join(import.meta.dir, "../src/commands/shared/wake-cmd"), () => ({
 
 mock.module(join(import.meta.dir, "../src/commands/shared/scope-acl"), () => ({
   ..._rScopeAcl,
-  loadAllScopes: () => mockActive ? scopes : realScopeAcl.loadAllScopes(),
+  loadAllScopes: () => {
+    if (!mockActive) return realScopeAcl.loadAllScopes();
+    if (aclError) throw aclError;
+    return scopes;
+  },
   evaluateAclFromDisk: () => {
     if (!mockActive) return realScopeAcl.evaluateAclFromDisk("", "");
+    if (aclError) throw aclError;
     return aclDecision;
   },
 }));
@@ -263,6 +269,7 @@ beforeEach(() => {
   findOracleResult = undefined;
   cmdWakeCalls = [];
   scopes = [];
+  aclError = null;
   aclDecision = "allow";
   savePendingCalls = [];
   trustAddCalls = [];
@@ -366,6 +373,21 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
   });
 
+  test("receiver inbox writer failures fall back to the normal local error path", async () => {
+    getPaneCommandReturn = "zsh";
+
+    await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
+      receiverInbox: () => {
+        throw new Error("inbox locked");
+      },
+    }));
+
+    expect(exitCode).toBe(1);
+    expect(sendKeysCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([]);
+    expect(errs.join("\n")).toContain("no active Claude session");
+  });
+
   test("--force bypasses pane command and idle checks", async () => {
     getPaneCommandReturn = "zsh";
     captureResponses = ["post-send"];
@@ -386,6 +408,27 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(sleepCalls).toContain(500);
     expect(sendKeysCalls).toEqual([]);
     expect(errs.join("\n")).toContain("pane session:oracle.0 is not idle");
+  });
+
+  test("idle guard queues to receiver inbox after retry when the pane stays busy", async () => {
+    captureResponses = ["❯ draft one", "❯ draft two"];
+
+    await runCmd(() => cmdSend("local:session:oracle", "queued while busy", false, {
+      receiverInbox: () => ({
+        ok: true,
+        oracle: "oracle",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/busy.md",
+        filename: "busy.md",
+      }),
+    }));
+
+    expect(exitCode).toBeUndefined();
+    expect(sleepCalls).toContain(500);
+    expect(sendKeysCalls).toEqual([]);
+    expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
+    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "pane not idle: draft two" });
+    expect(logs.join("\n")).toContain("busy.md");
   });
 
   test("peer delivery signs POST body, logs success, and emits peer lifecycle feed", async () => {
@@ -546,6 +589,23 @@ describe("cmdSend — prefix routers", () => {
     ]);
     expect(logs.join("\n")).toContain("fan-out complete: 2 delivered, 0 failed");
   });
+
+  test("team fan-out keeps iterating when one member send throws", async () => {
+    oracleMembers = ["ok-oracle", "bad-oracle"];
+    oracleRegistry = { members: ["ok-oracle", "bad-oracle"] };
+    resolveTargetHandler = (query) => {
+      if (query === "bad-oracle") throw new Error("boom");
+      return { type: "local", target: `session:${query}.0` };
+    };
+
+    await runCmd(() => cmdSend("team:squad", "hello"));
+
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "session:ok-oracle.0", text: "[test-node:sender] hello" }]);
+    expect(errs.join("\n")).toContain("bad-oracle: boom");
+    expect(logs.join("\n")).toContain("fan-out to 2 oracle(s) in team 'squad':");
+    expect(logs.join("\n")).toContain("fan-out complete: 1 delivered, 1 failed");
+  });
 });
 
 describe("cmdSend — bare-name, wake, and safety gates", () => {
@@ -577,6 +637,16 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("ambiguous");
     expect(errs.join("\n")).toContain("47-mawjs:oracle");
+  });
+
+  test("bare target ambiguity falls back to the query when no candidates are attached", async () => {
+    resolveTargetError = new _rFindWindow.AmbiguousMatchError("oracle", []);
+
+    await runCmd(() => cmdSend("oracle", "hello"));
+
+    expect(exitCode).toBe(1);
+    expect(errs.join("\n")).toContain("matches 1 local windows");
+    expect(errs.join("\n")).toContain("maw hey oracle");
   });
 
   test("local short-form hey auto-wakes fleet-known targets before resolving", async () => {
@@ -635,6 +705,17 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(logs.join("\n")).toContain("queued for approval");
   });
 
+  test("ACL evaluation errors warn and allow peer delivery", async () => {
+    resolveTargetReturn = { type: "peer", target: "receiver", node: "remote", peerUrl: "http://remote:3456" };
+    aclError = new Error("acl unreadable");
+
+    await runCmd(() => cmdSend("remote:session:receiver", "hello"));
+
+    expect(exitCode).toBeUndefined();
+    expect(errs.join("\n")).toContain("ACL evaluation failed (acl unreadable); allowing send");
+    expect(curlFetchCalls[0].url).toBe("http://remote:3456/api/send");
+  });
+
   test("--approve --trust records trust before peer delivery", async () => {
     resolveTargetReturn = { type: "peer", target: "receiver", node: "remote", peerUrl: "http://remote:3456" };
     curlFetchHandler = () => ({ ok: true, status: 200, data: { ok: true, target: "receiver.0" } });
@@ -669,5 +750,17 @@ describe("cmdSend — bare-name, wake, and safety gates", () => {
     expect(exitCode).toBe(42);
     expect(curlFetchCalls).toEqual([]);
     expect(errs.join("\n")).toContain("consent required");
+  });
+
+  test("consent gate denial without details uses the default failure exit", async () => {
+    resolveTargetReturn = { type: "peer", target: "receiver", node: "remote", peerUrl: "http://remote:3456" };
+    process.env.MAW_CONSENT = "1";
+    consentDecision = { allow: false };
+
+    await runCmd(() => cmdSend("remote:session:receiver", "hello"));
+
+    expect(exitCode).toBe(1);
+    expect(curlFetchCalls).toEqual([]);
+    expect(errs).toEqual([]);
   });
 });

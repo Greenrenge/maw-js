@@ -305,6 +305,24 @@ describe("wake-cmd dry-run and early branch coverage", () => {
     expect(plain(logs)).toContain("would reuse session: 48-foo");
   });
 
+  test("session map numeric names are used as-is for missing-session dry-runs", async () => {
+    sessionMap = { neo: "48-neo" };
+    shouldAutoWakeReturn = { wake: true, reason: "missing" };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("neo", { dryRun: true, noRehydrate: true }),
+    );
+
+    expect(result).toBe("neo:dry-run");
+    expect(plain(logs)).toContain("would create session '48-neo' (main: neo-oracle)");
+  });
+
+  test("snapshot id requests name the missing snapshot in the failure", async () => {
+    await expect(cmdWake("neo", { fromSnapshot: true, snapshotId: "wake-404", dryRun: true })).rejects.toThrow(
+      "snapshot not found: wake-404",
+    );
+  });
+
   test("snapshot requests fail loudly when no snapshot exists or the session is absent", async () => {
     await expect(cmdWake("neo", { fromSnapshot: true, dryRun: true })).rejects.toThrow(
       "no snapshot found",

@@ -24,6 +24,36 @@ class FakeTmux extends Tmux {
   }
 }
 
+class FakeSubmitTmux extends Tmux {
+  calls: string[] = [];
+  captureScript: string[] = [];
+  private captureIndex = 0;
+
+  constructor() {
+    super(undefined, "");
+  }
+
+  async exitModeIfNeeded(target: string): Promise<boolean> {
+    this.calls.push(`exitModeIfNeeded:${target}`);
+    return true;
+  }
+
+  async sendKeysLiteral(_target: string, text: string): Promise<void> {
+    this.calls.push(`sendKeysLiteral:${text}`);
+  }
+
+  async sendKeys(_target: string, ...keys: string[]): Promise<void> {
+    this.calls.push(`sendKeys:${keys.join(",")}`);
+  }
+
+  async capture(_target: string, lines = 80): Promise<string> {
+    this.calls.push(`capture:${lines}`);
+    const next = this.captureScript[this.captureIndex] ?? this.captureScript.at(-1) ?? "";
+    this.captureIndex++;
+    return next;
+  }
+}
+
 function byCommand(outputs: Record<string, string | Error>): RunHandler {
   return (subcommand, args) => {
     const key = [subcommand, ...args].join(" ");
@@ -163,6 +193,45 @@ describe("Tmux command wrapper coverage", () => {
       "set-environment -t s MAW_TEST 1",
       "set-option -t s status off",
       "set -t s status-style bg=colour235,fg=colour248",
+    ]);
+  });
+
+  test("capture delegates long scrollback requests through the tmux arg builder", async () => {
+    const t = new FakeTmux(byCommand({
+      "capture-pane -t s:logs.0 -e -p -S -120": "older output",
+    }));
+
+    expect(await t.capture("s:logs.0", 120)).toBe("older output");
+    expect(t.callStrings()).toEqual([
+      "capture-pane -t s:logs.0 -e -p -S -120",
+    ]);
+  });
+
+  test("sendText exits transient tmux mode, sends literal text, and stops after confirmed submit", async () => {
+    const t = new FakeSubmitTmux();
+    t.captureScript = [
+      "history\nagent$ pending",
+      "agent$ ",
+    ];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: TimerHandler, _ms?: number, ...args: unknown[]) => {
+      if (typeof fn === "function") fn(...args);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    try {
+      await t.sendText("s:main.0", "pending");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+
+    expect(t.calls).toEqual([
+      "exitModeIfNeeded:s:main.0",
+      "sendKeysLiteral:pending",
+      "sendKeys:Enter",
+      "capture:5",
+      "sendKeys:Enter",
+      "capture:5",
     ]);
   });
 

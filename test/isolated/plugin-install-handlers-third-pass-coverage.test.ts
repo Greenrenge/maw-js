@@ -5,7 +5,7 @@
  * routing and lock branches without network, real extraction, or operator dirs.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,7 +25,7 @@ type Manifest = {
 };
 
 type DownloadResult = { ok: true; path: string } | { ok: false; error: string };
-type ExtractPlan = { manifest?: Manifest | null; subpaths?: Record<string, Manifest | null> };
+type ExtractPlan = { ok?: boolean; error?: string; manifest?: Manifest | null; readManifestNull?: boolean; subpaths?: Record<string, Manifest | null> };
 type RecordInstallCall = { name: string; version: string; sha256: string; source: string; linked?: boolean };
 
 let tempRoot = "";
@@ -40,6 +40,10 @@ let recordInstallCalls: RecordInstallCall[] = [];
 let printCalls: unknown[][] = [];
 let lockPlugins: Record<string, { version: string; sha256: string; source: string; added: string }> = {};
 let pinnedHashOk = true;
+let sdkOk = true;
+let selfHashOk = true;
+let readLockError: Error | null = null;
+let readManifestThrows = new Set<string>();
 let latestReleaseStatus = 1;
 let latestReleaseStdout = "";
 
@@ -119,15 +123,18 @@ mock.module(registryPath, () => ({
   formatSdkMismatchError: (name: string, wanted: string, runtime: string) =>
     `sdk mismatch for ${name}: wanted ${wanted}, runtime ${runtime}`,
   runtimeSdkVersion: () => "1.0.0",
-  satisfies: () => true,
+  satisfies: () => sdkOk,
   hashFile: (path: string) => `sha256:${Buffer.from(path).toString("hex").slice(0, 64).padEnd(64, "0")}`,
 }));
 
 mock.module(extractionPath, () => ({
   extractTarball: (_tarballPath: string, staging: string) => {
     const plan = extractQueue.shift() ?? { manifest: defaultManifest() };
+    if (plan.ok === false) return { ok: false, error: plan.error ?? "extract failed" };
     if (Object.prototype.hasOwnProperty.call(plan, "manifest")) {
-      pluginRootByStaging.set(staging, plan.manifest === null ? null : createPluginDir(staging, "plugin", plan.manifest ?? defaultManifest()));
+      const root = plan.manifest === null ? null : createPluginDir(staging, "plugin", plan.manifest ?? defaultManifest());
+      if (root && plan.readManifestNull) manifestByDir.set(root, null);
+      pluginRootByStaging.set(staging, root);
     } else {
       pluginRootByStaging.set(staging, createPluginDir(staging, "plugin", defaultManifest()));
     }
@@ -142,7 +149,7 @@ mock.module(extractionPath, () => ({
     downloadCalls.push(url);
     return downloadQueue.shift() ?? { ok: false, error: `unexpected download: ${url}` };
   },
-  verifyArtifactHash: () => ({ ok: true }),
+  verifyArtifactHash: () => selfHashOk ? { ok: true } : { ok: false, error: "self hash failed" },
   verifyArtifactHashAgainst: () => pinnedHashOk ? { ok: true } : { ok: false, error: "pinned hash failed" },
   isSourcePluginManifest: (manifest: Manifest) =>
     typeof manifest.entry === "string" && (!manifest.artifact || manifest.artifact.sha256 === null),
@@ -151,12 +158,18 @@ mock.module(extractionPath, () => ({
 mock.module(manifestHelpersPath, () => ({
   findPluginRoot: (staging: string) => pluginRootByStaging.get(staging) ?? null,
   findMonorepoPluginRoot: (staging: string, subpath: string) => subpathRootByStaging.get(staging)?.get(subpath) ?? null,
-  readManifest: (dir: string) => manifestByDir.get(dir) ?? null,
+  readManifest: (dir: string) => {
+    if (readManifestThrows.has(dir)) throw new Error("manifest read exploded");
+    return manifestByDir.get(dir) ?? null;
+  },
   printInstallSuccess: (...args: unknown[]) => { printCalls.push(args); },
 }));
 
 mock.module(lockPath, () => ({
-  readLock: () => ({ schema: 1, updated: "now", plugins: lockPlugins }),
+  readLock: () => {
+    if (readLockError) throw readLockError;
+    return { schema: 1, updated: "now", plugins: lockPlugins };
+  },
   recordInstall: (input: RecordInstallCall) => {
     recordInstallCalls.push(input);
     lockPlugins[input.name] = { ...input, added: "now" };
@@ -169,7 +182,17 @@ mock.module("child_process", () => ({
 }));
 
 const handlers = await import("../../src/commands/plugins/plugin/install-handlers.ts?install-handlers-third-pass-coverage");
-const { installFromDir, installFromGithub, installFromTarball } = handlers;
+const {
+  ensurePluginMawJsLink,
+  githubBaseUrl,
+  installFromDir,
+  installFromGithub,
+  installFromMonorepo,
+  installFromTarball,
+  installFromUrl,
+  monorepoRepoSlug,
+  monorepoTarballUrl,
+} = handlers;
 
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "maw-install-handlers-third-"));
@@ -193,6 +216,10 @@ beforeEach(() => {
   printCalls = [];
   lockPlugins = {};
   pinnedHashOk = true;
+  sdkOk = true;
+  selfHashOk = true;
+  readLockError = null;
+  readManifestThrows = new Set();
   latestReleaseStatus = 1;
   latestReleaseStdout = "";
 });
@@ -203,6 +230,179 @@ afterEach(() => {
 });
 
 describe("install-handlers third-pass coverage", () => {
+  test("replace installs tolerate unreadable prior weight and tarball extraction failures clean staging", async () => {
+    const replaceSource = createPluginDir(tempRoot, "replace-source", { ...defaultManifest("replace-me"), weight: undefined });
+    const priorDest = createPluginDir(installDir, "replace-me", { ...defaultManifest("replace-me"), weight: 4 });
+    readManifestThrows.add(priorDest);
+
+    await installFromDir(replaceSource, { force: true });
+
+    expect(readManifestThrows.has(priorDest)).toBe(true);
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "replace-me", linked: true });
+    const overridesPath = join(installDir, ".overrides.json");
+    expect(JSON.parse(readFileSync(overridesPath, "utf8"))).toEqual({});
+
+    queueExtract({ ok: false, error: "extract boom" });
+    await expect(installFromTarball(makeTarball("extract-boom"), { source: "extract-boom" }))
+      .rejects.toThrow(/extract boom/);
+  });
+
+  test("maw-js link helper replaces stale symlinks and preserves real targets", () => {
+    const linkedSource = createPluginDir(tempRoot, "linked-source", defaultManifest("linked-source"));
+    const nodeModules = join(linkedSource, "node_modules");
+    const target = join(nodeModules, "maw-js");
+    const wrongRoot = join(tempRoot, "wrong-maw-js");
+    mkdirSync(wrongRoot, { recursive: true });
+    mkdirSync(nodeModules, { recursive: true });
+    symlinkSync(wrongRoot, target, "dir");
+
+    ensurePluginMawJsLink(linkedSource);
+
+    expect(readlinkSync(target)).toBe(process.env.MAW_JS_PATH);
+    ensurePluginMawJsLink(linkedSource);
+    expect(readlinkSync(target)).toBe(process.env.MAW_JS_PATH);
+
+    const realTargetSource = createPluginDir(tempRoot, "real-target-source", defaultManifest("real-target"));
+    const realTarget = join(realTargetSource, "node_modules", "maw-js");
+    mkdirSync(realTarget, { recursive: true });
+    ensurePluginMawJsLink(realTargetSource);
+    expect(lstatSync(realTarget).isDirectory()).toBe(true);
+    expect(lstatSync(realTarget).isSymbolicLink()).toBe(false);
+  });
+
+  test("dir installs report missing, non-directory, sdk mismatch, and existing real-directory conflicts", async () => {
+    await expect(installFromDir(join(tempRoot, "missing"))).rejects.toThrow(/source not found/);
+    const notDir = join(tempRoot, "not-dir");
+    writeFileSync(notDir, "plugin");
+    await expect(installFromDir(notDir)).rejects.toThrow(/not a directory/);
+
+    const sdkSource = createPluginDir(tempRoot, "sdk-source", { ...defaultManifest("sdk-dir"), sdk: ">=99" });
+    sdkOk = false;
+    await expect(installFromDir(sdkSource)).rejects.toThrow(/sdk mismatch for sdk-dir/);
+    sdkOk = true;
+
+    const conflictSource = createPluginDir(tempRoot, "conflict-source", defaultManifest("conflict-dir"));
+    mkdirSync(join(installDir, "conflict-dir"), { recursive: true });
+    await expect(installFromDir(conflictSource)).rejects.toThrow(/existing: .*conflict-dir .*real directory/);
+  });
+
+  test("tarball install reports guard failures before mutating installs", async () => {
+    await expect(installFromTarball(join(tempRoot, "missing.tgz"), { source: "missing" }))
+      .rejects.toThrow(/tarball not found/);
+
+    queueExtract({});
+    await expect(installFromTarball(makeTarball("missing-root"), { source: "missing-root", subpath: "plugins/none" }))
+      .rejects.toThrow(/no plugin\.json at subpath 'plugins\/none'/);
+
+    queueExtract({ manifest: null });
+    await expect(installFromTarball(makeTarball("missing-manifest"), { source: "missing-manifest" }))
+      .rejects.toThrow(/no plugin\.json at/);
+
+    queueExtract({ manifest: defaultManifest("unreadable"), readManifestNull: true });
+    await expect(installFromTarball(makeTarball("unreadable"), { source: "unreadable" }))
+      .rejects.toThrow(/failed to read plugin manifest/);
+
+    sdkOk = false;
+    queueExtract({ manifest: { ...defaultManifest("sdk-tarball"), sdk: ">=99" } });
+    await expect(installFromTarball(makeTarball("sdk-tarball"), { source: "sdk-tarball" }))
+      .rejects.toThrow(/sdk mismatch for sdk-tarball/);
+    sdkOk = true;
+
+    selfHashOk = false;
+    queueExtract({ manifest: defaultManifest("self-hash") });
+    await expect(installFromTarball(makeTarball("self-hash"), { source: "self-hash" }))
+      .rejects.toThrow(/self hash failed/);
+    selfHashOk = true;
+
+    readLockError = new Error("lock unreadable");
+    queueExtract({ manifest: defaultManifest("lock-fail") });
+    await expect(installFromTarball(makeTarball("lock-fail"), { source: "lock-fail" }))
+      .rejects.toThrow(/lock unreadable/);
+    readLockError = null;
+
+    lockPlugins["versioned"] = { version: "0.9.0", sha256: "sha256:" + "c".repeat(64), source: "old", added: "old" };
+    queueExtract({ manifest: defaultManifest("versioned") });
+    await expect(installFromTarball(makeTarball("versioned"), { source: "versioned" }))
+      .rejects.toThrow(/version mismatch/);
+
+    queueExtract({ manifest: defaultManifest("tar-conflict") });
+    mkdirSync(join(installDir, "tar-conflict"), { recursive: true });
+    await expect(installFromTarball(makeTarball("tar-conflict"), { source: "tar-conflict" }))
+      .rejects.toThrow(/existing: .*tar-conflict .*real directory/);
+
+    expect(recordInstallCalls).toEqual([]);
+  });
+
+  test("tarball install falls back when rename fails", async () => {
+    const fsModule = require("fs") as typeof import("node:fs");
+    const originalRename = fsModule.renameSync;
+    fsModule.renameSync = (() => { throw new Error("cross-device"); }) as typeof fsModule.renameSync;
+    try {
+      queueExtract({ manifest: defaultManifest("rename-fallback") });
+      await installFromTarball(makeTarball("rename-fallback"), { source: "rename-fallback", force: true });
+    } finally {
+      fsModule.renameSync = originalRename;
+    }
+
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "rename-fallback", source: "rename-fallback" });
+  });
+
+  test("url and monorepo installers route downloads and cleanup through tarball install", async () => {
+    await expect(installFromUrl("https://plugins.example/missing.tgz"))
+      .rejects.toThrow(/unexpected download/);
+
+    const urlTarball = makeTarball("url-success");
+    queueDownload({ ok: true, path: urlTarball });
+    queueExtract({ manifest: defaultManifest("url-success") });
+    await installFromUrl("https://plugins.example/url-success.tgz", { force: true, pin: true, weight: 5 });
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "url-success", source: "https://plugins.example/url-success.tgz" });
+    expect(printCalls.at(-1)?.[3]).toBe("from https://plugins.example/url-success.tgz");
+    expect(existsSync(join(urlTarball, ".."))).toBe(false);
+
+    process.env.MAW_MONOREPO_BASE_URL = "https://mono.example";
+    process.env.MAW_MONOREPO_REGISTRY_REPO = "fork/registry";
+    expect(monorepoRepoSlug()).toBe("fork/registry");
+    expect(monorepoTarballUrl("v7")).toBe("https://mono.example/fork/registry/archive/refs/tags/v7.tar.gz");
+
+    await expect(installFromMonorepo("plugins/missing", "v7"))
+      .rejects.toThrow(/unexpected download/);
+
+    const monorepoTarball = makeTarball("monorepo-success");
+    queueDownload({ ok: true, path: monorepoTarball });
+    queueExtract({ subpaths: { "plugins/tool": defaultManifest("monorepo-tool") } });
+    await installFromMonorepo("plugins/tool", "v7", { force: true });
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "monorepo-tool", source: "monorepo:plugins/tool@v7" });
+    expect(existsSync(join(monorepoTarball, ".."))).toBe(false);
+  });
+
+  test("github handler covers latest-release, default-branch fallback, and fetch failure paths", async () => {
+    process.env.MAW_GITHUB_BASE_URL = "https://gh.example";
+    expect(githubBaseUrl()).toBe("https://gh.example");
+
+    latestReleaseStatus = 0;
+    latestReleaseStdout = "v9.0.0\n";
+    const latestTarball = makeTarball("github-latest");
+    queueDownload({ ok: true, path: latestTarball });
+    queueExtract({ manifest: defaultManifest("github-latest") });
+    await installFromGithub({ owner: "owner", repo: "repo" }, { force: true });
+    expect(downloadCalls.at(-1)).toBe("https://gh.example/owner/repo/archive/refs/tags/v9.0.0.tar.gz");
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "github-latest", source: "github:owner/repo" });
+
+    latestReleaseStatus = 1;
+    latestReleaseStdout = "";
+    const headTarball = makeTarball("github-head");
+    queueDownload({ ok: true, path: headTarball });
+    queueExtract({ manifest: defaultManifest("github-head") });
+    await installFromGithub({ owner: "owner", repo: "repo" }, { force: true });
+    expect(downloadCalls.at(-1)).toBe("https://gh.example/owner/repo/archive/HEAD.tar.gz");
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "github-head", source: "github:owner/repo" });
+
+    queueDownload({ ok: false, error: "tag gone" });
+    queueDownload({ ok: false, error: "branch gone" });
+    await expect(installFromGithub({ owner: "owner", repo: "repo", ref: "dead" }))
+      .rejects.toThrow(/failed to fetch github archive.*branch gone.*refs\/tags\/dead.*refs\/heads\/dead/s);
+  });
+
   test("installFromDir stores explicit weight for a fresh link install with corrupt prior overrides", async () => {
     writeFileSync(join(installDir, ".overrides.json"), "{not json");
     const source = createPluginDir(tempRoot, "weighted-link", { ...defaultManifest("weighted-link"), weight: undefined });

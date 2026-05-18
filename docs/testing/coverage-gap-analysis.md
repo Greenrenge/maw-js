@@ -1,39 +1,39 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T11:06:21.123Z
+Generated: 2026-05-18T11:32:16.792Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **72.0%** (36704/50964)
-Overall function coverage: **90.1%** (3779/4194)
+Overall line coverage: **72.0%** (36727/50997)
+Overall function coverage: **90.2%** (3784/4197)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 6 | 82.4% (7018/8514) | 91.0% (697/766) | n/a (0/0) |
+| cli/dispatch | 91 | 6 | 82.4% (7041/8547) | 91.2% (701/769) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 79.4% (911/1148) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 2 | 0 | 73.6% (89/121) | 100.0% (15/15) | n/a (0/0) |
 | other | 181 | 40 | 76.2% (11145/14627) | 87.2% (1104/1266) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.3% (1084/1334) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (637/766) | 97.3% (71/73) | n/a (0/0) |
-| transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
+| transport | 28 | 1 | 80.4% (2365/2942) | 95.9% (420/438) | n/a (0/0) |
 | vendor plugins | 245 | 121 | 62.1% (12512/20141) | 90.4% (1211/1339) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
+| 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 97.5% | partial coverage |
 | 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 97.2% | partial coverage |
 | 3 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
 | 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 139 | 78.5% | 94.4% | partial coverage |
-| 5 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 120 | 72.6% | 100.0% | partial coverage |
-| 6 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 115 | 81.3% | 78.0% | partial coverage |
-| 7 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 113 | 75.5% | 78.3% | partial coverage |
+| 5 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 123 | 75.2% | 81.6% | partial coverage |
+| 6 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 120 | 72.6% | 100.0% | partial coverage |
+| 7 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 115 | 81.3% | 78.0% | partial coverage |
 | 8 | medium | other | `src/commands/plugins/tmux/impl.ts` | 112 | 83.2% | 70.6% | partial coverage |
 | 9 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
 | 10 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/memory.ts` | 96 | 0.0% | n/a | absent from LCOV |
@@ -164,7 +164,7 @@ Overall function coverage: **90.1%** (3779/4194)
 | --- | --- | ---: | ---: |
 | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% |
 | cli/dispatch | `src/commands/shared/comm-send.ts` | 139 | 78.5% |
-| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 113 | 75.5% |
+| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 123 | 75.2% |
 | cli/dispatch | `src/cli/cmd-update.ts` | 94 | 78.4% |
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
 | routing/aliases | `src/core/routing.ts` | 62 | 73.7% |
@@ -177,8 +177,8 @@ Overall function coverage: **90.1%** (3779/4194)
 
 - `src/core/transport/tmux-class.ts` (transport): 166 uncovered lines, 54.5% line coverage.
 - `src/commands/shared/comm-send.ts` (cli/dispatch): 139 uncovered lines, 78.5% line coverage.
+- `src/commands/shared/wake-resolve-impl.ts` (cli/dispatch): 123 uncovered lines, 75.2% line coverage.
 - `src/commands/shared/wake-cmd.ts` (cli/dispatch): 115 uncovered lines, 81.3% line coverage.
-- `src/commands/shared/wake-resolve-impl.ts` (cli/dispatch): 113 uncovered lines, 75.5% line coverage.
 - `src/cli/cmd-update.ts` (cli/dispatch): 94 uncovered lines, 78.4% line coverage.
 - `src/plugin/types.ts` (plugin dispatch): 86 uncovered lines, 0.0% line coverage.
 
