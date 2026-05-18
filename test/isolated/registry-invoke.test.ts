@@ -328,6 +328,21 @@ describe("invokePlugin — CLI -v/--version", () => {
     expect(result.output).toContain("x v1");
   });
 
+  test("dispatchable plugins without explicit cli surface report default-name cli", async () => {
+    const tsPath = writeMod(`export default async function() { return { ok: true }; }`);
+    const tsResult = await invokePlugin(makeTsPlugin(tsPath, { name: "shellenv" }), {
+      source: "cli",
+      args: ["-v"],
+    });
+    expect(tsResult.output).toContain("surfaces: cli:shellenv");
+
+    const wasmResult = await invokePlugin(writeWasmPlugin("bg", WASM_HANDLE_ZERO), {
+      source: "cli",
+      args: ["-v"],
+    });
+    expect(wasmResult.output).toContain("surfaces: cli:bg");
+  });
+
   test("-v only matches at args[0] — later -v does NOT trigger version", async () => {
     // args[0]="run", args[1]="-v" → version branch skipped, falls to WASM.
     // We give a missing wasm path so the WASM branch errors (not crash).
@@ -412,6 +427,23 @@ describe("invokePlugin — CLI -h/--help", () => {
     expect(result.output).toContain("m v1");
     expect(result.output).toContain("surfaces:");
     expect(result.output).toContain("dir: /d");
+  });
+
+  test("dispatchable plugins without cli metadata still show default-name help", async () => {
+    const tsPath = writeMod(`export default async function() { return { ok: true }; }`);
+    const tsResult = await invokePlugin(makeTsPlugin(tsPath, { name: "rename" }), {
+      source: "cli",
+      args: ["--help"],
+    });
+    expect(tsResult.output).toContain("usage: maw rename");
+    expect(tsResult.output).toContain("cli: maw rename");
+
+    const wasmResult = await invokePlugin(writeWasmPlugin("park", WASM_HANDLE_ZERO), {
+      source: "cli",
+      args: ["--help"],
+    });
+    expect(wasmResult.output).toContain("usage: maw park");
+    expect(wasmResult.output).toContain("cli: maw park");
   });
 
   test("#388.1 — --help anywhere in args triggers help (not just args[0])", async () => {

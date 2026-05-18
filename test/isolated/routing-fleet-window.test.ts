@@ -12,13 +12,14 @@ import type { MawConfig } from "../../src/config";
 import type { Session } from "../../src/core/runtime/find-window";
 
 let fleetSessions: Record<string, string | null> = {};
+let manifestEntries: Array<{ name: string; node?: string }> = [];
 
 mock.module(join(import.meta.dir, "../../src/commands/shared/wake"), () => ({
   resolveFleetSession: (oracle: string) => fleetSessions[oracle] ?? null,
 }));
 
 mock.module(join(import.meta.dir, "../../src/lib/oracle-manifest"), () => ({
-  loadManifestCached: () => [],
+  loadManifestCached: () => manifestEntries,
 }));
 
 const { resolveTarget } = await import("../../src/core/routing");
@@ -52,6 +53,7 @@ const MULTI_WINDOW_MAWJS: Session[] = [
 describe("resolveTarget — fleet window routing (#1565)", () => {
   beforeEach(() => {
     fleetSessions = { mawjs: "54-mawjs" };
+    manifestEntries = [];
   });
 
   test("self-node fleet alias prefers <query>-oracle over windows[0]", () => {
@@ -126,5 +128,84 @@ describe("resolveTarget — fleet window routing (#1565)", () => {
     ]);
 
     expect(r).toEqual({ type: "self-node", target: "54-mawjs:7" });
+  });
+});
+
+
+describe("resolveTarget — routing edge coverage", () => {
+  beforeEach(() => {
+    fleetSessions = {};
+    manifestEntries = [];
+  });
+
+  test("rejects empty queries and malformed node:agent syntax", () => {
+    expect(resolveTarget("", CONFIG, [])).toMatchObject({ type: "error", reason: "empty_query" });
+    expect(resolveTarget("m5:", CONFIG, [])).toMatchObject({ type: "error", reason: "empty_node_or_agent" });
+    expect(resolveTarget(":homekeeper", CONFIG, [])).toMatchObject({ type: "error", reason: "empty_node_or_agent" });
+  });
+
+  test("filters read-only view and remote-source sessions before local matching", () => {
+    const sessions: Array<Session & { source?: string }> = [
+      { name: "homekeeper-view", windows: [{ index: 1, name: "homekeeper-oracle", active: true }] },
+      { name: "remote-homekeeper", source: "peer", windows: [{ index: 2, name: "remote-oracle", active: true }] },
+    ];
+
+    expect(resolveTarget("homekeeper", CONFIG, sessions)).toMatchObject({ type: "error", reason: "not_found" });
+  });
+
+  test("routes explicit remote nodes and reports unknown node names", () => {
+    const config: MawConfig = {
+      ...CONFIG,
+      namedPeers: [{ name: "white", url: "http://white:3456" }],
+      peers: ["http://legacy-mba:3456"],
+    };
+
+    expect(resolveTarget("white:homekeeper", config, [])).toEqual({
+      type: "peer",
+      peerUrl: "http://white:3456",
+      target: "homekeeper",
+      node: "white",
+    });
+    expect(resolveTarget("legacy-mba:neo", config, [])).toEqual({
+      type: "peer",
+      peerUrl: "http://legacy-mba:3456",
+      target: "neo",
+      node: "legacy-mba",
+    });
+    expect(resolveTarget("missing:neo", config, [])).toMatchObject({ type: "error", reason: "unknown_node" });
+  });
+
+  test("manifest entries route to remote peers only when config has a peer URL", () => {
+    manifestEntries = [{ name: "calliope", node: "white" }];
+    const config: MawConfig = { ...CONFIG, namedPeers: [{ name: "white", url: "http://white:3456" }] };
+    expect(resolveTarget("calliope", config, [])).toEqual({
+      type: "peer",
+      peerUrl: "http://white:3456",
+      target: "calliope",
+      node: "white",
+    });
+
+    manifestEntries = [{ name: "calliope", node: "m5" }];
+    expect(resolveTarget("calliope", config, [])).toMatchObject({ type: "error", reason: "not_found" });
+
+    manifestEntries = [{ name: "calliope", node: "unmapped" }];
+    expect(resolveTarget("calliope", config, [])).toMatchObject({ type: "error", reason: "not_found" });
+  });
+
+  test("agents map handles self-node, peer, and missing peer URL branches", () => {
+    const config: MawConfig = {
+      ...CONFIG,
+      agents: { localbot: "m5", remotebot: "white", ghostbot: "missing" },
+      namedPeers: [{ name: "white", url: "http://white:3456" }],
+    };
+
+    expect(resolveTarget("localbot", config, [])).toMatchObject({ type: "error", reason: "self_not_running" });
+    expect(resolveTarget("remotebot", config, [])).toEqual({
+      type: "peer",
+      peerUrl: "http://white:3456",
+      target: "remotebot",
+      node: "white",
+    });
+    expect(resolveTarget("ghostbot", config, [])).toMatchObject({ type: "error", reason: "no_peer_url" });
   });
 });

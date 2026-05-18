@@ -1,6 +1,6 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T10:39:17.295Z
+Generated: 2026-05-18T10:51:10.764Z
 
 Input: `coverage/lcov.info`
 
