@@ -1,7 +1,7 @@
 import { readdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmux } from "maw-js/sdk";
-import { TEAMS_DIR, loadTeam, resolvePsi } from "./team-helpers";
+import { TEAMS_DIR, isTeamLeadOrphaned, loadTeam, resolvePsi } from "./team-helpers";
 import { findZombiePanes } from "./team-cleanup-zombies";
 
 // Re-export everything so index.ts and tests continue to import from "./impl"
@@ -80,7 +80,10 @@ export async function cmdTeamList() {
     const store = "tool".padEnd(7);
     const memberCount = String(teammates.length).padEnd(9);
     const idle = aliveMembers.filter(m => m.agentType !== "team-lead").length;
-    const status = aliveMembers.length > 0
+    const orphanedLead = isTeamLeadOrphaned(team);
+    const status = orphanedLead
+      ? `\x1b[33m⚠ orphaned (lead dead)\x1b[0m`.padEnd(26)
+      : aliveMembers.length > 0
       ? `\x1b[32m${idle} alive\x1b[0m`.padEnd(26)
       : `\x1b[90mno live panes\x1b[0m`.padEnd(26);
 

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFi
 import { join } from "path";
 import { tmux } from "maw-js/sdk";
 import { assertValidOracleName } from "maw-js/core/fleet/validate";
-import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, type TeamConfig, type TeamMember } from "./team-helpers";
+import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir, currentLeadSessionId, type TeamConfig, type TeamMember } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -141,6 +141,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
     createdAt: Date.now(),
     members: [] as string[],
     description: opts.description || "",
+    leadSessionId: currentLeadSessionId(),
   };
   writeFileSync(join(teamDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
@@ -153,6 +154,7 @@ export function cmdTeamCreate(name: string, opts: { description?: string } = {})
       description: opts.description || "",
       members: [],
       createdAt: Date.now(),
+      leadSessionId: currentLeadSessionId(),
     };
     writeFileSync(join(toolTeamDir, "config.json"), JSON.stringify(stubConfig, null, 2));
   }

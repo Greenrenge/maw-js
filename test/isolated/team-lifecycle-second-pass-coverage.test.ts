@@ -20,6 +20,7 @@ mock.module("maw-js/sdk", () => ({
 
 const helpers = await import("../../src/vendor/mpr-plugins/team/team-helpers");
 const lifecycle = await import("../../src/vendor/mpr-plugins/team/team-lifecycle");
+const reincarnation = await import("../../src/vendor/mpr-plugins/team/team-reincarnation");
 
 const original = {
   cwd: process.cwd(),
@@ -27,6 +28,7 @@ const original = {
   error: console.error,
   tmux: process.env.TMUX,
   tmuxPane: process.env.TMUX_PANE,
+  claudeSessionId: process.env.CLAUDE_SESSION_ID,
   setTimeout: globalThis.setTimeout,
   dateNow: Date.now,
 };
@@ -88,6 +90,8 @@ afterEach(() => {
   else process.env.TMUX = original.tmux;
   if (original.tmuxPane === undefined) delete process.env.TMUX_PANE;
   else process.env.TMUX_PANE = original.tmuxPane;
+  if (original.claudeSessionId === undefined) delete process.env.CLAUDE_SESSION_ID;
+  else process.env.CLAUDE_SESSION_ID = original.claudeSessionId;
   globalThis.setTimeout = original.setTimeout;
   Date.now = original.dateNow;
   helpers._setDirs(join(process.env.HOME || original.cwd, ".claude/teams"), join(process.env.HOME || original.cwd, ".claude/tasks"));
@@ -96,6 +100,50 @@ afterEach(() => {
 });
 
 describe("vendor team-lifecycle second-pass coverage", () => {
+  test("create snapshots the current lead session id for later orphan detection", () => {
+    process.env.CLAUDE_SESSION_ID = "lead-session-original";
+
+    lifecycle.cmdTeamCreate("claimable");
+
+    expect(readJson(join(teamsDir, "claimable/config.json")).leadSessionId).toBe("lead-session-original");
+    expect(readJson(join(root, "ψ/memory/mailbox/teams/claimable/manifest.json")).leadSessionId).toBe("lead-session-original");
+  });
+
+  test("resume auto-claims an orphaned tool-store team for the current lead session", () => {
+    process.env.CLAUDE_SESSION_ID = "new-lead-session-9999";
+    makeToolTeam("ops", [
+      { name: "lead", agentType: "team-lead", tmuxPaneId: "%0" },
+      { name: "volt", tmuxPaneId: "%1" },
+      { name: "odin", tmuxPaneId: "%2" },
+    ]);
+    const configPath = join(teamsDir, "ops/config.json");
+    const before = readJson(configPath);
+    writeJson(configPath, { ...before, leadSessionId: "old-lead-session-1234" });
+
+    reincarnation.cmdTeamResume("ops");
+
+    const updated = readJson(configPath);
+    expect(updated.leadSessionId).toBe("new-lead-session-9999");
+    expect(typeof updated.leadClaimedAt).toBe("number");
+    const output = logs.join("\n");
+    expect(output).toContain("claimed orphaned team 'ops'");
+    expect(output).toContain("old lead: old-lead");
+    expect(output).toContain("new lead: new-lea");
+    expect(output).toContain("teammates: 2 (volt, odin)");
+  });
+
+  test("resume reports already claimed teams without requiring an archived manifest", () => {
+    process.env.CLAUDE_SESSION_ID = "same-lead-session";
+    makeToolTeam("live", [{ name: "scout", tmuxPaneId: "%1" }]);
+    const configPath = join(teamsDir, "live/config.json");
+    writeJson(configPath, { ...readJson(configPath), leadSessionId: "same-lead-session" });
+
+    reincarnation.cmdTeamResume("live");
+
+    expect(readJson(configPath).leadSessionId).toBe("same-lead-session");
+    expect(logs.join("\n")).toContain("team 'live' already claimed by this lead session");
+  });
+
   test("merge handles missing inboxes/member dirs/manifests as a best-effort no-op per member", () => {
     lifecycle.mergeTeamKnowledge("ghost-team", [{ name: "scout" }, { name: "builder" }]);
 
