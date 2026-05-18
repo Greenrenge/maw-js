@@ -95,6 +95,11 @@ const execSyncFixture: NonNullable<ClaudeSessionDeps["execSync"]> = (cmd) => {
   const tailMatch = cmd.match(/^tail -100 '([^']+)'/);
   if (tailMatch) return readFileSync(tailMatch[1], "utf-8").split("\n").slice(-100).join("\n");
 
+  const lineCountMatch = cmd.match(/^awk 'END \{ print NR \}' '([^']+)'/);
+  if (lineCountMatch) {
+    return `${readFileSync(lineCountMatch[1], "utf-8").split("\n").filter(Boolean).length}\n`;
+  }
+
   throw new Error(`unexpected fixture exec: ${cmd}`);
 };
 
@@ -171,6 +176,7 @@ describe("Claude session discovery default-suite coverage", () => {
       status: "ended",
       lastUserMessage: userMessage.slice(0, 200),
       lastAssistantMessage: assistantMessage.slice(0, 200),
+      messageCount: 4,
     });
     expect(sessions[0].sizeBytes).toBeGreaterThan(0);
     expect(sessions[0].lastActivityAt).toMatch(/T/);
@@ -180,6 +186,7 @@ describe("Claude session discovery default-suite coverage", () => {
       worktree: null,
       lastUserMessage: null,
       lastAssistantMessage: null,
+      messageCount: 0,
     });
   });
 });

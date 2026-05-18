@@ -24,6 +24,7 @@ const _rWakeConcurrency =
   await import("../src/commands/shared/wake-concurrency");
 const _rFleetLeaf = await import("../src/core/fleet/leaf");
 const _rSnapshot = await import("../src/core/fleet/snapshot");
+const _rClaudeSessions = await import("../src/core/fleet/claude-sessions");
 const _rShouldAutoWake =
   await import("../src/commands/shared/should-auto-wake");
 const _rTeamEnsure = await import("../src/commands/plugins/team/ensure-config");
@@ -86,6 +87,9 @@ const realSnapshot = {
   latestSnapshot: _rSnapshot.latestSnapshot,
   loadSnapshot: _rSnapshot.loadSnapshot,
 };
+const realClaudeSessions = {
+  listClaudeSessions: _rClaudeSessions.listClaudeSessions,
+};
 const realShouldAutoWake = { shouldAutoWake: _rShouldAutoWake.shouldAutoWake };
 const realTeamEnsure = { ensureTeamConfig: _rTeamEnsure.ensureTeamConfig };
 
@@ -111,6 +115,23 @@ let fleetSession: string | null;
 let detectSessionReturn: string | null;
 let shouldWakeDecision: { wake: boolean; reason: string };
 let snapshotReturn: Snapshot | null;
+let claudeSessions: Array<{
+  sessionId: string;
+  projectPath: string;
+  repo: string | null;
+  worktree: { name: string; branch: string } | null;
+  pid: number | null;
+  ppid: number | null;
+  parentChain: string[];
+  tmuxTarget: string | null;
+  triggeredFrom: "maw-wake" | "tmux" | "desktop" | "cron" | "unknown";
+  status: "active" | "idle" | "ended";
+  lastActivityAt: string;
+  lastUserMessage: string | null;
+  lastAssistantMessage: string | null;
+  messageCount: number;
+  sizeBytes: number;
+}>;
 let config: any;
 let ensureTeamConfigReturn: boolean;
 let hasSessions: Set<string>;
@@ -470,6 +491,12 @@ mock.module(join(import.meta.dir, "../src/core/fleet/snapshot"), () => ({
     mockActive ? snapshotReturn : realSnapshot.loadSnapshot(id),
 }));
 
+mock.module(join(import.meta.dir, "../src/core/fleet/claude-sessions"), () => ({
+  ..._rClaudeSessions,
+  listClaudeSessions: () =>
+    mockActive ? Promise.resolve(claudeSessions as any) : realClaudeSessions.listClaudeSessions(),
+}));
+
 mock.module(
   join(import.meta.dir, "../src/commands/shared/should-auto-wake"),
   () => ({
@@ -516,6 +543,7 @@ beforeEach(() => {
   detectSessionReturn = "54-mawjs";
   shouldWakeDecision = { wake: false, reason: "already-live" };
   snapshotReturn = null;
+  claudeSessions = [];
   config = { node: "m5", agents: {} };
   ensureTeamConfigReturn = false;
   hasSessions = new Set(["54-mawjs"]);
@@ -568,14 +596,55 @@ describe("cmdWake main-suite coverage", () => {
   test("lists worktrees without detecting or mutating tmux", async () => {
     worktrees = [
       { name: "1-alpha", path: join(parentDir, `${repoName}.wt-1-alpha`) },
+      { name: "2-beta", path: join(parentDir, `${repoName}.wt-2-beta`) },
+    ];
+    claudeSessions = [
+      {
+        sessionId: "alpha-new",
+        projectPath: worktrees[0]!.path,
+        repo: null,
+        worktree: null,
+        pid: null,
+        ppid: null,
+        parentChain: [],
+        tmuxTarget: null,
+        triggeredFrom: "maw-wake",
+        status: "idle",
+        lastActivityAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        lastUserMessage: null,
+        lastAssistantMessage: null,
+        messageCount: 3,
+        sizeBytes: 300,
+      },
+      {
+        sessionId: "alpha-old",
+        projectPath: worktrees[0]!.path,
+        repo: null,
+        worktree: null,
+        pid: null,
+        ppid: null,
+        parentChain: [],
+        tmuxTarget: null,
+        triggeredFrom: "maw-wake",
+        status: "ended",
+        lastActivityAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+        lastUserMessage: null,
+        lastAssistantMessage: null,
+        messageCount: 7,
+        sizeBytes: 700,
+      },
     ];
 
     const { result, logs } = await captureLogs(() =>
       cmdWake("mawjs", { listWt: true }),
     );
+    const rendered = logs.join("\n");
 
     expect(result).toBe("mawjs:list");
-    expect(logs.join("\n")).toContain("Worktrees for mawjs");
+    expect(rendered).toContain("Worktrees for mawjs");
+    expect(rendered).toContain("1-alpha");
+    expect(rendered).toContain("idle · 10 msgs · last");
+    expect(rendered).toContain("2-beta");
     expect(detectSessionCalls).toHaveLength(0);
     expect(newSessionCalls).toHaveLength(0);
     expect(newWindowCalls).toHaveLength(0);

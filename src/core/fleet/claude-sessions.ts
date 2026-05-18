@@ -31,6 +31,7 @@ export interface ClaudeSession {
   lastActivityAt: string;
   lastUserMessage: string | null;
   lastAssistantMessage: string | null;
+  messageCount: number;
   sizeBytes: number;
 }
 
@@ -162,6 +163,18 @@ function extractLastMessages(
   return { lastUser, lastAssistant };
 }
 
+function countSessionMessages(filePath: string, exec: ExecSyncString): number {
+  try {
+    const raw = exec(`awk 'END { print NR }' '${filePath}' 2>/dev/null`, {
+      encoding: "utf-8", timeout: 2000, maxBuffer: 64 * 1024,
+    });
+    const count = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Main discovery ───────────────────────────────────────────────
 
 let sessionCache: { data: ClaudeSession[]; ts: number } | null = null;
@@ -219,6 +232,7 @@ export async function listClaudeSessions(deps: ClaudeSessionDeps = {}): Promise<
         ? `(tmux: ${projectPath.split("/").pop()})` : null;
 
       const { lastUser, lastAssistant } = extractLastMessages(filePath, exec);
+      const messageCount = countSessionMessages(filePath, exec);
 
       results.push({
         sessionId, projectPath,
@@ -230,6 +244,7 @@ export async function listClaudeSessions(deps: ClaudeSessionDeps = {}): Promise<
         lastActivityAt: new Date(mtimeMs).toISOString(),
         lastUserMessage: lastUser,
         lastAssistantMessage: lastAssistant,
+        messageCount,
         sizeBytes: st.size,
       });
     }

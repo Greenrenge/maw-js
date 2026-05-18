@@ -1,4 +1,5 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
+import { resolve } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
@@ -11,6 +12,7 @@ import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
+import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
 import {
   type RehydrateWorktreePlan,
   type SnapshotRestorePlan,
@@ -93,6 +95,59 @@ export function promptAmbiguousWorktreePick<T extends { name: string; path: stri
   const choice = Number(raw);
   if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
   return candidates[choice - 1]!;
+}
+
+type WorktreeSessionSummary = {
+  lastActivityAt: string;
+  messageCount: number;
+  status: ClaudeSession["status"];
+};
+
+function relativeAge(timestamp: string, now = Date.now()): string {
+  const ageMs = now - Date.parse(timestamp);
+  if (!Number.isFinite(ageMs) || ageMs < 0) return timestamp;
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+async function worktreeSessionSummaries(
+  worktrees: { name: string; path: string }[],
+): Promise<Map<string, WorktreeSessionSummary>> {
+  const summaries = new Map<string, WorktreeSessionSummary>();
+  let sessions: ClaudeSession[] = [];
+  try {
+    sessions = await listClaudeSessions();
+  } catch {
+    return summaries;
+  }
+  const wanted = new Map(worktrees.map(w => [resolve(w.path), w.name]));
+  const statusRank = { active: 0, idle: 1, ended: 2 } as const;
+  for (const session of sessions) {
+    const name = wanted.get(resolve(session.projectPath));
+    if (!name) continue;
+    const previous = summaries.get(name);
+    const nextTime = Date.parse(session.lastActivityAt);
+    const prevTime = previous ? Date.parse(previous.lastActivityAt) : Number.NEGATIVE_INFINITY;
+    summaries.set(name, {
+      lastActivityAt: nextTime >= prevTime ? session.lastActivityAt : previous!.lastActivityAt,
+      messageCount: (previous?.messageCount ?? 0) + session.messageCount,
+      status: previous
+        ? (statusRank[session.status] < statusRank[previous.status] ? session.status : previous.status)
+        : session.status,
+    });
+  }
+  return summaries;
+}
+
+function formatWorktreeSessionSummary(summary: WorktreeSessionSummary | undefined): string {
+  if (!summary) return "";
+  const messages = summary.messageCount === 1 ? "1 msg" : `${summary.messageCount} msgs`;
+  return `  \x1b[90m${summary.status} · ${messages} · last ${relativeAge(summary.lastActivityAt)}\x1b[0m`;
 }
 
 async function recordWakeSnapshot(): Promise<void> {
@@ -296,8 +351,12 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     const worktrees = await findWorktrees(parentDir, repoName);
     if (!worktrees.length) { console.log(`\x1b[90mNo worktrees for ${oracle}.\x1b[0m`); }
     else {
+      const sessionSummaries = await worktreeSessionSummaries(worktrees);
       console.log(`\n\x1b[36mWorktrees for ${oracle}\x1b[0m (${worktrees.length})\n`);
-      for (const wt of worktrees) console.log(`  \x1b[32m●\x1b[0m ${wt.name}  \x1b[90m${wt.path}\x1b[0m`);
+      for (const wt of worktrees) {
+        const summary = formatWorktreeSessionSummary(sessionSummaries.get(wt.name));
+        console.log(`  \x1b[32m●\x1b[0m ${wt.name}  \x1b[90m${wt.path}\x1b[0m${summary}`);
+      }
     }
     return `${oracle}:list`;
   }
