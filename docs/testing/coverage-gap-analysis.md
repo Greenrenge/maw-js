@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T20:27:59.247Z
+Generated: 2026-05-18T20:43:39.926Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **99.0%** (36848/37234)
-Overall function coverage: **95.8%** (4790/4999)
+Overall line coverage: **99.0%** (36851/37234)
+Overall function coverage: **96.1%** (4811/5004)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 99.3% (6298/6343) | 95.0% (757/797) | n/a (0/0) |
+| cli/dispatch | 91 | 0 | 99.3% (6300/6343) | 96.4% (772/801) | n/a (0/0) |
 | config/runtime | 19 | 0 | 99.3% (936/943) | 99.2% (132/133) | n/a (0/0) |
 | fleet | 17 | 0 | 99.0% (778/786) | 99.0% (102/103) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 11 | 99.0% (10239/10347) | 95.6% (1364/1427) | n/a (0/0) |
+| other | 172 | 11 | 99.0% (10239/10347) | 95.9% (1369/1428) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 99.8% (505/506) | 97.3% (73/75) | n/a (0/0) |
 | transport | 28 | 0 | 99.7% (1882/1888) | 97.5% (431/442) | n/a (0/0) |
-| vendor plugins | 245 | 4 | 98.7% (15232/15436) | 95.4% (1827/1915) | n/a (0/0) |
+| vendor plugins | 245 | 4 | 98.7% (15233/15436) | 95.5% (1828/1915) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -65,7 +65,7 @@ Overall function coverage: **95.8%** (4790/4999)
 | cli/dispatch | `src/cli/cmd-new.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/cmd-update.ts` | 100.0% | 95.0% |
 | cli/dispatch | `src/cli/cmd-version.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/cli/command-registry-execute.ts` | 100.0% | 83.3% |
+| cli/dispatch | `src/cli/command-registry-execute.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/command-registry-match.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/command-registry-types.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/command-registry-wasm.ts` | 100.0% | 100.0% |
@@ -77,7 +77,7 @@ Overall function coverage: **95.8%** (4790/4999)
 | cli/dispatch | `src/cli/instance-preset.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/parse-args.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/plugin-bootstrap.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/cli/update-lock.ts` | 100.0% | 71.4% |
+| cli/dispatch | `src/cli/update-lock.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/usage.ts` | 95.3% | 92.9% |
 | cli/dispatch | `src/cli/verbosity.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/wasm-bridge.ts` | 100.0% | 100.0% |
@@ -136,12 +136,12 @@ Overall function coverage: **95.8%** (4790/4999)
 | cli/dispatch | `src/commands/shared/transport.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/triggers.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 97.0% | 90.9% |
-| cli/dispatch | `src/commands/shared/wake-cmd.ts` | 99.3% | 81.4% |
+| cli/dispatch | `src/commands/shared/wake-cmd.ts` | 99.8% | 97.7% |
 | cli/dispatch | `src/commands/shared/wake-concurrency.ts` | 94.1% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-maybe-split.ts` | 98.4% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-pane-size.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-resolve-github.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 99.4% | 79.2% |
+| cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 99.4% | 82.7% |
 | cli/dispatch | `src/commands/shared/wake-resolve-scan-suggest.ts` | 97.4% | 88.9% |
 | cli/dispatch | `src/commands/shared/wake-resolve.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-session.ts` | 100.0% | 86.7% |

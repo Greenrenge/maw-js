@@ -25,6 +25,9 @@ const { cmdKill } = await import("../../src/vendor/mpr-plugins/kill/impl.ts?vend
 const { cmdShellenv, SUPPORTED_SHELLS } = await import(
   "../../src/vendor/mpr-plugins/shellenv/src/impl.ts?vendor-shellenv-token-kill-extra"
 );
+const { UserError: ShellenvUserError, isUserError: isShellenvUserError } = await import(
+  "../../src/vendor/mpr-plugins/shellenv/src/internal/user-error.ts?vendor-shellenv-token-kill-extra"
+);
 const { zshSnippet } = await import(
   "../../src/vendor/mpr-plugins/shellenv/src/snippets/zsh.ts?vendor-shellenv-token-kill-extra"
 );
@@ -215,6 +218,17 @@ describe("vendor kill implementation branch coverage", () => {
 });
 
 describe("shellenv implementation and zsh snippet coverage", () => {
+  test("inlined UserError guard accepts branded plugin errors and rejects impostors", () => {
+    const err = new ShellenvUserError("missing shell");
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("UserError");
+    expect(err.isUserError).toBe(true);
+    expect(isShellenvUserError(err)).toBe(true);
+    expect(isShellenvUserError(new Error("plain"))).toBe(false);
+    expect(isShellenvUserError({ isUserError: true })).toBe(false);
+  });
+
   test("prints help before validating shell and lists supported shells", async () => {
     const { logs } = await captureConsole(() => cmdShellenv(undefined, { help: true }));
 

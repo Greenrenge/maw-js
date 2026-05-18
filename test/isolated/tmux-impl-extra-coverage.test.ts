@@ -2,9 +2,15 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 
 const srcRoot = join(import.meta.dir, "../..");
+const mockHome = "/mock-home-extra";
+const teamsRoot = `${mockHome}/.claude/teams`;
 
 type Pane = { id: string; target: string; command?: string; title?: string; lastActivity?: number };
 
+let existingPaths: Set<string> = new Set();
+let dirEntries: Map<string, string[]> = new Map();
+let fileContents: Map<string, string> = new Map();
+let ttyInput = "1\n";
 let hostCalls: string[] = [];
 let hostFailures = new Map<string, Error>();
 let hostResponses = new Map<string, string>();
@@ -12,8 +18,29 @@ let panes: Pane[] = [];
 let fleetFiles: string[] = [];
 let fleetWindows: Record<string, string[]> = {};
 let ghqRepos: string[] = [];
+let ghqSyncThrows = false;
 let worktrees: any[] = [];
 let tmuxCaptures = new Map<string, string>();
+
+mock.module("os", () => ({
+  homedir: () => mockHome,
+}));
+
+mock.module("fs", () => ({
+  existsSync: (path: string) => existingPaths.has(path),
+  readdirSync: (path: string) => dirEntries.get(path) ?? [],
+  readFileSync: (path: string) => {
+    const text = fileContents.get(path);
+    if (text === undefined) throw new Error(`missing fixture: ${path}`);
+    return text;
+  },
+  openSync: () => 42,
+  readSync: (_fd: number, buffer: Buffer) => {
+    buffer.write(ttyInput);
+    return Buffer.byteLength(ttyInput);
+  },
+  closeSync: () => undefined,
+}));
 
 mock.module(join(srcRoot, "src/sdk"), () => ({
   hostExec: async (cmd: string) => {
@@ -53,7 +80,10 @@ mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
 
 mock.module(join(srcRoot, "src/core/ghq"), () => ({
   ghqList: async () => ghqRepos,
-  ghqListSync: () => ghqRepos,
+  ghqListSync: () => {
+    if (ghqSyncThrows) throw new Error("ghq unavailable");
+    return ghqRepos;
+  },
 }));
 
 mock.module(join(srcRoot, "src/core/fleet/worktrees-scan"), () => ({
@@ -101,6 +131,10 @@ async function capture(fn: () => void | Promise<void>) {
 }
 
 beforeEach(() => {
+  existingPaths = new Set();
+  dirEntries = new Map();
+  fileContents = new Map();
+  ttyInput = "1\n";
   hostCalls = [];
   hostFailures = new Map();
   hostResponses = new Map();
@@ -108,6 +142,7 @@ beforeEach(() => {
   fleetFiles = [];
   fleetWindows = {};
   ghqRepos = [];
+  ghqSyncThrows = false;
   worktrees = [];
   tmuxCaptures = new Map();
   _sendTracker.clear();
@@ -133,6 +168,48 @@ afterEach(() => {
 });
 
 describe("tmux impl extra coverage", () => {
+  test("real tty helpers and resolver direct/team/exact/live branches run in one isolated process", () => {
+    expect(typeof impl._tty.isStdoutTTY()).toBe("boolean");
+
+    expect(resolveTmuxTarget("%123")).toEqual({ resolved: "%123", source: "pane-id" });
+    expect(resolveTmuxTarget("alpha:2.3")).toEqual({ resolved: "alpha:2.3", source: "session:w.p" });
+
+    existingPaths.add(teamsRoot);
+    dirEntries.set(teamsRoot, ["blue-team", "broken-team"]);
+    existingPaths.add(`${teamsRoot}/blue-team/config.json`);
+    existingPaths.add(`${teamsRoot}/broken-team/config.json`);
+    fileContents.set(`${teamsRoot}/blue-team/config.json`, JSON.stringify({
+      members: [
+        { name: "ignored", tmuxPaneId: "in-process" },
+        { name: "scout", tmuxPaneId: "%77" },
+      ],
+    }));
+    fileContents.set(`${teamsRoot}/broken-team/config.json`, "{not json");
+    expect(resolveTmuxTarget("scout")).toEqual({ resolved: "%77", source: "team-agent (blue-team)" });
+    expect(resolveTmuxTarget("ghost")).toEqual({ resolved: "ghost", source: "session-name" });
+
+    existingPaths.clear();
+    fleetFiles = ["22-alpha.json", "41-beta-worker.json"];
+    expect(resolveTmuxTarget("22-alpha")).toEqual({ resolved: "22-alpha", source: "fleet-stem (22-alpha)" });
+    expect(resolveTmuxTarget("worker")).toEqual({ resolved: "41-beta-worker", source: "fleet-stem (41-beta-worker)" });
+
+    fleetFiles = [];
+    (Bun as any).spawnSync = (args: unknown[]) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return {
+          exitCode: 0,
+          stdout: new TextEncoder().encode("live-alpha\n33-live-beta\n"),
+          stderr: new Uint8Array(),
+          success: true,
+        };
+      }
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    };
+    expect(resolveTmuxTarget("live-alpha")).toEqual({ resolved: "live-alpha", source: "live-session (live-alpha)" });
+    expect(resolveTmuxTarget("nomatch")).toEqual({ resolved: "nomatch", source: "session-name" });
+    expect(resolveTmuxTarget("beta")).toEqual({ resolved: "33-live-beta", source: "live-session (33-live-beta)" });
+  });
+
   test("resolveTmuxTarget accepts unique same-word numbered fleet shorthand (#1794)", () => {
     fleetFiles = ["20-homekeeper.json"];
     expect(resolveTmuxTarget("homeke")).toEqual({
@@ -207,6 +284,7 @@ describe("tmux impl extra coverage", () => {
       { mainRepo: "/opt/Code/current-session", name: "current-session.wt-1-scout", status: "active" },
       { mainRepo: "/opt/Code/current-session", name: "current-session.wt-2-old", status: "stale" },
     ];
+    tmuxCaptures.set("current-session:0.0", "Context limit reached. /compact or /clear to continue.");
     ghqRepos = [
       "/opt/Code/github.com/Soul-Brews-Studio/current-session-oracle",
       "/opt/Code/github.com/Soul-Brews-Studio/sleepy-oracle",
@@ -264,7 +342,7 @@ describe("tmux impl extra coverage", () => {
     const now = Math.floor(Date.now() / 1000);
     panes = [
       { id: "%1", target: "newest:0.0", command: "node", title: "new", lastActivity: now - 10 },
-      { id: "%2", target: "middle:0.0", command: "zsh", title: "middle", lastActivity: now - 120 },
+      { id: "%2", target: "middle:0.0", command: "zsh", title: "middle", lastActivity: now - 600 },
       { id: "%3", target: "oldest:0.0", command: "fish", title: "old", lastActivity: now - 600 },
       { id: "%4", target: "bridge-oracle-discord:0.0", command: "claude", title: "channel", lastActivity: now - 1 },
     ];
@@ -297,6 +375,24 @@ describe("tmux impl extra coverage", () => {
     ]);
   });
 
+  test("ls reads team configs for pane annotations in the listing path", async () => {
+    existingPaths.add(teamsRoot);
+    existingPaths.add(`${teamsRoot}/ops/config.json`);
+    dirEntries.set(teamsRoot, ["ops"]);
+    fileContents.set(`${teamsRoot}/ops/config.json`, JSON.stringify({
+      members: [
+        { name: "lead", tmuxPaneId: "%44" },
+        { name: "local", tmuxPaneId: "in-process" },
+      ],
+    }));
+    panes = [
+      { id: "%44", target: "ops-session:0.0", command: "zsh", title: "ops", lastActivity: Math.floor(Date.now() / 1000) },
+    ];
+
+    const { logs } = await capture(() => cmdTmuxLs({ all: true, json: true }));
+    expect(JSON.parse(logs)[0].annotation).toBe("team: lead @ ops");
+  });
+
   test("tmux helpers format sessions, parse creation times, annotate panes, and dedupe similar oracles", () => {
     expect(parseSessionCreatedList("alpha\t123\nbad\t0\nmissing\nbeta\t456\n")).toEqual(new Map([["alpha", 123], ["beta", 456]]));
     expect(formatSessionCreated()).toBe("—");
@@ -315,14 +411,29 @@ describe("tmux impl extra coverage", () => {
   });
 
   test("peek wraps capture-pane failures with target source", async () => {
+    const ok = await capture(() => cmdTmuxPeek("%8", { lines: 4 }));
+    expect(ok.logs).toContain("%8 → %8 [pane-id]");
+    expect(ok.logs).toContain("captured");
+
     hostFailures.set("capture-pane", new Error("pane gone"));
 
     await expect(cmdTmuxPeek("%9")).rejects.toThrow("tmux capture-pane failed for '%9' (from pane-id): pane gone");
   });
 
-  test("send validates command, destructive commands, pane lookup failures, quota, and send failures", async () => {
+  test("send validates command, destructive commands, cooldown, claude panes, lookup failures, quota, and send failures", async () => {
     await expect(cmdTmuxSend("%9", "")).rejects.toThrow("usage: maw tmux send");
     await expect(cmdTmuxSend("%9", "rm -rf /tmp/nope")).rejects.toThrow("refusing to send: command matches destructive patterns");
+    _sendTracker.clear();
+
+    Date.now = () => 500_000;
+    _sendTracker.set("%9", { lastTs: 499_900, count: 1, windowStart: 499_000 });
+    const cooldown = await capture(() => cmdTmuxSend("%9", "echo soon"));
+    expect(cooldown.warnings).toContain("cooldown (500ms)");
+    _sendTracker.clear();
+
+    hostResponses.set("pane_current_command", "claude\n");
+    await expect(cmdTmuxSend("%9", "echo hi")).rejects.toThrow("refusing to send: pane '%9' is running 'claude'");
+    hostResponses.clear();
     _sendTracker.clear();
 
     hostFailures.set("pane_current_command", new Error("no pane"));
@@ -352,15 +463,21 @@ describe("tmux impl extra coverage", () => {
   });
 
   test("split and layout wrap hostExec failures", async () => {
+    await expect(cmdTmuxSplit("%9", { pct: 0 })).rejects.toThrow("--pct must be 1-99");
     hostFailures.set("split-window", new Error("split denied"));
     await expect(cmdTmuxSplit("%9")).rejects.toThrow("split-window failed for '%9' (from pane-id): split denied");
 
     hostFailures.clear();
+    await expect(cmdTmuxLayout("%9", "stacked")).rejects.toThrow("invalid layout 'stacked'");
     hostFailures.set("select-layout", new Error("layout denied"));
     await expect(cmdTmuxLayout("demo:1.2", "tiled")).rejects.toThrow("select-layout failed for 'demo:1' (from session:w.p): layout denied");
   });
 
-  test("kill resolves pane aliases, reports ambiguous aliases, and wraps kill failures", async () => {
+  test("kill resolves pane aliases, reports ambiguous aliases, protects fleet sessions, and wraps kill failures", async () => {
+    fleetFiles = ["42-live-oracle.json"];
+    await expect(cmdTmuxKill("42-live-oracle")).rejects.toThrow("refusing to kill: session '42-live-oracle' is fleet or view");
+    fleetFiles = [];
+
     hostResponses.set("list-panes -a -F", "%101|||scratch:0.0|||worker|||tile-a|||/tmp/repo.wt-1-scout\n");
     const ok = await capture(() => cmdTmuxKill("scout"));
     expect(hostCalls).toContain("tmux kill-pane -t '%101'");
@@ -398,5 +515,113 @@ describe("tmux impl extra coverage", () => {
     expect(logs.join("\n")).toContain("auto-selecting");
     expect(spawnCalls).toEqual([{ args: ["maw", "wake", "Soul-Brews-Studio/pulse-oracle", "-a"], opts: { stdio: ["inherit", "inherit", "inherit"] } }]);
     expect(exits).toEqual([7]);
+  });
+
+  test("attach covers print, live attach/switch, stale fleet recovery, and interactive recovery choices", () => {
+    const logs: string[] = [];
+    const exits: number[] = [];
+    const spawnCalls: unknown[] = [];
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    (process as any).exit = (code?: number) => { exits.push(code ?? 0); throw new Error(`exit:${code ?? 0}`); };
+    (Bun as any).spawnSync = (args: unknown[], opts?: unknown) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return {
+          exitCode: 0,
+          stdout: new TextEncoder().encode("alpha\n"),
+          stderr: new Uint8Array(),
+          success: true,
+        };
+      }
+      spawnCalls.push({ args, opts });
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    };
+
+    impl._tty.isStdoutTTY = () => false;
+    impl.cmdTmuxAttach("alpha", { print: true });
+    expect(logs.join("\n")).toContain("tmux attach -t alpha");
+
+    logs.length = 0;
+    impl._tty.isStdoutTTY = () => true;
+    impl.cmdTmuxAttach("alpha");
+    process.env.TMUX = "/tmp/tmux,1,0";
+    impl.cmdTmuxAttach("alpha");
+    expect(spawnCalls).toContainEqual({ args: ["tmux", "attach", "-t", "alpha"], opts: { stdio: ["inherit", "inherit", "inherit"] } });
+    expect(spawnCalls).toContainEqual({ args: ["tmux", "switch-client", "-t", "alpha"], opts: { stdio: ["inherit", "inherit", "inherit"] } });
+
+    delete process.env.TMUX;
+    fleetFiles = ["44-sleeping.json"];
+    fleetWindows = { "44-sleeping.json": ["sleeping-oracle"] };
+    ghqRepos = ["/opt/Code/github.com/Org/sleeping-oracle"];
+    (Bun as any).spawnSync = (args: unknown[], opts?: unknown) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return { exitCode: 0, stdout: new TextEncoder().encode(""), stderr: new Uint8Array(), success: true };
+      }
+      spawnCalls.push({ args, opts });
+      return { exitCode: 3, stdout: new Uint8Array(), stderr: new Uint8Array(), success: false };
+    };
+    expect(() => impl.cmdTmuxAttach("44-sleeping")).toThrow("exit:3");
+    expect(logs.join("\n")).toContain("sleeping-oracle (cloned)");
+
+    logs.length = 0;
+    exits.length = 0;
+    ghqRepos = [
+      "/opt/Code/github.com/Soul-Brews-Studio/pulse-oracle",
+      "/opt/Code/github.com/Soul-Brews-Studio/pulse-helper-oracle",
+    ];
+    impl._tty.isStdoutTTY = () => false;
+    expect(() => impl.cmdTmuxAttach("pulse")).toThrow("exit:1");
+    expect(logs.join("\n")).toContain("pulse-oracle");
+    expect(logs.join("\n")).toContain("pulse-helper-oracle");
+
+    logs.length = 0;
+    exits.length = 0;
+    impl._tty.isStdoutTTY = () => true;
+    impl._tty.readChoice = () => 2;
+    (Bun as any).spawnSync = (args: unknown[], opts?: unknown) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return { exitCode: 0, stdout: new TextEncoder().encode(""), stderr: new Uint8Array(), success: true };
+      }
+      spawnCalls.push({ args, opts });
+      return { exitCode: 4, stdout: new Uint8Array(), stderr: new Uint8Array(), success: false };
+    };
+    expect(() => impl.cmdTmuxAttach("pulse")).toThrow("exit:4");
+    expect(logs.join("\n")).toContain("Wake which oracle?");
+    expect(logs.join("\n")).toContain("maw wake Soul-Brews-Studio/pulse-helper-oracle -a");
+
+    logs.length = 0;
+    exits.length = 0;
+    impl._tty.readChoice = () => null;
+    expect(() => impl.cmdTmuxAttach("pulse")).toThrow("exit:1");
+    expect(exits).toEqual([1]);
+
+    logs.length = 0;
+    exits.length = 0;
+    ghqRepos = [];
+    expect(() => impl.cmdTmuxAttach("missing")).toThrow("exit:1");
+    expect(logs.join("\n")).toContain("No session matches 'missing'");
+
+    logs.length = 0;
+    exits.length = 0;
+    fleetFiles = ["55-stale.json"];
+    fleetWindows = { "55-stale.json": ["stale-oracle"] };
+    ghqSyncThrows = true;
+    expect(() => impl.cmdTmuxAttach("55-stale")).toThrow("exit:4");
+    expect(logs.join("\n")).toContain("stale-oracle (not cloned)");
+
+    logs.length = 0;
+    exits.length = 0;
+    fleetFiles = [];
+    ghqSyncThrows = false;
+    ghqRepos = [];
+    impl._tty.isStdoutTTY = () => true;
+    (Bun as any).spawnSync = (args: unknown[], opts?: unknown) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return { exitCode: 0, stdout: new TextEncoder().encode("alpha\n"), stderr: new Uint8Array(), success: true };
+      }
+      spawnCalls.push({ args, opts });
+      return { exitCode: 5, stdout: new Uint8Array(), stderr: new Uint8Array(), success: false };
+    };
+    expect(() => impl.cmdTmuxAttach("alpha")).toThrow("exit:1");
+    expect(logs.join("\n")).toContain("alpha matched but not running");
   });
 });
