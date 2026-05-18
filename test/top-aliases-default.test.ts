@@ -115,6 +115,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: true,
       json: true,
+      channels: true,
       recent: true,
       recentLimit: 12,
     });

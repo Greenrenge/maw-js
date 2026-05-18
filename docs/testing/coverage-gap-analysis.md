@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T14:22:48.180Z
+Generated: 2026-05-18T14:43:36.376Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **92.7%** (34488/37199)
-Overall function coverage: **92.1%** (4376/4750)
+Overall line coverage: **93.7%** (34885/37229)
+Overall function coverage: **92.6%** (4436/4793)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 91 | 3 | 96.2% (6074/6317) | 92.1% (721/783) | n/a (0/0) |
-| config/runtime | 19 | 1 | 91.2% (856/939) | 90.0% (108/120) | n/a (0/0) |
+| config/runtime | 19 | 1 | 93.5% (881/942) | 93.4% (114/122) | n/a (0/0) |
 | fleet | 17 | 0 | 93.1% (730/784) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 24 | 92.3% (9532/10326) | 89.9% (1218/1355) | n/a (0/0) |
+| other | 172 | 23 | 94.0% (9724/10346) | 90.8% (1251/1377) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 98.6% (492/499) | 97.3% (71/73) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 98.6% (499/506) | 97.3% (72/74) | n/a (0/0) |
 | transport | 28 | 1 | 98.3% (1856/1888) | 95.9% (420/438) | n/a (0/0) |
-| vendor plugins | 245 | 41 | 90.4% (13970/15461) | 92.5% (1640/1773) | n/a (0/0) |
+| vendor plugins | 245 | 37 | 91.5% (14143/15461) | 92.7% (1660/1791) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -37,25 +37,25 @@ Overall function coverage: **92.1%** (4376/4750)
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 30 | 95.4% | 97.2% | partial coverage |
-| 2 | low | vendor plugins | `src/vendor/mpr-plugins/team/index.ts` | 28 | 89.1% | 88.9% | partial coverage |
-| 3 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 27 | 77.7% | 69.6% | partial coverage |
-| 4 | medium | other | `src/engine/capture.ts` | 27 | 53.4% | 92.3% | partial coverage |
-| 5 | low | vendor plugins | `src/vendor/mpr-plugins/assign/index.ts` | 27 | 0.0% | n/a | absent from LCOV |
-| 6 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/team-helpers.ts` | 27 | 37.2% | 33.3% | partial coverage |
-| 7 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/index.ts` | 27 | 0.0% | n/a | absent from LCOV |
-| 8 | medium | other | `src/commands/plugins/plugin/build-impl.ts` | 26 | 80.3% | 62.5% | partial coverage |
-| 9 | medium | other | `src/commands/plugins/team/inbox.ts` | 26 | 49.0% | 33.3% | partial coverage |
-| 10 | medium | config/runtime | `src/core/runtime/hooks.ts` | 26 | 21.2% | 0.0% | partial coverage |
-| 11 | medium | other | `src/commands/plugins/oracle/impl-helpers.ts` | 25 | 34.2% | 50.0% | partial coverage |
-| 12 | medium | other | `src/commands/plugins/team/index.ts` | 25 | 93.8% | 78.9% | partial coverage |
-| 13 | medium | other | `src/commands/plugins/team/layout-snapshot.ts` | 25 | 0.0% | n/a | absent from LCOV |
-| 14 | medium | other | `src/lib/peers/lock.ts` | 25 | 43.2% | 33.3% | partial coverage |
-| 15 | medium | other | `src/lib/peers/tofu.ts` | 25 | 67.5% | 50.0% | partial coverage |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/assign/impl.ts` | 25 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/bud/internal/lock.ts` | 25 | 43.2% | 33.3% | partial coverage |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/lock.ts` | 25 | 43.2% | 33.3% | partial coverage |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/lock.ts` | 25 | 43.2% | 33.3% | partial coverage |
-| 20 | low | vendor plugins | `src/vendor/mpr-plugins/park/src/index.ts` | 25 | 0.0% | n/a | absent from LCOV |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/team-helpers.ts` | 27 | 37.2% | 33.3% | partial coverage |
+| 3 | low | vendor plugins | `src/vendor/mpr-plugins/peers/lock.ts` | 25 | 43.2% | 33.3% | partial coverage |
+| 4 | low | vendor plugins | `src/vendor/mpr-plugins/talk-to/index.ts` | 25 | 0.0% | n/a | absent from LCOV |
+| 5 | medium | other | `src/api/workspace-auth.ts` | 24 | 0.0% | n/a | absent from LCOV |
+| 6 | low | vendor plugins | `src/vendor/mpr-plugins/find/index.ts` | 24 | 0.0% | n/a | absent from LCOV |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/rename/src/index.ts` | 24 | 0.0% | n/a | absent from LCOV |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/workon/index.ts` | 24 | 0.0% | n/a | absent from LCOV |
+| 9 | low | vendor plugins | `src/vendor/mpr-plugins/zoom/impl.ts` | 24 | 44.2% | 100.0% | partial coverage |
+| 10 | critical | cli/dispatch | `src/cli/plugin-bootstrap.ts` | 23 | 81.7% | 100.0% | partial coverage |
+| 11 | critical | fleet | `src/core/fleet/registry-oracle-orchestrate.ts` | 23 | 17.9% | 0.0% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/check/index.ts` | 23 | 0.0% | n/a | absent from LCOV |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/cleanup/internal/team-cleanup-zombies.ts` | 23 | 73.3% | 88.9% | partial coverage |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/pair/handshake.ts` | 23 | 0.0% | n/a | absent from LCOV |
+| 15 | medium | other | `src/commands/plugins/plugin/install-impl.ts` | 22 | 61.4% | 100.0% | partial coverage |
+| 16 | medium | other | `src/core/server.ts` | 22 | 87.4% | 68.2% | partial coverage |
+| 17 | medium | other | `src/lib/sync-dir.ts` | 22 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/broadcast/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/completions/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/overview/index.ts` | 22 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -223,7 +223,8 @@ Overall function coverage: **92.1%** (4376/4750)
 
 ## Critical gaps to prioritize
 
-No critical files appeared in the top 20 uncovered files.
+- `src/cli/plugin-bootstrap.ts` (cli/dispatch): 23 uncovered lines, 81.7% line coverage.
+- `src/core/fleet/registry-oracle-orchestrate.ts` (fleet): 23 uncovered lines, 17.9% line coverage.
 
 ## Prioritization guidance
 

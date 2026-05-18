@@ -188,6 +188,8 @@ export function parseLsAliasOpts(argv: string[]) {
     "--fix": Boolean,
     "--json": Boolean,
     "--recent": Boolean, "-r": "--recent",
+    "--node": String,
+    "--channels": Boolean,
   }, 0);
 
   // #1613 — restore the original compact default. `-v/--verbose` opts into
@@ -204,6 +206,8 @@ export function parseLsAliasOpts(argv: string[]) {
     json: boolean;
     recent?: boolean;
     recentLimit?: number;
+    filter?: string;
+    channels?: boolean;
   } = {
     all: true,
     compact,
@@ -211,9 +215,15 @@ export function parseLsAliasOpts(argv: string[]) {
     roster: !!flags["--all"],
     json: !!flags["--json"],
   };
+  if (flags["--channels"] || flags["--all"]) opts.channels = true;
+  const positionals = flags._ as string[];
+  const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
+  const positionalFilter = positionals.find((arg) => !/^\d+$/.test(arg))?.trim() ?? "";
+  if (nodeFilter || positionalFilter) opts.filter = nodeFilter || positionalFilter;
+
   if (flags["--recent"]) {
     opts.recent = true;
-    const limitRaw = (flags._ as string[]).find((arg) => /^\d+$/.test(arg));
+    const limitRaw = positionals.find((arg) => /^\d+$/.test(arg));
     if (limitRaw) {
       const limit = Number(limitRaw);
       if (Number.isSafeInteger(limit) && limit > 0) opts.recentLimit = limit;

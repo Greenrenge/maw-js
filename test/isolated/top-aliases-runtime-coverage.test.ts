@@ -105,6 +105,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: true,
       json: true,
+      channels: true,
       recent: true,
       recentLimit: 12,
     });
@@ -116,6 +117,12 @@ describe("top alias option parsers", () => {
       json: false,
       recent: true,
     });
+  });
+
+  test("ls opts parse node filters, positional filters, and channel opt-in", () => {
+    expect(parseLsAliasOpts(["--node", "alpha"])).toMatchObject({ filter: "alpha" });
+    expect(parseLsAliasOpts(["alpha"])).toMatchObject({ filter: "alpha" });
+    expect(parseLsAliasOpts(["--channels"])).toMatchObject({ channels: true });
   });
 
   test("bring opts default to split, let --tab win, and reject missing oracle", () => {

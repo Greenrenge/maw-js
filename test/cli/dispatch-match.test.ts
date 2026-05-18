@@ -366,6 +366,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       verbose: false,
       roster: true,
       json: false,
+      channels: true,
     });
   });
 

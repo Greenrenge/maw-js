@@ -8,6 +8,7 @@ import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 import { checkPaneContextLimit, isLikelyAgentPaneCommand } from "../../shared/context-limit";
+import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
 export {
   PANE_TARGET_FORMAT,
   paneTargetCandidatesFromListPanesOutput,
@@ -170,6 +171,10 @@ export interface TmuxLsOpts {
   recent?: boolean;
   /** Limit recent mode to the N newest sessions. */
   recentLimit?: number;
+  /** Filter rendered sessions/panes by node/session/query text. */
+  filter?: string;
+  /** Include infrastructure channel sessions such as *-discord. */
+  channels?: boolean;
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
@@ -184,6 +189,7 @@ interface AnnotatedPane {
   status: PaneStatus;
   lastActivitySec: number;
   sessionCreated?: number;
+  source?: string;
 }
 
 async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
@@ -277,12 +283,23 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       status,
       lastActivitySec: ageSec < 0 ? 0 : ageSec,
       sessionCreated: createdBySession.get(session),
+      source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
     };
   });
 
-  let scope = opts.all
+  const visible = opts.channels
     ? annotated
-    : annotated.filter(p => p.target.startsWith(`${currentSession}:`));
+    : annotated.filter(p => !isInfrastructureChannelSessionName(p.session, opts.filter ?? ""));
+
+  let scope = opts.all
+    ? visible
+    : visible.filter(p => p.target.startsWith(`${currentSession}:`));
+
+  const filter = opts.filter?.trim().toLowerCase();
+  if (filter) {
+    scope = scope.filter(p => [p.session, p.target, p.annotation, p.source]
+      .some(value => String(value ?? "").toLowerCase().includes(filter)));
+  }
 
   const recentSessionOrder = (items: AnnotatedPane[]): string[] => {
     const byName = new Map<string, number | undefined>();

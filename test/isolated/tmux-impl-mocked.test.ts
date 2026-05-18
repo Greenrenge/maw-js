@@ -3,7 +3,7 @@ import { join } from "path";
 
 const srcRoot = join(import.meta.dir, "../..");
 
-type Pane = { id: string; target: string; command?: string; title?: string; lastActivity?: number };
+type Pane = { id: string; target: string; command?: string; title?: string; lastActivity?: number; source?: string; node?: string };
 
 let hostCalls: string[] = [];
 let paneCommand = "zsh\n";
@@ -188,5 +188,35 @@ describe("cmdTmuxLs — mocked pane listing", () => {
       { id: "%2", session: "scratch", annotation: "", status: "idle" },
     ]);
     expect(hostCalls.filter(cmd => cmd.includes("display-message"))).toEqual(process.env.TMUX ? ["tmux display-message -p '#{session_name}'"] : []);
+  });
+
+  test("filters channel helper sessions by default and supports node/query filtering", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    panes = [
+      { id: "%1", target: "23-discord-admin:0.0", command: "claude", title: "discord", lastActivity: now },
+      { id: "%2", target: "mawjs-oracle-discord:0.0", command: "claude", title: "channel", lastActivity: now, source: "m5" },
+      { id: "%3", target: "odin-discord:0.0", command: "claude", title: "channel", lastActivity: now, source: "m5" },
+      { id: "%4", target: "alpha-worker:0.0", command: "node", title: "worker", lastActivity: now, source: "alpha" },
+      { id: "%5", target: "homekeeper:0.0", command: "node", title: "mentions alpha but is not alpha", lastActivity: now, source: "m5" },
+    ];
+
+    let out = await captureLogs(() => cmdTmuxLs({ all: true, json: true }));
+    expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual([
+      "23-discord-admin",
+      "alpha-worker",
+      "homekeeper",
+    ]);
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, json: true, channels: true }));
+    expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual([
+      "23-discord-admin",
+      "mawjs-oracle-discord",
+      "odin-discord",
+      "alpha-worker",
+      "homekeeper",
+    ]);
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, json: true, filter: "alpha" }));
+    expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual(["alpha-worker"]);
   });
 });

@@ -92,22 +92,29 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         "--roster": Boolean,
         "--recent": Boolean,
         "-r": "--recent",
+        "--node": String,
+        "--channels": Boolean,
         "--help": Boolean,
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux ls [--all|-a] [--compact|-c] [-v|--verbose] [--recent|-r [N]] [--roster] [--json]");
+        console.log("usage: maw tmux ls [filter|--node NODE] [--all|-a] [--channels] [--compact|-c] [-v|--verbose] [--recent|-r [N]] [--roster] [--json]");
         console.log("  default:    panes in current session only");
         console.log("  --all:      panes across every session");
         console.log("  --compact:  one line per session (`maw ls` / `maw ls -c` top-level)");
         console.log("  -v:         full per-pane detail");
         console.log("  --roster:   include sleeping oracles from ghq");
         console.log("  --recent:   sort sessions newest-first by tmux creation time; optional N limits sessions");
+        console.log("  --node:     filter sessions by node/session text");
+        console.log("  --channels: include infrastructure channel sessions such as *-discord");
         return { ok: true, output: logs.join("\n") || undefined };
       }
-      const recentLimitRaw = (flags._ as string[]).find((arg) => /^\d+$/.test(arg));
+      const positionals = flags._ as string[];
+      const recentLimitRaw = positionals.find((arg) => /^\d+$/.test(arg));
       const recentLimit = recentLimitRaw ? Number(recentLimitRaw) : undefined;
-      await deps.cmdTmuxLs({
+      const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
+      const positionalFilter = positionals.find((arg) => !/^\d+$/.test(arg))?.trim() ?? "";
+      const lsOpts = {
         all: !!flags["--all"] || !!flags["--recent"],
         json: !!flags["--json"],
         compact: !!flags["--compact"] || !!flags["--recent"],
@@ -115,7 +122,11 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         roster: !!flags["--roster"],
         recent: !!flags["--recent"],
         recentLimit: Number.isSafeInteger(recentLimit) && recentLimit! > 0 ? recentLimit : undefined,
-      });
+      } as Parameters<typeof deps.cmdTmuxLs>[0];
+      const filter = nodeFilter || positionalFilter;
+      if (filter) lsOpts.filter = filter;
+      if (flags["--channels"] || flags["--all"]) lsOpts.channels = true;
+      await deps.cmdTmuxLs(lsOpts);
     } else if (sub === "peek") {
       const flags = parseFlags(args, {
         "--lines": Number,
