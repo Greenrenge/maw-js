@@ -291,6 +291,22 @@ describe("dispatchCommand runtime coverage", () => {
     expect(exitCode).toBe(0);
   });
 
+  test("unique prefix plugin retries still validate flags with help text", async () => {
+    const p = plugin("rocket", { cliNames: { command: "rocket", aliases: [] } });
+    plugins = [p];
+    matchQueue = [null];
+    resolveQueue = [{ kind: "none" }, { kind: "none" }, { kind: "match", plugin: p, matchedName: "rocket" }];
+    flagValidation = { ok: false, flag: "--verbse", suggestion: "--verbose" };
+
+    const badFlag = await capture(() => dispatchCommand("roc", ["roc", "--verbse"]));
+
+    expect(badFlag).toBeInstanceOf(UserError);
+    expect(errs.join("\n")).toContain("unknown flag for rocket: --verbse");
+    expect(errs.join("\n")).toContain("did you mean: --verbose");
+    expect(errs.join("\n")).toContain("usage: maw rocket [flags]");
+    expect(invokeCalls).toEqual([]);
+  });
+
   test("unknown command suggestions avoid tmux, while oracle-shaped misses fall through to send/peek", async () => {
     plugins = [plugin("hello")];
     resolveQueue = [{ kind: "none" }, { kind: "none" }];
@@ -306,5 +322,22 @@ describe("dispatchCommand runtime coverage", () => {
     resolveQueue = [{ kind: "none" }, { kind: "none" }];
     await dispatchCommand("agent", ["agent"]);
     expect(peekCalls).toEqual(["agent"]);
+  });
+
+  test("oracle-shaped unknown commands consult sessions and fall through only on exact/stripped matches", async () => {
+    sessionsReturn = [{ name: "42-xqneo", windows: [] }];
+    resolveQueue = [{ kind: "none" }, { kind: "none" }];
+
+    await dispatchCommand("xqneo", ["xqneo", "status"]);
+
+    expect(sendCalls).toEqual([{ target: "xqneo", message: "status", force: false }]);
+
+    sessionsReturn = [{ name: "trinity", windows: [] }];
+    resolveQueue = [{ kind: "none" }, { kind: "none" }];
+    const unknown = await capture(() => dispatchCommand("xqmorpheus", ["xqmorpheus"]));
+
+    expect(unknown).toBeInstanceOf(UserError);
+    expect(errs.join("\n")).toContain("unknown command: xqmorpheus");
+    expect(peekCalls).toEqual([]);
   });
 });

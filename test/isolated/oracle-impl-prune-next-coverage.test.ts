@@ -199,6 +199,50 @@ describe("oracle impl-prune next-pass coverage", () => {
     expect(wrote).toBe(false);
   });
 
+
+
+  test("default prompt confirmation rejects non-y answers without mutating the cache", async () => {
+    let wrote = false;
+
+    const { prompt, logs } = await runWithPrompt("n", () =>
+      prune.cmdOraclePrune({ force: true }, {
+        listAwake: async () => new Set<string>(),
+        readRawCache: () => ({
+          oracles: [entry({ name: "prompt-rejected", local_path: "" })],
+        }),
+        writeRawCache: () => {
+          wrote = true;
+        },
+      }),
+    );
+
+    expect(prompt).toContain("Retire 1 oracle(s)?");
+    expect(logs).toContain("Aborted.");
+    expect(wrote).toBe(false);
+  });
+
+  test("force retirement tolerates a concurrently emptied registry on final write", async () => {
+    const reads: Record<string, unknown>[] = [
+      { oracles: [entry({ name: "race-lost", local_path: "" })] },
+      {},
+    ];
+    let written: Record<string, unknown> | null = null;
+
+    await prune.cmdOraclePrune({ force: true }, {
+      listAwake: async () => new Set<string>(),
+      promptConfirm: async () => true,
+      readRawCache: () => reads.shift() ?? {},
+      writeRawCache: (data) => {
+        written = data;
+      },
+    });
+
+    expect(written).toMatchObject({ oracles: [] });
+    const retired = written!.retired as Array<OracleEntry & { retired_reasons: string[] }>;
+    expect(retired.map((oracle) => oracle.name)).toEqual(["race-lost"]);
+    expect(retired[0].retired_reasons).toEqual(["empty lineage", "not cloned", "no tmux", "no federation"]);
+  });
+
   test("default prompt confirmation accepts y and retires candidates into a fresh retired list", async () => {
     let written: Record<string, unknown> | null = null;
 
