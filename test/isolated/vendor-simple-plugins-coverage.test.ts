@@ -353,7 +353,7 @@ describe("vendor pair/impl coverage", () => {
     let call = 0;
     globalThis.fetch = (async () => {
       call += 1;
-      if (call === 1) return Response.json({ code: "ABC345", expiresAt: Date.now() + 1 });
+      if (call === 1) return Response.json({ code: "ABC345", expiresAt: Date.now() + 25 });
       throw new Error("status offline");
     }) as any;
 
@@ -368,7 +368,7 @@ describe("vendor pair/impl coverage", () => {
     let call = 0;
     globalThis.fetch = (async () => {
       call += 1;
-      if (call === 1) return Response.json({ code: "ABC234", expiresAt: Date.now() + 1 });
+      if (call === 1) return Response.json({ code: "ABC234", expiresAt: Date.now() + 25 });
       return Response.json({ consumed: false });
     }) as any;
 
