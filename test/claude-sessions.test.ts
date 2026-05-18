@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const tempDirs: string[] = [];
@@ -8,7 +7,11 @@ const originalProjectsDir = process.env.MAW_CLAUDE_PROJECTS_DIR;
 const originalSkipPidScan = process.env.MAW_CLAUDE_SKIP_PID_SCAN;
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mawclaudesessions"));
+  // Claude's project directory encoding is lossy for "." and "-" path
+  // segments; keep this fixture under a stable dot-free temp root so the
+  // expected decoded project path is deterministic even when TMPDIR is
+  // `tmp.XXXX` during coverage runs.
+  const dir = mkdtempSync(join(realpathSync("/tmp"), "mawclaudesessions"));
   tempDirs.push(dir);
   return dir;
 }

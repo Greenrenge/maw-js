@@ -9,7 +9,6 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
 import { execFileSync } from "child_process";
 import {
@@ -33,7 +32,10 @@ function restoreEnv() {
 
 function tempPath(name: string): string {
   const path = join(
-    realpathSync(tmpdir()),
+    // Claude's project directory encoding is lossy for "." and "-" path
+    // segments; keep these fixtures under a stable dot-free temp root so
+    // coverage runs with TMPDIR=tmp.XXXX do not alter decoded paths.
+    realpathSync("/tmp"),
     `mawcs${process.pid}${Date.now()}${Math.random().toString(36).slice(2)}${name}`,
   );
   created.push(path);

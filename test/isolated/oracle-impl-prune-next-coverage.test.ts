@@ -153,6 +153,52 @@ describe("oracle impl-prune next-pass coverage", () => {
     expect(wrote).toBe(false);
   });
 
+  test("clean, dry-run, and declined-force reports exit before mutating the cache", async () => {
+    let wrote = false;
+
+    const clean = await captureConsole(() =>
+      prune.cmdOraclePrune({}, {
+        listAwake: async () => new Set(["awake-clean"]),
+        readRawCache: () => ({ oracles: [entry({ name: "awake-clean" })] }),
+        writeRawCache: () => {
+          wrote = true;
+        },
+      }),
+    );
+
+    expect(clean).toContain("No prune candidates");
+    expect(wrote).toBe(false);
+
+    const dryRun = await captureConsole(() =>
+      prune.cmdOraclePrune({}, {
+        listAwake: async () => new Set<string>(),
+        readRawCache: () => ({ oracles: [entry({ name: "dry-run-only", local_path: "" })] }),
+        writeRawCache: () => {
+          wrote = true;
+        },
+      }),
+    );
+
+    expect(dryRun).toContain("Prune candidates");
+    expect(dryRun).toContain("(1)");
+    expect(dryRun).toContain("--force");
+    expect(wrote).toBe(false);
+
+    const declined = await captureConsole(() =>
+      prune.cmdOraclePrune({ force: true }, {
+        listAwake: async () => new Set<string>(),
+        readRawCache: () => ({ oracles: [entry({ name: "declined", local_path: "" })] }),
+        writeRawCache: () => {
+          wrote = true;
+        },
+        promptConfirm: async () => false,
+      }),
+    );
+
+    expect(declined).toContain("Aborted.");
+    expect(wrote).toBe(false);
+  });
+
   test("default prompt confirmation accepts y and retires candidates into a fresh retired list", async () => {
     let written: Record<string, unknown> | null = null;
 

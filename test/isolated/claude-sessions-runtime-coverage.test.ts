@@ -5,8 +5,7 @@
  * Claude/tmux/git state.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const created: string[] = [];
@@ -38,7 +37,10 @@ function setPlatform(value: NodeJS.Platform) {
 }
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mawclauderuntime"));
+  // Claude's dash encoding is lossy for "." and "-" path segments; use a
+  // stable dot-free temp root so TMPDIR=tmp.XXXX coverage runs do not change
+  // decoded project paths and pid cwd matching.
+  const dir = mkdtempSync(join(realpathSync("/tmp"), "mawclauderuntime"));
   created.push(dir);
   return dir;
 }

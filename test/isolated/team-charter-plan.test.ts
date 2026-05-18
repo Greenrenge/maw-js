@@ -4,7 +4,7 @@ import { join } from "path";
 import { homedir, tmpdir } from "os";
 
 import teamHandler from "../../src/vendor/mpr-plugins/team/index";
-import { composeTeamCharterMemberPrompt, formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
+import { composeTeamCharterMemberPrompt, formatTeamCharterLoad, formatTeamCharterPlan, formatTeamCharterPreflight, loadTeamCharter, parseTeamCharterText, planTeamCharter, preflightTeamCharter, spawnFromTeamCharter } from "../../src/vendor/mpr-plugins/team/team-charter";
 import { _setDirs, TEAMS_DIR, TASKS_DIR } from "../../src/vendor/mpr-plugins/team/team-helpers";
 
 const tmpDirs: string[] = [];
@@ -93,6 +93,27 @@ governance:
     expect(charter).toMatchObject({ name: "json-team", members: [{ role: "builder", target: "auto" }] });
   });
 
+  test("parses quoted scalars, inline comments, blank member lines, and YAML map blanks", () => {
+    const charter = parseTeamCharterText(`
+name: quoted-team # stripped comment
+description: "hash # stays"
+members:
+  - role: scout
+
+    target: 'auto'
+lifecycle:
+
+  retries: 2
+governance:
+  requires_human_approval: false
+`);
+
+    expect(charter.description).toBe("hash # stays");
+    expect(charter.members).toEqual([{ role: "scout", target: "auto" }]);
+    expect(charter.lifecycle?.retries).toBe(2);
+    expect(charter.governance?.requires_human_approval).toBe(false);
+  });
+
   test("team handler plan subcommand is read-only and prints planned artifacts", async () => {
     const file = tmpFile("team.yaml", `
 name: safe-plan
@@ -160,6 +181,29 @@ members:
     expect(result.output).toContain("unsupported target 'nowhere'");
   });
 
+  test("preflight reports invalid names, new targets, and cwd presence checks", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const existingCwd = join(root, "workspace");
+      mkdirSync(existingCwd, { recursive: true });
+      const charter = {
+        name: "bad-view",
+        members: [
+          { role: "scout", target: "new:helper", cwd: existingCwd },
+          { role: "verifier", target: "auto", cwd: join(root, "missing") },
+        ],
+      };
+
+      const result = preflightTeamCharter(charter);
+      const rendered = formatTeamCharterPreflight(result);
+
+      expect(result.errors.some((check) => check.label === "team name")).toBe(true);
+      expect(result.warnings.some((check) => check.label === "target:scout")).toBe(true);
+      expect(rendered).toContain(`cwd:scout: ${existingCwd}`);
+      expect(rendered).toContain("cwd:verifier");
+      expect(rendered).toContain("does not exist on this machine yet");
+    });
+  });
+
   test("loads a charter into config, inboxes, and vault manifest only when --no-spawn is set", async () => {
     await withIsolatedTeamStores(async (root) => {
       const charter = parseTeamCharterText(`
@@ -202,6 +246,24 @@ governance:
         members: ["scout", "bridge"],
         charter: { governance: { requires_human_approval: true } },
       });
+    });
+  });
+
+  test("load rejects unsafe spawn mode and existing artifacts", async () => {
+    await withIsolatedTeamStores(async (root) => {
+      const charter = parseTeamCharterText(`
+name: collision-team
+members:
+  - role: scout
+`);
+
+      expect(() => loadTeamCharter(charter)).toThrow("requires --no-spawn");
+
+      const configPath = join(root, "teams", "collision-team", "config.json");
+      mkdirSync(join(root, "teams", "collision-team"), { recursive: true });
+      writeFileSync(configPath, "{}", "utf-8");
+
+      expect(() => loadTeamCharter(charter, { noSpawn: true })).toThrow("already exists; refusing to overwrite");
     });
   });
 
@@ -277,6 +339,13 @@ members:
       expect(existsSync(join(root, "teams", "remote-blocked", "config.json"))).toBe(false);
       expect(existsSync(join(root, "ψ", "memory", "mailbox", "teams", "remote-blocked", "manifest.json"))).toBe(false);
     });
+  });
+
+  test("spawnFromTeamCharter includes preflight errors in its direct failure", async () => {
+    await expect(spawnFromTeamCharter({
+      name: "bad-spawn-view",
+      members: [{ role: "scout", target: "auto" }],
+    })).rejects.toThrow("preflight failed: team name:");
   });
 
   test("handler spawn-from materializes local target:auto spawn prompts without --exec", async () => {
