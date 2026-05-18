@@ -1,12 +1,17 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-let home = "";
 let listWindowsQueue: Array<Array<{ index: number; name: string }> | Error> = [];
 let runCalls: Array<{ cmd: string; args: Array<string | number> }> = [];
 let runQueue: Array<string | Error> = [];
+
+const originalHome = process.env.MAW_HOME;
+const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const home = mkdtempSync(join(tmpdir(), "maw-tab-order-"));
+process.env.MAW_HOME = home;
+delete process.env.MAW_CONFIG_DIR;
 
 mock.module("../../src/core/transport/tmux", () => ({
   tmux: {
@@ -24,17 +29,11 @@ mock.module("../../src/core/transport/tmux", () => ({
   },
 }));
 
-const originalHome = process.env.MAW_HOME;
-const originalConfigDir = process.env.MAW_CONFIG_DIR;
-
-beforeAll(() => {
-  home = mkdtempSync(join(tmpdir(), "maw-tab-order-"));
-  process.env.MAW_HOME = home;
-  delete process.env.MAW_CONFIG_DIR;
-});
+const { restoreTabOrder, saveTabOrder } = await import("../../src/core/fleet/tab-order");
 
 beforeEach(() => {
   rmSync(join(home, "config", "tab-order"), { recursive: true, force: true });
+  mkdirSync(join(home, "config", "tab-order"), { recursive: true });
   listWindowsQueue = [];
   runCalls = [];
   runQueue = [];
@@ -48,22 +47,16 @@ afterAll(() => {
   else process.env.MAW_CONFIG_DIR = originalConfigDir;
 });
 
-async function loadModule(tag: string) {
-  return await import(`../../src/core/fleet/tab-order.ts?${tag}`);
-}
-
 function tabOrderPath(session: string) {
   return join(home, "config", "tab-order", `${session}.json`);
 }
 
 function writeSavedOrder(session: string, contents: string) {
-  mkdirSync(join(home, "config", "tab-order"), { recursive: true });
   writeFileSync(tabOrderPath(session), contents);
 }
 
 describe("tab order persistence coverage", () => {
   test("saveTabOrder sorts windows by index and writes stable JSON", async () => {
-    const { saveTabOrder } = await loadModule("save-sorted");
     listWindowsQueue = [[
       { index: 2, name: "third" },
       { index: 0, name: "first" },
@@ -80,7 +73,6 @@ describe("tab order persistence coverage", () => {
   });
 
   test("saveTabOrder swallows missing tmux sessions without creating a file", async () => {
-    const { saveTabOrder } = await loadModule("save-missing");
     listWindowsQueue = [new Error("no such session")];
 
     await saveTabOrder("missing");
@@ -89,8 +81,6 @@ describe("tab order persistence coverage", () => {
   });
 
   test("restoreTabOrder returns zero for missing, malformed, and empty order files", async () => {
-    const { restoreTabOrder } = await loadModule("restore-empty");
-
     expect(await restoreTabOrder("none")).toBe(0);
 
     writeSavedOrder("bad", "not-json");
@@ -102,7 +92,6 @@ describe("tab order persistence coverage", () => {
   });
 
   test("restoreTabOrder swaps occupied targets, skips missing/already-placed windows, and removes the saved file", async () => {
-    const { restoreTabOrder } = await loadModule("restore-swap");
     writeSavedOrder("beta", JSON.stringify([
       { index: 0, name: "editor" },
       { index: 1, name: "gone" },
@@ -132,7 +121,6 @@ describe("tab order persistence coverage", () => {
   });
 
   test("restoreTabOrder falls back from failed swap to move-window and moves into empty targets", async () => {
-    const { restoreTabOrder } = await loadModule("restore-fallback-move");
     writeSavedOrder("gamma", JSON.stringify([
       { index: 0, name: "editor" },
       { index: 4, name: "logs" },
@@ -159,7 +147,6 @@ describe("tab order persistence coverage", () => {
   });
 
   test("restoreTabOrder ignores move failures and stops when live window listing later fails", async () => {
-    const { restoreTabOrder } = await loadModule("restore-failures");
     writeSavedOrder("delta", JSON.stringify([
       { index: 4, name: "editor" },
       { index: 0, name: "logs" },

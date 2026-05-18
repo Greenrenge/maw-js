@@ -1,21 +1,21 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T09:55:19.299Z
+Generated: 2026-05-18T10:11:44.930Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **71.7%** (36540/50951)
-Overall function coverage: **90.0%** (3765/4184)
+Overall line coverage: **71.7%** (36560/50958)
+Overall function coverage: **90.0%** (3769/4187)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 7 | 80.9% (6878/8501) | 90.6% (688/759) | n/a (0/0) |
+| cli/dispatch | 91 | 7 | 80.9% (6881/8508) | 90.6% (688/759) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
-| fleet | 17 | 0 | 77.9% (894/1148) | 91.8% (90/98) | n/a (0/0) |
+| fleet | 17 | 0 | 79.4% (911/1148) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 2 | 0 | 73.6% (89/121) | 100.0% (15/15) | n/a (0/0) |
 | other | 181 | 40 | 76.2% (11145/14627) | 87.2% (1104/1266) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 80.7% (1077/1334) | 95.5% (85/89) | n/a (0/0) |
@@ -102,7 +102,7 @@ Overall function coverage: **90.0%** (3765/4184)
 | cli/dispatch | `src/commands/shared/receiver-inbox.ts` | 86.9% | 100.0% |
 | cli/dispatch | `src/commands/shared/scan-signals.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/target-cwd.ts` | 85.2% | 100.0% |
-| cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 86.2% | 90.9% |
+| cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 84.6% | 90.9% |
 | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 81.3% | 78.0% |
 | cli/dispatch | `src/commands/shared/wake-concurrency.ts` | 94.7% | 100.0% |
 | cli/dispatch | `src/commands/shared/wake-maybe-split.ts` | 95.7% | 100.0% |
