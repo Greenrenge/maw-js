@@ -221,6 +221,29 @@ describe("cmd-update runtime coverage", () => {
     expect(res.stdout).toContain('[test-mode] ref "v26.5.16-alpha.1053" accepted');
   });
 
+  test("alpha channel sort tolerates duplicate tags and still chooses the newest ref", async () => {
+    lsRemoteOutput = [
+      "111111\trefs/tags/v26.5.16-alpha.1053",
+      "222222\trefs/tags/v26.5.16-alpha.1053",
+      "333333\trefs/tags/v26.5.16-alpha.716",
+    ].join("\n");
+
+    const res = await captureRun(["update", "alpha", "--yes"], { testMode: "1" });
+
+    expect(res.code).toBeUndefined();
+    expect(res.stdout).toContain("alpha channel → v26.5.16-alpha.1053");
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("invalid positional refs fail before test-mode or install side effects", async () => {
+    const res = await captureRun(["update", "bad;ref", "--yes"], { testMode: "1" });
+
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain('invalid ref "bad;ref"');
+    expect(res.stdout).not.toContain("[test-mode]");
+    expect(spawnCalls).toHaveLength(0);
+  });
+
   test("fails loudly when a requested channel has no release tags", async () => {
     lsRemoteOutput = "111111\trefs/tags/v26.5.16-alpha.716\n";
 
