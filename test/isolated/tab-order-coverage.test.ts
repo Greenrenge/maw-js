@@ -1,0 +1,182 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+let home = "";
+let listWindowsQueue: Array<Array<{ index: number; name: string }> | Error> = [];
+let runCalls: Array<{ cmd: string; args: Array<string | number> }> = [];
+let runQueue: Array<string | Error> = [];
+
+mock.module("../../src/core/transport/tmux", () => ({
+  tmux: {
+    listWindows: async (_session: string) => {
+      const next = listWindowsQueue.shift();
+      if (next instanceof Error) throw next;
+      return next ?? [];
+    },
+    run: async (cmd: string, ...args: Array<string | number>) => {
+      runCalls.push({ cmd, args });
+      const next = runQueue.shift();
+      if (next instanceof Error) throw next;
+      return next ?? "";
+    },
+  },
+}));
+
+const originalHome = process.env.MAW_HOME;
+const originalConfigDir = process.env.MAW_CONFIG_DIR;
+
+beforeAll(() => {
+  home = mkdtempSync(join(tmpdir(), "maw-tab-order-"));
+  process.env.MAW_HOME = home;
+  delete process.env.MAW_CONFIG_DIR;
+});
+
+beforeEach(() => {
+  rmSync(join(home, "config", "tab-order"), { recursive: true, force: true });
+  listWindowsQueue = [];
+  runCalls = [];
+  runQueue = [];
+});
+
+afterAll(() => {
+  rmSync(home, { recursive: true, force: true });
+  if (originalHome === undefined) delete process.env.MAW_HOME;
+  else process.env.MAW_HOME = originalHome;
+  if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
+  else process.env.MAW_CONFIG_DIR = originalConfigDir;
+});
+
+async function loadModule(tag: string) {
+  return await import(`../../src/core/fleet/tab-order.ts?${tag}`);
+}
+
+function tabOrderPath(session: string) {
+  return join(home, "config", "tab-order", `${session}.json`);
+}
+
+function writeSavedOrder(session: string, contents: string) {
+  mkdirSync(join(home, "config", "tab-order"), { recursive: true });
+  writeFileSync(tabOrderPath(session), contents);
+}
+
+describe("tab order persistence coverage", () => {
+  test("saveTabOrder sorts windows by index and writes stable JSON", async () => {
+    const { saveTabOrder } = await loadModule("save-sorted");
+    listWindowsQueue = [[
+      { index: 2, name: "third" },
+      { index: 0, name: "first" },
+      { index: 1, name: "second" },
+    ]];
+
+    await saveTabOrder("alpha");
+
+    expect(JSON.parse(readFileSync(tabOrderPath("alpha"), "utf-8"))).toEqual([
+      { index: 0, name: "first" },
+      { index: 1, name: "second" },
+      { index: 2, name: "third" },
+    ]);
+  });
+
+  test("saveTabOrder swallows missing tmux sessions without creating a file", async () => {
+    const { saveTabOrder } = await loadModule("save-missing");
+    listWindowsQueue = [new Error("no such session")];
+
+    await saveTabOrder("missing");
+
+    expect(existsSync(tabOrderPath("missing"))).toBe(false);
+  });
+
+  test("restoreTabOrder returns zero for missing, malformed, and empty order files", async () => {
+    const { restoreTabOrder } = await loadModule("restore-empty");
+
+    expect(await restoreTabOrder("none")).toBe(0);
+
+    writeSavedOrder("bad", "not-json");
+    expect(await restoreTabOrder("bad")).toBe(0);
+
+    writeSavedOrder("empty", "[]\n");
+    expect(await restoreTabOrder("empty")).toBe(0);
+    expect(runCalls).toEqual([]);
+  });
+
+  test("restoreTabOrder swaps occupied targets, skips missing/already-placed windows, and removes the saved file", async () => {
+    const { restoreTabOrder } = await loadModule("restore-swap");
+    writeSavedOrder("beta", JSON.stringify([
+      { index: 0, name: "editor" },
+      { index: 1, name: "gone" },
+      { index: 2, name: "logs" },
+    ]));
+    listWindowsQueue = [
+      [
+        { index: 0, name: "shell" },
+        { index: 1, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+      [
+        { index: 0, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+      [
+        { index: 0, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+    ];
+
+    expect(await restoreTabOrder("beta")).toBe(1);
+    expect(runCalls).toEqual([
+      { cmd: "swap-window", args: ["-s", "beta:1", "-t", "beta:0"] },
+    ]);
+    expect(existsSync(tabOrderPath("beta"))).toBe(false);
+  });
+
+  test("restoreTabOrder falls back from failed swap to move-window and moves into empty targets", async () => {
+    const { restoreTabOrder } = await loadModule("restore-fallback-move");
+    writeSavedOrder("gamma", JSON.stringify([
+      { index: 0, name: "editor" },
+      { index: 4, name: "logs" },
+    ]));
+    listWindowsQueue = [
+      [
+        { index: 0, name: "shell" },
+        { index: 1, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+      [
+        { index: 0, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+    ];
+    runQueue = [new Error("swap failed"), "", ""];
+
+    expect(await restoreTabOrder("gamma")).toBe(2);
+    expect(runCalls).toEqual([
+      { cmd: "swap-window", args: ["-s", "gamma:1", "-t", "gamma:0"] },
+      { cmd: "move-window", args: ["-s", "gamma:1", "-t", "gamma:0"] },
+      { cmd: "move-window", args: ["-s", "gamma:2", "-t", "gamma:4"] },
+    ]);
+  });
+
+  test("restoreTabOrder ignores move failures and stops when live window listing later fails", async () => {
+    const { restoreTabOrder } = await loadModule("restore-failures");
+    writeSavedOrder("delta", JSON.stringify([
+      { index: 4, name: "editor" },
+      { index: 0, name: "logs" },
+    ]));
+    listWindowsQueue = [
+      [
+        { index: 1, name: "editor" },
+        { index: 2, name: "logs" },
+      ],
+      new Error("tmux died"),
+    ];
+    runQueue = [new Error("move failed")];
+
+    expect(await restoreTabOrder("delta")).toBe(0);
+    expect(runCalls).toEqual([
+      { cmd: "move-window", args: ["-s", "delta:1", "-t", "delta:4"] },
+    ]);
+    expect(existsSync(tabOrderPath("delta"))).toBe(false);
+  });
+});
