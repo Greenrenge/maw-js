@@ -202,6 +202,7 @@ const {
   installFromGithub,
   installFromMonorepo,
   installFromTarball,
+  installFromUrl,
   monorepoRepoSlug,
   monorepoTarballUrl,
 } = handlers;
@@ -281,6 +282,30 @@ describe("install-handlers second-pass coverage", () => {
     queueExtract({ manifest: noArtifact });
     await installFromTarball(makeTarball("no-artifact"), { source: "no-artifact" });
     expect(recordInstallCalls.at(-1)?.sha256).toMatch(/^sha256:/);
+  });
+
+
+
+  test("tarball and URL installs cover cross-device copy fallback and download cleanup", async () => {
+    const fsForRequire = require("fs") as typeof import("node:fs");
+    const originalRenameSync = fsForRequire.renameSync;
+    try {
+      (fsForRequire as any).renameSync = () => { throw new Error("EXDEV: cross-device link not permitted"); };
+      queueExtract({ manifest: defaultManifest("copy-fallback") });
+      await installFromTarball(makeTarball("copy-fallback"), { source: "copy-fallback" });
+      expect(recordInstallCalls.at(-1)).toMatchObject({ name: "copy-fallback", source: "copy-fallback" });
+    } finally {
+      (fsForRequire as any).renameSync = originalRenameSync;
+    }
+
+    const downloaded = makeTarball("url-cleanup");
+    queueDownload({ ok: true, path: downloaded });
+    queueExtract({ manifest: defaultManifest("url-cleanup") });
+    await installFromUrl("https://registry.example/url-cleanup.tgz");
+
+    expect(downloadCalls.at(-1)).toBe("https://registry.example/url-cleanup.tgz");
+    expect(recordInstallCalls.at(-1)).toMatchObject({ name: "url-cleanup", source: "https://registry.example/url-cleanup.tgz" });
+    expect(existsSync(join(downloaded, ".."))).toBe(false);
   });
 
   test("github and monorepo handlers cover default urls, empty latest release, non-sentinel github errors, and download failures", async () => {
