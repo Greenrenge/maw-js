@@ -420,6 +420,18 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   if (urlRepoName) {
     const exact = sessions.find(s => s.name === urlRepoName || s.name === oracle);
     if (exact) return exact.name;
+
+    // #1794 family — once repo resolution has proven the target oracle
+    // (e.g. `discord` → `discord-oracle`), keep session detection scoped to
+    // that oracle's fleet metadata before considering generic tmux names.
+    // Role-suffixed fleet sessions such as `23-discord-admin` are the
+    // canonical live session for window/repo `discord-oracle`; unrelated
+    // `*-discord-*` channel/helper sessions must not influence attach/wake.
+    const fleetSession =
+      resolveFleetSession(urlRepoName) ||
+      resolveFleetSession(oracle);
+    if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+
     const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
     if (numbered.length === 1) return numbered[0]!.name;
     if (numbered.length > 1) {

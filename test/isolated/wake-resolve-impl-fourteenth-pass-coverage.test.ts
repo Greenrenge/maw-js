@@ -237,4 +237,19 @@ describe("worktree/session resolver fallback branches", () => {
     sessions = [{ name: "23-neo-admin" }];
     await expect(detectSession("neo")).resolves.toBe("23-neo-admin");
   });
+
+  test("detectSession scopes resolved repo names through fleet metadata before discord-like channel sessions", async () => {
+    writeFleet("23-discord-admin", {
+      name: "23-discord-admin",
+      windows: [{ name: "discord-oracle", repo: "Soul-Brews-Studio/discord-oracle" }],
+    });
+    sessions = [
+      { name: "01-mawjs-discord" },
+      { name: "02-homekeeper-discord" },
+      { name: "14-random-discord" },
+      { name: "23-discord-admin" },
+    ];
+
+    await expect(detectSession("discord", "discord-oracle")).resolves.toBe("23-discord-admin");
+  });
 });
