@@ -1,27 +1,27 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T03:54:40.758Z
+Generated: 2026-05-18T04:02:50.443Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **68.0%** (34297/50458)
-Overall function coverage: **88.8%** (3517/3962)
+Overall line coverage: **68.7%** (34663/50428)
+Overall function coverage: **89.1%** (3555/3988)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 7 | 79.2% (6492/8200) | 90.6% (665/734) | n/a (0/0) |
+| cli/dispatch | 91 | 7 | 79.1% (6492/8207) | 90.6% (665/734) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 75.3% (855/1136) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 44 | 72.8% (10518/14451) | 86.0% (1030/1198) | n/a (0/0) |
+| other | 180 | 43 | 73.8% (10664/14442) | 86.2% (1042/1209) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 80.7% (1077/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 133 | 56.3% (11371/20194) | 87.8% (1072/1221) | n/a (0/0) |
+| vendor plugins | 245 | 131 | 57.5% (11591/20166) | 88.8% (1098/1236) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -41,12 +41,12 @@ Overall function coverage: **88.8%** (3517/3962)
 | 12 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
 | 13 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/memory.ts` | 96 | 0.0% | n/a | absent from LCOV |
 | 14 | critical | cli/dispatch | `src/cli/dispatch.ts` | 95 | 47.5% | 57.1% | partial coverage |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/health/impl.ts` | 93 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stale-peers.ts` | 91 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-cleanup-zombies.ts` | 91 | 6.2% | 0.0% | partial coverage |
-| 18 | medium | other | `src/commands/plugins/fleet/fleet-init-agents.ts` | 90 | 0.0% | n/a | absent from LCOV |
-| 19 | medium | other | `src/commands/plugins/oracle/impl-about.ts` | 89 | 6.3% | 0.0% | partial coverage |
-| 20 | medium | other | `src/commands/plugins/plugin/init-impl.ts` | 89 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-cleanup-zombies.ts` | 91 | 6.2% | 0.0% | partial coverage |
+| 16 | medium | other | `src/commands/plugins/plugin/init-impl.ts` | 89 | 0.0% | n/a | absent from LCOV |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/bud/from-repo-fleet.ts` | 89 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/park/src/impl.ts` | 89 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/peers/probe-all.ts` | 89 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/done/done-worktree.ts` | 88 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -77,7 +77,7 @@ Overall function coverage: **88.8%** (3517/3962)
 | cli/dispatch | `src/commands/shared/federation.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 96.2% | 100.0% |
+| cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 88.4% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-stale-peers.ts` | 97.3% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 86.8% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-manage.ts` | 83.8% | 100.0% |
