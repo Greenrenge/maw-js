@@ -21,7 +21,6 @@ import {
   planSnapshotRestoreWindows,
   retryFreshSessionTmuxStep,
   shouldOfferExistingSessionAttach,
-  waitForTmuxSessionReady,
   writeWakeBudBirthSignal,
   writeWakeBudLineage,
 } from "./wake-cmd-helpers";
@@ -454,7 +453,6 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     // and immediately disambiguates future `maw wake` calls.
     session = await chooseWakeSessionName(oracle, opts.urlRepoName);
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
-    await waitForTmuxSessionReady(session, { hasSession: tmux.hasSession });
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session), {
       hasSession: tmux.hasSession,
     });

@@ -135,6 +135,7 @@ let claudeSessions: Array<{
 let config: any;
 let ensureTeamConfigReturn: boolean;
 let hasSessions: Set<string>;
+let newSessionVisibleToHasSession: boolean;
 let windowsBySession: Record<string, TmuxWindow[]>;
 let paneCommandDefault: string;
 let paneCommands: Record<string, string>;
@@ -280,7 +281,7 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
     newSession: async (name: string, opts: any = {}) => {
       if (!mockActive) return realSdk.tmux.newSession(name, opts);
       newSessionCalls.push({ name, opts });
-      hasSessions.add(name);
+      if (newSessionVisibleToHasSession) hasSessions.add(name);
       if (!sessions.some((s) => s.name === name)) sessions.push({ name });
       if (opts.window) addWindow(name, opts.window, { cwd: opts.cwd });
     },
@@ -547,6 +548,7 @@ beforeEach(() => {
   config = { node: "m5", agents: {} };
   ensureTeamConfigReturn = false;
   hasSessions = new Set(["54-mawjs"]);
+  newSessionVisibleToHasSession = true;
   windowsBySession = {
     "54-mawjs": [
       { index: 0, name: "mawjs-oracle", active: true, cwd: repoPath },
@@ -744,6 +746,30 @@ describe("cmdWake main-suite coverage", () => {
     });
     expect(restoreTabOrderCalls).toEqual(["10-mawjs"]);
     expect(logs.join("\n")).toContain("auto-created");
+  });
+
+  test("creates and attaches a fresh session without trusting the external readiness probe", async () => {
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+    sessions = [{ name: "62-old" }];
+    hasSessions = new Set(["62-old"]);
+    newSessionVisibleToHasSession = false;
+    windowsBySession = {};
+
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { attach: true, engine: "codex" }),
+    );
+
+    expect(result).toBe("63-mawjs:mawjs-oracle");
+    expect(newSessionCalls).toEqual([
+      { name: "63-mawjs", opts: { window: "mawjs-oracle", cwd: repoPath } },
+    ]);
+    expect(setSessionEnvCalls).toEqual(["63-mawjs"]);
+    expect(sendTextCalls).toContainEqual({
+      target: "63-mawjs:mawjs-oracle",
+      text: `cd ${repoPath} && codex --agent mawjs-oracle`,
+    });
+    expect(attachCalls).toEqual(["63-mawjs"]);
   });
 
   test("restores requested snapshot windows, rehydrates missing worktrees, and relaunches a dead existing agent", async () => {

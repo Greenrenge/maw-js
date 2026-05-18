@@ -130,12 +130,18 @@ export async function retryFreshSessionTmuxStep<T>(
         throw error;
       }
       await wait(delayMs);
-      await waitForTmuxSessionReady(session, {
-        hasSession: deps.hasSession,
-        sleep: wait,
-        attempts: 2,
-        delayMs,
-      });
+      try {
+        await waitForTmuxSessionReady(session, {
+          hasSession: deps.hasSession,
+          sleep: wait,
+          attempts: 2,
+          delayMs,
+        });
+      } catch {
+        // Fresh tmux sessions can become attachable even when an external
+        // has-session probe lags or races the server. Keep retrying the real
+        // tmux step instead of failing on the probe itself.
+      }
     }
   }
 

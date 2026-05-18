@@ -50,6 +50,32 @@ describe("fresh wake tmux session readiness (#1440)", () => {
     expect(visibilityChecks).toBe(1);
   });
 
+  test("retryFreshSessionTmuxStep ignores stale external session probes while retrying the real step", async () => {
+    let attempts = 0;
+    let visibilityChecks = 0;
+
+    const result = await retryFreshSessionTmuxStep("63-calliope-oracle", "launch main window", async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new Error("[local:local] can't find session: 63-calliope-oracle");
+      }
+      return "launched";
+    }, {
+      attempts: 3,
+      delayMs: 5,
+      sleep: async () => {},
+      hasSession: async session => {
+        expect(session).toBe("63-calliope-oracle");
+        visibilityChecks++;
+        return false;
+      },
+    });
+
+    expect(result).toBe("launched");
+    expect(attempts).toBe(2);
+    expect(visibilityChecks).toBe(2);
+  });
+
   test("retryFreshSessionTmuxStep does not hide unrelated setup failures", async () => {
     let attempts = 0;
 
