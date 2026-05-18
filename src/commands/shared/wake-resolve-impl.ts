@@ -2,7 +2,7 @@ import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind, ghqList } from "../../core/ghq";
 import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
-import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
+import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
@@ -398,10 +398,11 @@ export function getSessionMap(): Record<string, string> { return loadConfig().se
 
 export function resolveFleetSession(oracle: string): string | null {
   try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      if ((config.windows || []).some((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle)) return config.name;
-    }
+    const configs = readdirSync(FLEET_DIR)
+      .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
+      .map(file => JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession);
+    const resolved = resolveFleetWindowSessionTarget(oracle, configs);
+    if (resolved.kind === "fuzzy" || resolved.kind === "exact") return resolved.match.name;
   } catch { /* fleet dir may not exist */ }
   return null;
 }
@@ -460,6 +461,13 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
+  // Fleet window metadata is authoritative for sessions whose operator role
+  // suffix differs from the oracle repo/window name, e.g. discord-oracle lives
+  // in 23-discord-admin. Try this before generic non-numeric suffix matching so
+  // unrelated aux sessions like odin-discord do not steal `maw wake discord`.
+  const fleetSession = resolveFleetSession(oracle);
+  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+
   // No fleet match — defer to the canonical resolver on non-ephemeral sessions
   // (wake shouldn't treat a *-view clone as "the oracle is running"). Exact
   // wins; ambiguous non-numeric matches surface loudly.
@@ -473,8 +481,6 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
-  const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
   return null;
 }
 

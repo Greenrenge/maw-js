@@ -479,6 +479,15 @@ describe("findWorktrees and detectSession runtime paths", () => {
     expect(exitCalls).toEqual([]);
   });
 
+
+  test("detectSession prefers fleet window aliases over unrelated suffix sessions", async () => {
+    writeFleet("23-discord-admin", [{ name: "discord-oracle", repo: "Soul-Brews-Studio/discord-oracle" }]);
+    sessions = [{ name: "23-discord-admin" }, { name: "odin-discord" }];
+
+    await expect(detectSession("discord")).resolves.toBe("23-discord-admin");
+    await expect(detectSession("discord-oracle")).resolves.toBe("23-discord-admin");
+  });
+
   test("detectSession falls back to fleet session configs only when that session is live", async () => {
     writeFleet("fleet-neo", [{ name: "neo-oracle" }]);
     sessions = [{ name: "fleet-neo" }];

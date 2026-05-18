@@ -2,7 +2,7 @@ import { readdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { hostExec, tmux, tmuxCmd } from "../../../sdk";
-import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../../core/matcher/resolve-target";
+import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
@@ -97,9 +97,18 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
   // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
   // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
   try {
-    const sessions = loadFleetEntries().map(e => ({ name: e.file.replace(/\.json$/, "") }));
+    const entries = loadFleetEntries();
+    const sessions = entries.map(e => ({ name: e.file.replace(/\.json$/, ""), windows: e.session.windows }));
+    const exact = sessions.find(s => s.name.toLowerCase() === target.trim().toLowerCase());
+    if (exact) {
+      return { resolved: exact.name, source: `fleet-stem (${exact.name})` };
+    }
+    const windowAlias = resolveFleetWindowSessionTarget(target, sessions);
+    if (windowAlias.kind === "fuzzy") {
+      return { resolved: windowAlias.match.name, source: `fleet-window (${windowAlias.match.name})` };
+    }
     const r = resolveSessionTarget(target, sessions);
-    if (r.kind === "exact" || r.kind === "fuzzy") {
+    if (r.kind === "fuzzy") {
       return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
     }
     const prefix = resolveNumericFleetStemPrefix(target, sessions);
@@ -724,7 +733,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
 function suggestRecovery(target: string, session: string, source: string): void {
   const candidates: Array<{ oracle: string; label: string }> = [];
 
-  if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
+  if (source.startsWith("fleet-stem") || source.startsWith("fleet-window") || source.startsWith("live-session")) {
     console.log(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
     try {
       const entries = loadFleetEntries();

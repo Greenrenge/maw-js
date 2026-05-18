@@ -10,6 +10,7 @@ let hostFailures = new Map<string, Error>();
 let hostResponses = new Map<string, string>();
 let panes: Pane[] = [];
 let fleetFiles: string[] = [];
+let fleetWindows: Record<string, string[]> = {};
 let ghqRepos: string[] = [];
 let worktrees: any[] = [];
 
@@ -37,7 +38,16 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
 }));
 
 mock.module(join(srcRoot, "src/commands/shared/fleet-load"), () => ({
-  loadFleetEntries: () => fleetFiles.map(file => ({ file, session: { windows: [{ name: file.replace(/\.json$/, ""), repo: `Org/${file.replace(/\.json$/, "-oracle")}` }] } })),
+  loadFleetEntries: () => fleetFiles.map(file => {
+    const sessionName = file.replace(/\.json$/, "");
+    const windows = fleetWindows[file] ?? [sessionName];
+    return {
+      file,
+      session: {
+        windows: windows.map(name => ({ name, repo: `Org/${name.endsWith("-oracle") ? name : `${name}-oracle`}` })),
+      },
+    };
+  }),
 }));
 
 mock.module(join(srcRoot, "src/core/ghq"), () => ({
@@ -91,6 +101,7 @@ beforeEach(() => {
   hostResponses = new Map();
   panes = [];
   fleetFiles = [];
+  fleetWindows = {};
   ghqRepos = [];
   worktrees = [];
   _sendTracker.clear();
@@ -124,6 +135,28 @@ describe("tmux impl extra coverage", () => {
     });
 
     fleetFiles = ["114-mawjs-no2.json"];
+    expect(resolveTmuxTarget("mawjs")).toEqual({
+      resolved: "mawjs",
+      source: "session-name",
+    });
+  });
+
+
+  test("resolveTmuxTarget resolves fleet window aliases for role-suffixed sessions", () => {
+    fleetFiles = ["23-discord-admin.json", "114-mawjs-no2.json"];
+    fleetWindows = {
+      "23-discord-admin.json": ["discord-oracle"],
+      "114-mawjs-no2.json": ["mawjs-no2"],
+    };
+
+    expect(resolveTmuxTarget("discord-oracle")).toEqual({
+      resolved: "23-discord-admin",
+      source: "fleet-window (23-discord-admin)",
+    });
+    expect(resolveTmuxTarget("discord")).toEqual({
+      resolved: "23-discord-admin",
+      source: "fleet-window (23-discord-admin)",
+    });
     expect(resolveTmuxTarget("mawjs")).toEqual({
       resolved: "mawjs",
       source: "session-name",

@@ -149,6 +149,63 @@ export function resolveNumericFleetStemPrefix<T extends { name: string }>(
   return { kind: "none" };
 }
 
+export interface FleetWindowSessionLike {
+  name: string;
+  windows?: readonly { name?: string; repo?: string }[];
+}
+
+function stripOracleSuffixLower(name: string): string {
+  return name.replace(/-oracle$/i, "");
+}
+
+function repoBasenameLower(repo: string): string {
+  return (repo.split("/").pop() || repo).toLowerCase();
+}
+
+/**
+ * Resolve an oracle/window target through fleet session window metadata.
+ *
+ * Some fleet sessions are intentionally named for an operator role rather than
+ * the oracle repo, e.g. live session `23-discord-admin` owns window
+ * `discord-oracle`. Name-only stem matching cannot infer that safely without
+ * reopening #535 (`mawjs` hijacking `114-mawjs-no2`). Fleet window metadata is
+ * authoritative, so only exact window/repo aliases and their `-oracle`-stripped
+ * forms auto-resolve.
+ */
+export function resolveFleetWindowSessionTarget<T extends FleetWindowSessionLike>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> {
+  const lc = target.trim().toLowerCase();
+  if (!lc) return { kind: "none" };
+  const lcBare = stripOracleSuffixLower(lc);
+
+  const aliasesFor = (item: T): string[] => {
+    const aliases: string[] = [];
+    for (const w of item.windows || []) {
+      const win = w.name?.trim().toLowerCase();
+      if (win) {
+        aliases.push(win, stripOracleSuffixLower(win));
+      }
+      const repo = w.repo?.trim();
+      if (repo) {
+        const base = repoBasenameLower(repo);
+        aliases.push(base, stripOracleSuffixLower(base));
+      }
+    }
+    return [...new Set(aliases.filter(Boolean))];
+  };
+
+  const matches = items.filter(item => {
+    const aliases = aliasesFor(item);
+    return aliases.includes(lc) || aliases.includes(lcBare);
+  });
+
+  if (matches.length === 1) return { kind: "fuzzy", match: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+  return { kind: "none" };
+}
+
 export const resolveWorktreeTarget = <T extends { name: string }>(
   target: string,
   items: readonly T[],
