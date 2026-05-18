@@ -82,25 +82,38 @@ export function testOutput(): void {
 }
 `);
 
-  const result = spawnSync("bunx", [
-    "--bun",
-    "--package",
-    "assemblyscript@0.27.35",
-    "asc",
-    entryPath,
-    "--outFile",
-    wasmPath,
-    "--exportRuntime",
-    "--runtime",
-    "stub",
-    "--optimizeLevel",
-    "0",
-    "--shrinkLevel",
-    "0",
-    "--debug",
-  ], {
+  const childScript = `
+const [entryPath, wasmPath] = process.argv.slice(1);
+const r = Bun.spawnSync([
+  "bunx",
+  "--bun",
+  "--package",
+  "assemblyscript@0.27.35",
+  "asc",
+  entryPath,
+  "--outFile",
+  wasmPath,
+  "--exportRuntime",
+  "--runtime",
+  "stub",
+  "--optimizeLevel",
+  "0",
+  "--shrinkLevel",
+  "0",
+  "--debug",
+], {
+  cwd: process.cwd(),
+  env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", MAW_TEST_MODE: "1" },
+  stdout: "pipe",
+  stderr: "pipe",
+});
+process.stdout.write(new TextDecoder().decode(r.stdout));
+process.stderr.write(new TextDecoder().decode(r.stderr));
+process.exit(r.success ? 0 : (r.exitCode ?? 1));
+`;
+  const result = spawnSync(process.execPath, ["-e", childScript, entryPath, wasmPath], {
     cwd: repoRoot,
-    env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", MAW_TEST_MODE: "1" },
+    env: { ...process.env, MAW_TEST_MODE: "1" },
     encoding: "utf8",
   });
 

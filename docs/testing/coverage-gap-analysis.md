@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-17T23:54:20.243Z
+Generated: 2026-05-18T00:16:41.416Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **56.9%** (29159/51243)
-Overall function coverage: **87.3%** (3068/3513)
+Overall line coverage: **57.1%** (29275/51229)
+Overall function coverage: **87.4%** (3074/3519)
 
 ## Module summary
 
@@ -18,10 +18,10 @@ Overall function coverage: **87.3%** (3068/3513)
 | fleet | 17 | 0 | 76.3% (858/1125) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
 | other | 180 | 48 | 69.0% (10011/14502) | 85.2% (989/1161) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 81.2% (1083/1334) | 95.5% (85/89) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 81.1% (1082/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 186 | 32.5% (6798/20937) | 82.2% (669/814) | n/a (0/0) |
+| vendor plugins | 245 | 185 | 33.0% (6915/20923) | 82.3% (675/820) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -38,15 +38,15 @@ Overall function coverage: **87.3%** (3068/3513)
 | 9 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
 | 10 | low | vendor plugins | `src/vendor/mpr-plugins/peers/tofu.ts` | 134 | 0.0% | n/a | absent from LCOV |
 | 11 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
-| 12 | low | vendor plugins | `src/vendor/mpr-plugins/artifact-manager/index.ts` | 131 | 0.0% | n/a | absent from LCOV |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/maw-js-branch-check.ts` | 129 | 0.0% | n/a | absent from LCOV |
-| 14 | medium | other | `src/commands/plugins/fleet/fleet-consolidate.ts` | 127 | 0.0% | n/a | absent from LCOV |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stillborn-worktrees.ts` | 126 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/index.ts` | 126 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/init/prompts.ts` | 125 | 0.0% | n/a | absent from LCOV |
-| 18 | medium | other | `src/commands/plugins/fleet/fleet-init-scan.ts` | 124 | 0.0% | n/a | absent from LCOV |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/ui/impl-render.ts` | 124 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 122 | 72.1% | 100.0% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/maw-js-branch-check.ts` | 129 | 0.0% | n/a | absent from LCOV |
+| 13 | medium | other | `src/commands/plugins/fleet/fleet-consolidate.ts` | 127 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/stillborn-worktrees.ts` | 126 | 0.0% | n/a | absent from LCOV |
+| 15 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/index.ts` | 126 | 0.0% | n/a | absent from LCOV |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/init/prompts.ts` | 125 | 0.0% | n/a | absent from LCOV |
+| 17 | medium | other | `src/commands/plugins/fleet/fleet-init-scan.ts` | 124 | 0.0% | n/a | absent from LCOV |
+| 18 | low | vendor plugins | `src/vendor/mpr-plugins/ui/impl-render.ts` | 124 | 0.0% | n/a | absent from LCOV |
+| 19 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 122 | 72.1% | 100.0% | partial coverage |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/scope/index.ts` | 121 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -129,7 +129,7 @@ Overall function coverage: **87.3%** (3068/3513)
 | plugin dispatch | `src/plugin/manifest-parse.ts` | 82.8% | 100.0% |
 | plugin dispatch | `src/plugin/manifest-validate.ts` | 98.6% | 100.0% |
 | plugin dispatch | `src/plugin/manifest.ts` | 100.0% | 100.0% |
-| plugin dispatch | `src/plugin/registry-helpers.ts` | 94.0% | 88.9% |
+| plugin dispatch | `src/plugin/registry-helpers.ts` | 92.5% | 88.9% |
 | plugin dispatch | `src/plugin/registry-semver.ts` | 90.7% | 100.0% |
 | plugin dispatch | `src/plugin/tier.ts` | 100.0% | 100.0% |
 | routing/aliases | `src/cli/route-comm.ts` | 86.7% | 100.0% |
