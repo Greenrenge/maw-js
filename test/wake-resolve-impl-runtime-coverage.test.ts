@@ -480,12 +480,32 @@ describe("findWorktrees and detectSession runtime paths", () => {
   });
 
 
-  test("detectSession prefers fleet window aliases over unrelated suffix sessions", async () => {
+  test("detectSession prefers fleet window aliases over unrelated channel suffix sessions", async () => {
     writeFleet("23-discord-admin", [{ name: "discord-oracle", repo: "Soul-Brews-Studio/discord-oracle" }]);
-    sessions = [{ name: "23-discord-admin" }, { name: "odin-discord" }];
+    sessions = [
+      { name: "23-discord-admin" },
+      { name: "alpha-oracle-discord" },
+      { name: "beta-oracle-discord" },
+      { name: "odin-discord" },
+      { name: "homekeeper-oracle-discord" },
+    ];
 
     await expect(detectSession("discord")).resolves.toBe("23-discord-admin");
     await expect(detectSession("discord-oracle")).resolves.toBe("23-discord-admin");
+  });
+
+  test("detectSession excludes channel helper sessions from unrelated oracle resolution", async () => {
+    sessions = [
+      { name: "mawjs-oracle-discord" },
+      { name: "mawjs-oracle-slack" },
+      { name: "mawjs-telegram" },
+      { name: "mawjs-view" },
+    ];
+
+    await expect(detectSession("mawjs")).resolves.toBeNull();
+
+    sessions = [{ name: "23-discord-oracle" }, { name: "alpha-oracle-discord" }];
+    await expect(detectSession("discord")).resolves.toBe("23-discord-oracle");
   });
 
   test("detectSession falls back to fleet session configs only when that session is live", async () => {
