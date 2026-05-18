@@ -78,6 +78,33 @@ function stripOracleSuffix(name: string): string {
   return name.replace(/-oracle$/i, "");
 }
 
+const INFRA_CHANNEL_SUFFIXES = new Set([
+  // Sessions created by `claude --channels` / bridge integrations. These are
+  // infrastructure channel panes, not oracle home sessions; `maw a discord`
+  // must not see every oracle's `*-discord` channel helper as a candidate.
+  "discord",
+  "telegram",
+  "slack",
+  "matrix",
+  "signal",
+  "whatsapp",
+]);
+
+function isInfrastructureChannelSessionName(sessionName: string, target: string): boolean {
+  const targetBare = stripOracleSuffix(target.trim().toLowerCase());
+  if (!targetBare || !INFRA_CHANNEL_SUFFIXES.has(targetBare)) return false;
+
+  const name = sessionName.toLowerCase();
+  // The oracle's own canonical repo/session shapes are still valid.
+  if (name === targetBare || name === `${targetBare}-oracle` || name.endsWith(`-${targetBare}-oracle`)) {
+    return false;
+  }
+
+  // `*-discord` and `*-oracle-discord` are channel/helper sessions, not the
+  // discord oracle. They should be invisible to generic suffix resolution.
+  return name.endsWith(`-${targetBare}`) || name.includes(`-oracle-${targetBare}`);
+}
+
 function stripNumericFleetPrefix(name: string): string {
   return name.replace(/^\d+-/, "");
 }
@@ -411,6 +438,8 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   const sessions = await tmux.listSessions();
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
+  const scopedSessions = sessions.filter(s => !isInfrastructureChannelSessionName(s.name, urlRepoName ?? oracle));
+  const numericSessions = scopedSessions.filter(s => /^\d+-/.test(s.name));
 
   // #769 — URL/slug input expresses the FULL repo intent (e.g. "m5-oracle").
   // The bare `oracle` is the stripped form ("m5"), and falling through to the
@@ -418,7 +447,7 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // (`01-maw-m5`, `04-ollama-m5`). Match strictly on the full repo name; if
   // none, return null so the caller auto-creates a session named after it.
   if (urlRepoName) {
-    const exact = sessions.find(s => s.name === urlRepoName || s.name === oracle);
+    const exact = scopedSessions.find(s => s.name === urlRepoName || s.name === oracle);
     if (exact) return exact.name;
 
     // #1794 family — once repo resolution has proven the target oracle
@@ -432,7 +461,7 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
       resolveFleetSession(oracle);
     if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
 
-    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
+    const numbered = scopedSessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
     if (numbered.length === 1) return numbered[0]!.name;
     if (numbered.length > 1) {
       console.error(`\x1b[31merror\x1b[0m: '${urlRepoName}' is ambiguous — matches ${numbered.length} fleet sessions:`);
@@ -443,10 +472,27 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     return null;
   }
 
+  // Fleet window metadata is authoritative for sessions whose operator role
+  // suffix differs from the oracle repo/window name, e.g. discord-oracle lives
+  // in 23-discord-admin. Try this before generic suffix matching so unrelated
+  // aux/channel sessions like odin-discord do not steal `maw wake discord`.
+  const fleetSession = resolveFleetSession(oracle);
+  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
+
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
   // fleet sessions suffix-match, surface loudly rather than silently picking one.
-  const numericSessions = sessions.filter(s => /^\d+-/.test(s.name));
+  const numericOracleRepo = oracle.endsWith("-oracle")
+    ? []
+    : numericSessions.filter(s => s.name.endsWith(`-${oracle}-oracle`));
+  if (numericOracleRepo.length === 1) return numericOracleRepo[0]!.name;
+  if (numericOracleRepo.length > 1) {
+    console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numericOracleRepo.length} fleet oracle sessions:`);
+    for (const s of numericOracleRepo) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+
   const numeric = numericSessions.filter(s => s.name.endsWith(`-${oracle}`));
   if (numeric.length === 1) return numeric[0]!.name;
   if (numeric.length > 1) {
@@ -473,17 +519,10 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
     process.exit(1);
   }
 
-  // Fleet window metadata is authoritative for sessions whose operator role
-  // suffix differs from the oracle repo/window name, e.g. discord-oracle lives
-  // in 23-discord-admin. Try this before generic non-numeric suffix matching so
-  // unrelated aux sessions like odin-discord do not steal `maw wake discord`.
-  const fleetSession = resolveFleetSession(oracle);
-  if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
-
   // No fleet match — defer to the canonical resolver on non-ephemeral sessions
   // (wake shouldn't treat a *-view clone as "the oracle is running"). Exact
   // wins; ambiguous non-numeric matches surface loudly.
-  const candidates = sessions.filter(s => !s.name.endsWith("-view") && !s.name.startsWith("maw-pty-"));
+  const candidates = scopedSessions.filter(s => !s.name.endsWith("-view") && !s.name.startsWith("maw-pty-"));
   const r = resolveSessionTarget(oracle, candidates);
   if (r.kind === "exact" || r.kind === "fuzzy") return r.match.name;
   if (r.kind === "ambiguous") {

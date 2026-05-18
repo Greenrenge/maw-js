@@ -252,4 +252,27 @@ describe("worktree/session resolver fallback branches", () => {
 
     await expect(detectSession("discord", "discord-oracle")).resolves.toBe("23-discord-admin");
   });
+
+  test("detectSession filters discord channel helper sessions before generic suffix ambiguity", async () => {
+    sessions = [
+      { name: "01-mawjs-discord" },
+      { name: "02-homekeeper-discord" },
+      { name: "14-random-oracle-discord" },
+    ];
+
+    await expect(detectSession("discord")).resolves.toBeNull();
+    expect(exitCodes).toEqual([]);
+    expect(errors.join("\n")).not.toContain("ambiguous");
+  });
+
+  test("detectSession still accepts the oracle's own discord-oracle session shape", async () => {
+    sessions = [
+      { name: "01-mawjs-discord" },
+      { name: "24-discord-oracle" },
+      { name: "99-homekeeper-discord" },
+    ];
+
+    await expect(detectSession("discord")).resolves.toBe("24-discord-oracle");
+    expect(exitCodes).toEqual([]);
+  });
 });
