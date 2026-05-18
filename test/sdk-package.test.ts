@@ -10,7 +10,9 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
+import { pathToFileURL } from "url";
 import { spawnSync } from "child_process";
+import { runBunChild } from "./isolated/helpers/run-bun-child";
 
 const SDK_PKG_DIR = resolve(__dirname, "..", "packages", "sdk");
 
@@ -80,11 +82,11 @@ const h: (ctx: InvokeContext) => Promise<InvokeResult> = async () => ({ ok: true
 console.log(typeof maw.identity, typeof maw.federation, typeof maw.baseUrl, typeof h);
 `,
         );
-        const run = spawnSync("bun", ["run", "probe.ts"], {
+        const run = runBunChild({
           cwd: dir,
-          encoding: "utf8",
+          script: `await import(${JSON.stringify(pathToFileURL(join(dir, "probe.ts")).href)});`,
         });
-        expect(run.status).toBe(0);
+        expect(run.code).toBe(0);
         expect(run.stdout.trim()).toBe("function function function function");
       } finally {
         rmSync(dir, { recursive: true, force: true });

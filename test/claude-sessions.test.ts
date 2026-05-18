@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -67,7 +67,12 @@ describe("Claude Code session discovery", () => {
     );
 
     const { listClaudeSessions } = await freshModule();
-    const sessions = await listClaudeSessions();
+    const sessions = await listClaudeSessions({
+      execSync: (command) => {
+        if (command.startsWith("tail ")) return readFileSync(freshSession, "utf-8");
+        throw new Error(`unexpected execSync call: ${command}`);
+      },
+    });
 
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({

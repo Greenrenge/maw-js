@@ -1,20 +1,20 @@
 import { describe, expect, mock, test } from "bun:test";
 import { join } from "path";
-import { loadManifestFromDir } from "../src/plugin/manifest";
-import { validateConfig } from "../src/config/validate-ext";
+import { loadManifestFromDir } from "../../src/plugin/manifest";
+import { validateConfig } from "../../src/config/validate-ext";
 import {
   discoveryKey,
   parseDiscoveryKey,
   readZenohScoutConfig,
   runZenohScout,
   type ZenohApi,
-} from "../src/vendor/mpr-plugins/zenoh-scout/impl";
-import { ZenohScoutTransport } from "../src/transports/zenoh-scout";
-import { discoveryTransport } from "../src/transports";
+} from "../../src/vendor/mpr-plugins/zenoh-scout/impl";
+import { ZenohScoutTransport } from "../../src/transports/zenoh-scout";
+import { discoveryTransport } from "../../src/transports";
 
 describe("zenoh-scout plugin (#1455)", () => {
   test("manifest is valid and exposes opt-in cli/api surfaces", () => {
-    const loaded = loadManifestFromDir(join(import.meta.dir, "../src/vendor/mpr-plugins/zenoh-scout"));
+    const loaded = loadManifestFromDir(join(import.meta.dir, "../../src/vendor/mpr-plugins/zenoh-scout"));
     expect(loaded?.manifest.name).toBe("zenoh-scout");
     expect(loaded?.manifest.cli?.command).toBe("scout");
     expect(loaded?.manifest.cli?.aliases).toContain("zenoh-scout");

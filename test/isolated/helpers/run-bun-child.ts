@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { spawnSync } from "child_process";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -58,16 +59,15 @@ export function runBunChild(opts: {
 }): { code: number; stdout: string; stderr: string } {
   const tempDir = mkdtempSync(join(tmpdir(), "maw-bun-child-"));
   const resultFile = join(tempDir, "result.json");
-  const proc = Bun.spawnSync(["bun", "-e", CHILD_WRAPPER], {
+  const proc = spawnSync(process.execPath, ["-e", CHILD_WRAPPER], {
     cwd: opts.cwd,
+    encoding: "utf8",
     env: {
       ...process.env,
       ...opts.env,
       MAW_CHILD_RESULT_FILE: resultFile,
       MAW_CHILD_SCRIPT_B64: Buffer.from(opts.script, "utf8").toString("base64"),
     },
-    stdout: "pipe",
-    stderr: "pipe",
   });
 
   try {
@@ -77,11 +77,10 @@ export function runBunChild(opts: {
       stderr: string;
     };
   } catch {
-    const decoder = new TextDecoder();
     return {
-      code: proc.exitCode,
-      stdout: decoder.decode(proc.stdout),
-      stderr: decoder.decode(proc.stderr),
+      code: proc.status ?? 1,
+      stdout: proc.stdout ?? "",
+      stderr: `${proc.stderr ?? ""}${proc.error ? `${proc.stderr ? "\n" : ""}${proc.error.message}` : ""}`,
     };
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

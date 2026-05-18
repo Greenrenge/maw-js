@@ -2,10 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
-import { join, relative } from "path";
+import { join } from "path";
 
 const repoRoot = join(import.meta.dir, "../..");
-const apiPath = join(repoRoot, "src/wasm/maw-plugin-sdk-assemblyscript/assembly/api");
+const tmpRoot = join(repoRoot, ".tmp");
+const apiImport = "../../src/wasm/maw-plugin-sdk-assemblyscript/assembly/api";
 
 type HarnessExports = {
   memory: WebAssembly.Memory;
@@ -36,10 +37,9 @@ let exportsRef: HarnessExports;
 let hostState: HostState;
 
 function compileHarness(): void {
-  tmpDir = mkdtempSync(join(tmpdir(), "maw-assembly-api-second-pass-"));
+  tmpDir = mkdtempSync(join(tmpRoot, "maw-assembly-api-second-pass-"));
   const entryPath = join(tmpDir, "api-second-pass-harness.ts");
   wasmPath = join(tmpDir, "api-second-pass-harness.wasm");
-  const apiImport = relative(tmpDir, apiPath).replaceAll("\\", "/");
   writeFileSync(entryPath, `
 import { maw, readArgs, writeResult } from "${apiImport}";
 
@@ -95,24 +95,36 @@ export function testAsyncResult(id: i32): i32 {
 }
 `);
 
-  const result = spawnSync(process.execPath, [
-    "x",
-    "--bun",
-    "--package",
-    "assemblyscript@0.27.35",
-    "asc",
-    entryPath,
-    "--outFile",
-    wasmPath,
-    "--exportRuntime",
-    "--runtime",
-    "stub",
-    "--optimizeLevel",
-    "0",
-    "--shrinkLevel",
-    "0",
-    "--debug",
-  ], {
+  const childScript = `
+const [entryPath, wasmPath] = process.argv.slice(1);
+const r = Bun.spawnSync([
+  "bunx",
+  "--bun",
+  "--package",
+  "assemblyscript@0.27.35",
+  "asc",
+  entryPath,
+  "--outFile",
+  wasmPath,
+  "--exportRuntime",
+  "--runtime",
+  "stub",
+  "--optimizeLevel",
+  "0",
+  "--shrinkLevel",
+  "0",
+  "--debug",
+], {
+  cwd: process.cwd(),
+  env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", MAW_TEST_MODE: "1" },
+  stdout: "pipe",
+  stderr: "pipe",
+});
+process.stdout.write(new TextDecoder().decode(r.stdout));
+process.stderr.write(new TextDecoder().decode(r.stderr));
+process.exit(r.success ? 0 : (r.exitCode ?? 1));
+`;
+  const result = spawnSync(process.execPath, ["-e", childScript, entryPath, wasmPath], {
     cwd: repoRoot,
     env: { ...process.env, MAW_TEST_MODE: "1" },
     encoding: "utf8",

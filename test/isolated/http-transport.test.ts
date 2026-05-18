@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { FeedEvent } from "../src/lib/feed";
-import type { Session } from "../src/core/runtime/find-window";
-import { HttpTransport } from "../src/transports/http";
+import type { FeedEvent } from "../../src/lib/feed";
+import type { Session } from "../../src/core/runtime/find-window";
+import { HttpTransport } from "../../src/transports/http";
 
 function event(): FeedEvent {
   return {

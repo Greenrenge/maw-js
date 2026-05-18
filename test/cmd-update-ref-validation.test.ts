@@ -7,31 +7,33 @@
  * CLI surface. No mock.module needed (no module-level side effects).
  */
 import { describe, it, expect } from "bun:test";
-import { join } from "path";
+import { runBunChild } from "./isolated/helpers/run-bun-child";
 
-const cliPath = join(import.meta.dir, "../src/cli.ts");
+const cmdUpdateUrl = new URL("../src/cli/cmd-update.ts", import.meta.url).href;
 
 async function runCli(
   args: string[],
   opts: { env?: Record<string, string> } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["bun", cliPath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    // MAW_TEST_MODE=1 is mandatory here: runUpdate mutates the *real*
-    // ~/.bun/bin/maw and ~/.bun/install/global/ (no sandbox seam). Without
-    // this guard a valid ref falls through into the destructive install path
-    // and wipes the developer's maw install on every `bun test` run. Set it
-    // explicitly so the test is safe even when run standalone (not just
-    // inheriting it from the suite-level env).
-    env: { ...process.env, MAW_CLI: "1", MAW_TEST_MODE: "1", ...opts.env },
+  // MAW_TEST_MODE=1 is mandatory here: runUpdate mutates the *real*
+  // ~/.bun/bin/maw and ~/.bun/install/global/ (no sandbox seam). Without
+  // this guard a valid ref falls through into the destructive install path
+  // and wipes the developer's maw install on every `bun test` run. Set it
+  // explicitly so the test is safe even when run standalone (not just
+  // inheriting it from the suite-level env).
+  //
+  // Bun's test runner can swallow stdio/exit details from nested `bun src/cli.ts`
+  // subprocesses launched by default-suite files. The shared child wrapper
+  // captures console/process.exit in the child process, preserving the
+  // ref-validation surface without touching the real install path.
+  return runBunChild({
+    cwd: process.cwd(),
+    env: { MAW_CLI: "1", MAW_TEST_MODE: "1", ...opts.env },
+    script: `
+      const { runUpdate } = await import(${JSON.stringify(cmdUpdateUrl)});
+      await runUpdate(${JSON.stringify(args)});
+    `,
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
 }
 
 // ─── Allowlist regex unit tests (no subprocess overhead) ──────────────────────

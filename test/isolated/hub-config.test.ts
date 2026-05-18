@@ -6,7 +6,7 @@ import { tmpdir } from "os";
 const tmpConfigDir = mkdtempSync(join(tmpdir(), "maw-hub-config-test-"));
 process.env.MAW_CONFIG_DIR = tmpConfigDir;
 
-const { WORKSPACES_DIR, loadWorkspaceConfigs, validateWorkspaceConfig } = await import("../src/transports/hub-config");
+const { WORKSPACES_DIR, loadWorkspaceConfigs, validateWorkspaceConfig } = await import("../../src/transports/hub-config");
 
 describe("hub workspace config validation (#1521)", () => {
   test("returns actionable reasons for invalid fields", () => {

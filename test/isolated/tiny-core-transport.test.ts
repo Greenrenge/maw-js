@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { processMirror } from "../src/lib/process-mirror";
-import { isUserError, UserError } from "../src/core/util/user-error";
-import { LoRaTransport } from "../src/transports/lora";
-import { discoveryTransport } from "../src/transports";
+import { processMirror } from "../../src/lib/process-mirror";
+import { isUserError, UserError } from "../../src/core/util/user-error";
+import { LoRaTransport } from "../../src/transports/lora";
+import { discoveryTransport } from "../../src/transports";
 
 describe("tiny pure core helpers and transport stubs", () => {
   test("processMirror filters empty lines, normalizes separators, tails, and pads", () => {

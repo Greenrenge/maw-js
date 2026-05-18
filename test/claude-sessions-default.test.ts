@@ -1,3 +1,4 @@
+/** @maw-test-isolate @maw-test-isolate-cwd-neutral */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -79,18 +80,16 @@ function initGitRepo(path: string) {
 const execSyncFixture: NonNullable<ClaudeSessionDeps["execSync"]> = (cmd) => {
   const remoteMatch = cmd.match(/^git -C '([^']+)' remote get-url origin/);
   if (remoteMatch) {
-    return execFileSync("git", ["-C", remoteMatch[1], "remote", "get-url", "origin"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    if (remoteMatch[1].endsWith("/repo")) return "git@github.com:Org/claude-repo.git\n";
+    throw new Error(`not a git fixture: ${remoteMatch[1]}`);
   }
 
   const worktreeMatch = cmd.match(/^git -C '([^']+)' worktree list --porcelain/);
   if (worktreeMatch) {
-    return execFileSync("git", ["-C", worktreeMatch[1], "worktree", "list", "--porcelain"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    if (worktreeMatch[1].endsWith("/repo")) {
+      return `worktree ${worktreeMatch[1]}\nHEAD fixture\nbranch refs/heads/main\n\n`;
+    }
+    throw new Error(`not a git fixture: ${worktreeMatch[1]}`);
   }
 
   const tailMatch = cmd.match(/^tail -100 '([^']+)'/);
