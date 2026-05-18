@@ -1,0 +1,188 @@
+/** Focused isolated coverage for src/commands/plugins/oracle/impl-register.ts. */
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import type { OracleEntry } from "../../src/sdk";
+
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "maw-oracle-impl-register-next-"));
+const TEST_CONFIG_DIR = join(TEST_ROOT, "config");
+const TEST_FLEET_DIR = join(TEST_ROOT, "fleet");
+const TEST_GHQ_ROOT = join(TEST_ROOT, "ghq");
+const REGISTRY_FILE = join(TEST_CONFIG_DIR, "oracles.json");
+
+type Session = { name: string; windows: Array<{ name: string; index?: number }> };
+
+let sessions: Session[] | Error = [];
+let logs: string[] = [];
+const originalLog = console.log;
+
+mock.module(import.meta.resolve("../../src/sdk"), () => ({
+  CONFIG_DIR: TEST_CONFIG_DIR,
+  FLEET_DIR: TEST_FLEET_DIR,
+  listSessions: async () => {
+    if (sessions instanceof Error) throw sessions;
+    return sessions;
+  },
+}));
+
+mock.module(import.meta.resolve("../../src/config/ghq-root"), () => ({
+  getGhqRoot: () => TEST_GHQ_ROOT,
+}));
+
+const register = await import("../../src/commands/plugins/oracle/impl-register.ts?oracle-impl-register-next-coverage");
+
+function oracleEntry(name: string, patch: Partial<OracleEntry> = {}): OracleEntry {
+  return {
+    org: "Soul-Brews-Studio",
+    repo: `${name}-oracle`,
+    name,
+    local_path: join(TEST_GHQ_ROOT, "github.com", "Soul-Brews-Studio", `${name}-oracle`),
+    has_psi: true,
+    has_fleet_config: false,
+    budded_from: null,
+    budded_at: null,
+    federation_node: null,
+    detected_at: "2026-05-18T00:00:00.000Z",
+    ...patch,
+  };
+}
+
+function captureLogs() {
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+beforeEach(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+  mkdirSync(TEST_CONFIG_DIR, { recursive: true });
+  mkdirSync(TEST_FLEET_DIR, { recursive: true });
+  mkdirSync(join(TEST_GHQ_ROOT, "github.com"), { recursive: true });
+  sessions = [];
+  logs = [];
+  captureLogs();
+});
+
+afterEach(() => {
+  console.log = originalLog;
+});
+
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
+
+describe("oracle impl-register next coverage", () => {
+  test("findInFleet skips malformed configs, accepts direct window names, and fills defaults", () => {
+    writeFileSync(join(TEST_FLEET_DIR, "bad.json"), "{ invalid", "utf8");
+    writeFileSync(
+      join(TEST_FLEET_DIR, "direct.json"),
+      JSON.stringify({
+        windows: [{ name: "direct" }],
+        project_repos: [],
+      }),
+      "utf8",
+    );
+
+    const found = register.findInFleet("direct", TEST_FLEET_DIR);
+
+    expect(found?.source).toBe("fleet");
+    expect(found?.entry).toMatchObject({
+      org: "(unknown)",
+      repo: "direct-oracle",
+      name: "direct",
+      has_fleet_config: true,
+      budded_from: null,
+      budded_at: null,
+    });
+    expect(register.findInFleet("direct", join(TEST_ROOT, "missing-fleet"))).toBeNull();
+  });
+
+  test("findInFilesystem skips non-directories and finds direct repo names without psi", () => {
+    const root = join(TEST_ROOT, "repos-root");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "README.txt"), "not an org directory", "utf8");
+    mkdirSync(join(root, "Soul-Brews-Studio", "plain"), { recursive: true });
+
+    const found = register.findInFilesystem("plain", root);
+
+    expect(found?.source).toBe("filesystem");
+    expect(found?.entry).toMatchObject({
+      org: "Soul-Brews-Studio",
+      repo: "plain",
+      name: "plain",
+      has_psi: false,
+      local_path: join(root, "Soul-Brews-Studio", "plain"),
+    });
+    expect(register.findInFilesystem("plain", join(TEST_ROOT, "missing-root"))).toBeNull();
+  });
+
+  test("findInTmux handles direct window names and swallowed session-list failures", async () => {
+    sessions = [{ name: "ops", windows: [{ name: "solo", index: 1 }] }];
+    await expect(register.findInTmux("solo")).resolves.toMatchObject({
+      source: "tmux",
+      entry: { name: "solo", repo: "solo-oracle" },
+    });
+
+    sessions = new Error("tmux unavailable");
+    await expect(register.findInTmux("solo")).resolves.toBeNull();
+  });
+
+  test("cmdOracleRegister uses default raw cache I/O and JSON output", async () => {
+    await register.cmdOracleRegister(
+      "jsony",
+      { json: true },
+      {
+        findInFleetFn: () => null,
+        findInTmuxFn: async () => null,
+        findInFilesystemFn: () => ({
+          source: "filesystem",
+          entry: oracleEntry("jsony"),
+        }),
+      },
+    );
+
+    const written = JSON.parse(readFileSync(REGISTRY_FILE, "utf8"));
+    expect(written.oracles.map((entry: OracleEntry) => entry.name)).toEqual(["jsony"]);
+
+    const output = JSON.parse(logs.join("\n"));
+    expect(output).toMatchObject({
+      schema: 1,
+      source: "filesystem",
+      registered: { name: "jsony", repo: "jsony-oracle" },
+    });
+  });
+
+  test("cmdOracleRegister prints human output including local path and validates required name", async () => {
+    await expect(register.cmdOracleRegister("")).rejects.toThrow("register requires a name");
+
+    let written: Record<string, unknown> | null = null;
+    await register.cmdOracleRegister(
+      "plain",
+      {},
+      {
+        readRawCache: () => ({ oracles: [] }),
+        writeRawCache: data => {
+          written = data;
+        },
+        findInFleetFn: () => null,
+        findInTmuxFn: async () => null,
+        findInFilesystemFn: () => ({
+          source: "filesystem",
+          entry: oracleEntry("plain"),
+        }),
+      },
+    );
+
+    expect((written!.oracles as OracleEntry[]).map(entry => entry.name)).toEqual(["plain"]);
+    const output = stripAnsi(logs.join("\n"));
+    expect(output).toContain("Registered plain");
+    expect(output).toContain("Source:  filesystem");
+    expect(output).toContain("Repo:    plain-oracle");
+    expect(output).toContain(`Path:    ${oracleEntry("plain").local_path}`);
+  });
+});
