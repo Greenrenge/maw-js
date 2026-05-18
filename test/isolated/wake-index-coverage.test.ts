@@ -5,9 +5,15 @@ const wakeAllCalls: Array<Record<string, unknown>> = [];
 const parseTargetCalls: string[] = [];
 const ensureClonedCalls: string[] = [];
 const fetchPromptCalls: Array<{ kind: string; num: number; repo?: string }> = [];
+const peerResolvePath = import.meta.resolve("../../src/vendor/mpr-plugins/wake/internal/peer-resolve.ts");
+const peerCallPath = import.meta.resolve("../../src/vendor/mpr-plugins/wake/internal/peer-call.ts");
+const peerCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
 
 let parsedTarget: null | { oracle: string; slug: string; issueNum?: number } = null;
 let fetchedPrompt = "fetched prompt";
+let peersByAlias = new Map<string, { url: string }>();
+let peerWakeResult: { ok: boolean; status?: number; data?: any } = { ok: true, data: {} };
+let peerWakeError: Error | null = null;
 
 mock.module("maw-js/commands/shared/wake", () => ({
   cmdWake: async (oracle: string, opts: Record<string, unknown>) => {
@@ -40,6 +46,18 @@ mock.module("maw-js/commands/shared/wake-resolve", () => ({
   },
 }));
 
+mock.module(peerResolvePath, () => ({
+  resolvePeer: (alias: string) => peersByAlias.get(alias) ?? null,
+}));
+
+mock.module(peerCallPath, () => ({
+  callPeerWake: async (url: string, body: Record<string, unknown>) => {
+    peerCalls.push({ url, body });
+    if (peerWakeError) throw peerWakeError;
+    return peerWakeResult;
+  },
+}));
+
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/wake/index.ts?wake-index-coverage");
 
 beforeEach(() => {
@@ -50,6 +68,10 @@ beforeEach(() => {
   fetchPromptCalls.length = 0;
   parsedTarget = null;
   fetchedPrompt = "fetched prompt";
+  peersByAlias = new Map();
+  peerWakeResult = { ok: true, data: {} };
+  peerWakeError = null;
+  peerCalls.length = 0;
 });
 
 describe("wake plugin index", () => {
@@ -121,6 +143,87 @@ describe("wake plugin index", () => {
     ]);
   });
 
+  test("maps the remaining cli flags, positionals, and explicit task prompt", async () => {
+    const result = await handler({
+      source: "cli",
+      args: [
+        "neo", "task-name", "prompt", "words",
+        "--incubate", "Soul-Brews-Studio/maw-js",
+        "--attach", "--ls", "--dry-run", "--snapshot", "snap-2",
+        "--solo", "--split", "--all-local", "--task", "flag prompt",
+      ],
+    } as any);
+
+    expect(result.ok).toBe(true);
+    expect(wakeCalls).toEqual([{
+      oracle: "neo",
+      opts: {
+        incubate: "Soul-Brews-Studio/maw-js",
+        attach: true,
+        listWt: true,
+        dryRun: true,
+        snapshotId: "snap-2",
+        fromSnapshot: true,
+        noRehydrate: true,
+        split: true,
+        allLocal: true,
+        task: "task-name",
+        prompt: "flag prompt",
+      },
+    }]);
+    expect(fetchPromptCalls).toEqual([]);
+  });
+
+  test("maps cli PR fetches and captures writer output without buffered output", async () => {
+    fetchedPrompt = "pr prompt";
+    const written: string[] = [];
+
+    const result = await handler({
+      source: "cli",
+      args: ["neo", "--pr", "9", "--repo", "owner/repo"],
+      writer: (...parts: unknown[]) => written.push(parts.map(String).join(" ")),
+    } as any);
+
+    expect(result).toEqual({ ok: true, output: undefined });
+    expect(fetchPromptCalls).toEqual([{ kind: "pr", num: 9, repo: "owner/repo" }]);
+    expect(wakeCalls).toEqual([{ oracle: "neo", opts: { prompt: "pr prompt", task: "pr-9" } }]);
+    expect(written.join("\\n")).toContain("fetching PR #9");
+    expect(written.join("\\n")).toContain("wake neo");
+  });
+
+  test("maps api issue body into wake options without overriding explicit task", async () => {
+    fetchedPrompt = "issue body";
+
+    const result = await handler({
+      source: "api",
+      args: {
+        oracle: "trinity",
+        issue: 12,
+        repo: "owner/repo",
+        task: "custom-task",
+        prompt: "manual prompt",
+        fresh: true,
+        attach: true,
+        main: true,
+        fromSnapshot: true,
+      },
+    } as any);
+
+    expect(result).toEqual({ ok: true, output: "wake trinity" });
+    expect(fetchPromptCalls).toEqual([{ kind: "issue", num: 12, repo: "owner/repo" }]);
+    expect(wakeCalls).toEqual([{
+      oracle: "trinity",
+      opts: {
+        task: "custom-task",
+        prompt: "issue body",
+        fresh: true,
+        attach: true,
+        noRehydrate: true,
+        fromSnapshot: true,
+      },
+    }]);
+  });
+
   test("maps api pr body into wake options", async () => {
     fetchedPrompt = "pr body";
 
@@ -164,5 +267,39 @@ describe("wake plugin index", () => {
 
     expect(result).toEqual({ ok: false, error: "missing oracle name" });
     expect(wakeCalls).toEqual([]);
+  });
+
+  test("forwards cli wake requests to peers and maps peer failures", async () => {
+    peersByAlias.set("gpu", { url: "http://gpu" });
+    peerWakeResult = { ok: true, data: { output: "remote output" } };
+
+    let result = await handler({
+      source: "cli",
+      args: ["neo", "remote-task", "--peer", "gpu", "--wt", "slot", "--task", "prompt", "--issue", "5", "--repo", "o/r", "--fresh", "--pick", "--name", "named"],
+    } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("forwarded wake → gpu (http://gpu) — neo");
+    expect(result.output).toContain("remote output");
+    expect(peerCalls).toEqual([{
+      url: "http://gpu",
+      body: { oracle: "neo", task: "remote-task", wt: "slot", prompt: "prompt", issue: 5, repo: "o/r", fresh: true, pick: true, name: "named" },
+    }]);
+    expect(wakeCalls).toEqual([]);
+
+    result = await handler({ source: "cli", args: ["neo", "--peer", "missing"] } as any);
+    expect(result).toEqual({ ok: false, error: "unknown peer alias: missing (see: maw peers list)" });
+
+    peerWakeResult = { ok: false, status: 404, data: {} };
+    result = await handler({ source: "cli", args: ["neo", "--peer", "gpu"] } as any);
+    expect(result).toEqual({ ok: false, error: "peer gpu does not support /api/wake (HTTP 404 at http://gpu)" });
+
+    peerWakeResult = { ok: false, status: 500, data: { error: "boom" } };
+    result = await handler({ source: "cli", args: ["neo", "--peer", "gpu"] } as any);
+    expect(result).toEqual({ ok: false, error: "peer wake failed (gpu http://gpu): boom" });
+
+    peerWakeError = new Error("network down");
+    result = await handler({ source: "cli", args: ["neo", "--peer", "gpu"] } as any);
+    expect(result).toEqual({ ok: false, error: "peer wake failed (gpu http://gpu): network down" });
   });
 });

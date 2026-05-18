@@ -6,6 +6,8 @@ import {
   buildWakeBudLineage,
   findWakeSnapshotSession,
   getLiveTileRoles,
+  promptAmbiguousWorktreePick,
+  _wtPicker,
   planRehydrateWorktreeWindows,
   planSnapshotRestoreWindows,
   retryFreshSessionTmuxStep,
@@ -19,6 +21,8 @@ import type { Snapshot } from "../src/core/fleet/snapshot";
 const tempRoots: string[] = [];
 const originalClaudeAgentName = process.env.CLAUDE_AGENT_NAME;
 const originalMawOracleName = process.env.MAW_ORACLE_NAME;
+const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
+const originalWtPickerReadChoice = _wtPicker.readChoice;
 
 function restoreEnv(name: "CLAUDE_AGENT_NAME" | "MAW_ORACLE_NAME", value: string | undefined): void {
   if (value === undefined) delete process.env[name];
@@ -31,10 +35,25 @@ function tempRoot(prefix: string): string {
   return dir;
 }
 
+function withMutedPickerOutput<T>(fn: () => T): T {
+  const originalLog = console.log;
+  const originalWrite = process.stdout.write;
+  console.log = () => {};
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try {
+    return fn();
+  } finally {
+    console.log = originalLog;
+    process.stdout.write = originalWrite;
+  }
+}
+
 afterEach(() => {
   for (const dir of tempRoots.splice(0)) rmSync(dir, { recursive: true, force: true });
   restoreEnv("CLAUDE_AGENT_NAME", originalClaudeAgentName);
   restoreEnv("MAW_ORACLE_NAME", originalMawOracleName);
+  _wtPicker.isStdoutTTY = originalWtPickerIsStdoutTTY;
+  _wtPicker.readChoice = originalWtPickerReadChoice;
 });
 
 describe("wake-bud lineage helpers — default coverage", () => {
@@ -117,6 +136,34 @@ describe("wake attach prompt gate — default coverage", () => {
 
   it("suppresses attach prompts in automated MAW_TEST_MODE runs", () => {
     expect(shouldOfferExistingSessionAttach({}, true, { MAW_TEST_MODE: "1" } as NodeJS.ProcessEnv)).toBe(false);
+  });
+});
+
+describe("wake ambiguous worktree picker — default coverage", () => {
+  const candidates = [
+    { name: "1-white", path: "/repo/wt-1-white" },
+    { name: "2-white", path: "/repo/wt-2-white" },
+  ];
+
+  it("returns null without an interactive stdout", () => {
+    _wtPicker.isStdoutTTY = () => false;
+
+    expect(promptAmbiguousWorktreePick("white", candidates)).toBeNull();
+  });
+
+  it("returns the selected candidate for a valid numeric choice", () => {
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "2";
+
+    expect(withMutedPickerOutput(() => promptAmbiguousWorktreePick("white", candidates))).toBe(candidates[1]);
+  });
+
+  it("rejects missing, non-numeric, and out-of-range picker choices", () => {
+    _wtPicker.isStdoutTTY = () => true;
+    for (const choice of [null, "", "two", "0", "3"]) {
+      _wtPicker.readChoice = () => choice;
+      expect(withMutedPickerOutput(() => promptAmbiguousWorktreePick("white", candidates))).toBeNull();
+    }
   });
 });
 

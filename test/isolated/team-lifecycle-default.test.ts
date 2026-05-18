@@ -6,8 +6,18 @@ import { join } from "path";
 const rootSrc = join(import.meta.dir, "../../src");
 const layoutCalls: unknown[] = [];
 const snapshotCalls: unknown[] = [];
+const sendShutdownCalls: unknown[] = [];
 let cleanupReturn = 0;
 let spawnResult = { paneId: "%spawned", color: "blue" };
+let spawnTeammatePaneImpl = async (...args: unknown[]) => {
+  layoutCalls.push(["spawnTeammatePane", ...args]);
+  return spawnResult;
+};
+let sendShutdownImpl = (...args: unknown[]) => {
+  sendShutdownCalls.push(args);
+  Date.now();
+  return "/tmp/shutdown.json";
+};
 const tmuxMock = {
   listPaneIds: async () => paneSnapshots.shift() ?? new Set<string>(),
   killPane: async (paneId: string) => { killPaneCalls.push(paneId); },
@@ -24,10 +34,7 @@ mock.module(join(rootSrc, "commands/plugins/tmux/layout-manager"), () => ({
     layoutCalls.push(["cleanupTeamPanes", ...args]);
     return cleanupReturn;
   },
-  spawnTeammatePane: async (...args: unknown[]) => {
-    layoutCalls.push(["spawnTeammatePane", ...args]);
-    return spawnResult;
-  },
+  spawnTeammatePane: async (...args: unknown[]) => spawnTeammatePaneImpl(...args),
   colorAnsi: (color: string) => color === "green" ? "32" : "34",
 }));
 
@@ -35,6 +42,10 @@ mock.module(join(rootSrc, "commands/plugins/team/layout-snapshot"), () => ({
   saveLayoutSnapshot: (...args: unknown[]) => {
     snapshotCalls.push(args);
   },
+}));
+
+mock.module(join(rootSrc, "commands/plugins/team/inbox"), () => ({
+  sendShutdown: (...args: unknown[]) => sendShutdownImpl(...args),
 }));
 
 const helpers = await import("../../src/commands/plugins/team/team-helpers");
@@ -90,8 +101,18 @@ beforeEach(() => {
   errors = [];
   layoutCalls.length = 0;
   snapshotCalls.length = 0;
+  sendShutdownCalls.length = 0;
   cleanupReturn = 0;
   spawnResult = { paneId: "%spawned", color: "blue" };
+  spawnTeammatePaneImpl = async (...args: unknown[]) => {
+    layoutCalls.push(["spawnTeammatePane", ...args]);
+    return spawnResult;
+  };
+  sendShutdownImpl = (...args: unknown[]) => {
+    sendShutdownCalls.push(args);
+    Date.now();
+    return "/tmp/shutdown.json";
+  };
   paneSnapshots = [];
   killPaneCalls = [];
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
@@ -177,6 +198,23 @@ describe("team-lifecycle coverage", () => {
     expect(logs.join("\n")).toContain("--exec");
   });
 
+  test("spawn reports missing teams and falls back when pane creation fails", async () => {
+    expect(lifecycle.cmdTeamSpawn("missing-team", "scout")).rejects.toThrow("team 'missing-team' not found");
+
+    lifecycle.cmdTeamCreate("qa-team");
+    process.env.TMUX = "/tmp/tmux,1,0";
+    spawnTeammatePaneImpl = async (...args: unknown[]) => {
+      layoutCalls.push(["spawnTeammatePane", ...args]);
+      throw new Error("split denied");
+    };
+
+    await lifecycle.cmdTeamSpawn("qa-team", "scout", { exec: true, model: "haiku" });
+
+    expect(layoutCalls[0]).toEqual(["spawnTeammatePane", "scout", expect.stringContaining("claude --model haiku"), { colorIndex: 1 }]);
+    expect(logs.join("\n")).toContain("--exec split failed: split denied");
+    expect(logs.join("\n")).toContain("Run manually:");
+  });
+
   test("mergeTeamKnowledge copies dead members' inboxes, findings, and archived manifest", () => {
     const teamDir = makeToolTeam("qa-team", [{ name: "scout" }]);
     mkdirSync(join(teamDir, "inboxes"), { recursive: true });
@@ -234,5 +272,31 @@ describe("team-lifecycle coverage", () => {
     expect(logs.join("\n")).toContain("scout shut down gracefully");
     expect(logs.join("\n")).toContain("force-killed builder");
     expect(logs.join("\n")).toContain("team 'qa-team' shut down (knowledge merged)");
+  });
+
+  test("shutdown reports missing teams, send failures, and still-live panes without force", async () => {
+    expect(lifecycle.cmdTeamShutdown("missing-team")).rejects.toThrow("team not found: missing-team");
+
+    const teamDir = makeToolTeam("qa-team", [{ name: "scout", tmuxPaneId: "%1" }]);
+    cleanupReturn = 1;
+    sendShutdownImpl = (...args: unknown[]) => {
+      sendShutdownCalls.push(args);
+      Date.now();
+      throw new Error("inbox locked");
+    };
+    paneSnapshots = [new Set(["%1"]), new Set(["%1"]), new Set(["%1"])] as Array<Set<string>>;
+    const nowValues = [0, 1, 26_000, 26_000];
+    Date.now = () => nowValues.shift() ?? 26_000;
+    process.env.TMUX_PANE = "%leader";
+
+    await lifecycle.cmdTeamShutdown("qa-team");
+
+    expect(sendShutdownCalls).toEqual([["qa-team", "scout", "team teardown via maw team shutdown"]]);
+    expect(killPaneCalls).toEqual([]);
+    expect(layoutCalls).toContainEqual(["cleanupTeamPanes", "%leader", ["%1"], { hide: true }]);
+    expect(errors.join("\n")).toContain("failed to send shutdown to scout: Error: inbox locked");
+    expect(errors.join("\n")).toContain("scout did not respond to shutdown_request");
+    expect(logs.join("\n")).toContain("hidden 1 leftover pane");
+    expect(existsSync(teamDir)).toBe(false);
   });
 });

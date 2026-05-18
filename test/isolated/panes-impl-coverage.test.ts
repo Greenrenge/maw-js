@@ -179,6 +179,23 @@ describe("panes impl isolated coverage", () => {
     expect(hostExecCalls).toEqual([]);
 
     errors = [];
+    resolveResults.set("windowless", { kind: "none", hints: [{ name: "window-hint" }] });
+    await expect(cmdPanes("windowless:2")).rejects.toThrow("session 'windowless' not found");
+    expect(stderr()).toContain("did you mean");
+    expect(stderr()).toContain("window-hint");
+    expect(hostExecCalls).toEqual([]);
+
+    errors = [];
+    resolveResults.set("bare-ambiguous", {
+      kind: "ambiguous",
+      candidates: [{ name: "bare-one" }, { name: "bare-two" }],
+    });
+    await expect(cmdPanes("bare-ambiguous")).rejects.toThrow("'bare-ambiguous' is ambiguous — matches 2 sessions");
+    expect(stderr()).toContain("bare-one");
+    expect(stderr()).toContain("bare-two");
+    expect(hostExecCalls).toEqual([]);
+
+    errors = [];
     resolveResults.set("absent", { kind: "none", hints: [] });
     await expect(cmdPanes("absent")).rejects.toThrow("session 'absent' not found");
     expect(stderr()).toContain("try: maw ls");

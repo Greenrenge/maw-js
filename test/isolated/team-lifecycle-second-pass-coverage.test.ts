@@ -109,6 +109,12 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(readJson(join(root, "ψ/memory/mailbox/teams/claimable/manifest.json")).leadSessionId).toBe("lead-session-original");
   });
 
+  test("create rejects duplicate archived manifests", () => {
+    lifecycle.cmdTeamCreate("claimable");
+
+    expect(() => lifecycle.cmdTeamCreate("claimable")).toThrow("team 'claimable' already exists");
+  });
+
   test("resume auto-claims an orphaned tool-store team for the current lead session", () => {
     process.env.CLAUDE_SESSION_ID = "new-lead-session-9999";
     makeToolTeam("ops", [
@@ -181,6 +187,15 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(errors.join("\n")).toContain("failed to send shutdown to scout");
     expect(logs.join("\n")).toContain("team 'qa-team' shut down");
     expect(existsSync(join(teamsDir, "qa-team"))).toBe(false);
+  });
+
+  test("shutdown leaves lead-only teams alone", async () => {
+    makeToolTeam("lead-only", [{ name: "lead", agentType: "team-lead", tmuxPaneId: "%0" }]);
+
+    await lifecycle.cmdTeamShutdown("lead-only");
+
+    expect(logs.join("\n")).toContain("No teammates to shut down in 'lead-only'");
+    expect(existsSync(join(teamsDir, "lead-only/config.json"))).toBe(true);
   });
 
   test("shutdown without --force reports still-live panes instead of killing them", async () => {
@@ -278,5 +293,16 @@ describe("vendor team-lifecycle second-pass coverage", () => {
     expect(logs.join("\n")).toContain("--exec split failed: tmux denied");
     expect(logs.join("\n")).toContain("Run manually:");
     expect(logs.join("\n")).toContain("cd '/tmp/work dir' && claude --model haiku --prompt-file");
+  });
+
+  test("spawn --exec outside tmux prints a manual command instead of starting a pane", async () => {
+    lifecycle.cmdTeamCreate("qa-team");
+
+    await lifecycle.cmdTeamSpawn("qa-team", "builder", { exec: true, model: "sonnet" });
+
+    expect(hostExecCalls).toEqual([]);
+    expect(logs.join("\n")).toContain("--exec requires an active tmux session");
+    expect(logs.join("\n")).toContain("Run manually:");
+    expect(logs.join("\n")).toContain("claude --model sonnet --prompt-file");
   });
 });

@@ -168,6 +168,7 @@ let ensureSessionRunningCalls: string[];
 let maybeSplitCalls: Array<{ target: string; opts: any }>;
 let maybeOpenWindowCalls: Array<{ target: string; opts: any }>;
 let writeSignalCalls: Array<{ root: string; child: string; signal: any }>;
+let ensureClonedCalls: string[];
 let createdWorktrees: Array<{
   repoPath: string;
   parentDir: string;
@@ -467,6 +468,7 @@ mock.module(
         : realWakeTarget.parseWakeTarget(target),
     ensureCloned: async (slug: string) => {
       if (!mockActive) return realWakeTarget.ensureCloned(slug);
+      ensureClonedCalls.push(slug);
     },
   }),
 );
@@ -591,6 +593,7 @@ beforeEach(() => {
   maybeSplitCalls = [];
   maybeOpenWindowCalls = [];
   writeSignalCalls = [];
+  ensureClonedCalls = [];
   createdWorktrees = [];
 });
 
@@ -684,6 +687,93 @@ describe("cmdWake main-suite coverage", () => {
     expect(newSessionCalls).toHaveLength(0);
     expect(newWindowCalls).toHaveLength(0);
     expect(sendTextCalls).toHaveLength(0);
+  });
+
+
+
+  test("resolves explicit GitHub targets through the parsed slug path", async () => {
+    parseWakeTargetReturn = {
+      oracle: "graph",
+      slug: "the-oracle-keeps-the-human-human/graph-oracle",
+    };
+    ghqFindReturn = join(parentDir, "graph-oracle");
+    repoName = "graph-oracle";
+    repoPath = ghqFindReturn;
+    mkdirSync(repoPath, { recursive: true });
+    detectSessionReturn = "24-graph";
+    hasSessions = new Set(["24-graph"]);
+    windowsBySession = {
+      "24-graph": [{ index: 0, name: "graph-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("https://github.com/the-oracle-keeps-the-human-human/graph-oracle", {}),
+    );
+
+    expect(result).toBe("24-graph:graph-oracle");
+    expect(ensureClonedCalls).toEqual(["the-oracle-keeps-the-human-human/graph-oracle"]);
+    expect(detectSessionCalls).toEqual([{ oracle: "graph", urlRepoName: "graph-oracle" }]);
+    expect(findWorktreesCalls).toEqual([{ parentDir, repoName: "graph-oracle", taskSlug: undefined, scopeStem: undefined }]);
+  });
+
+  test("incubates missing repos with a github.com prefix and defaults the worktree slug", async () => {
+    repoName = "new-tool";
+    repoPath = join(parentDir, repoName);
+    ghqFindReturn = repoPath;
+    mkdirSync(repoPath, { recursive: true });
+    resolvedOracle = { repoPath, repoName, parentDir };
+    sessions = [{ name: "12-seed" }];
+    hasSessions = new Set(["12-seed"]);
+    detectSessionReturn = "12-seed";
+    windowsBySession = {
+      "12-seed": [{ index: 0, name: "seed-oracle", active: true, cwd: repoPath }],
+    };
+
+    const { result } = await captureLogs(() =>
+      cmdWake("seed", { incubate: "Soul-Brews-Studio/new-tool" }),
+    );
+
+    expect(result).toBe("12-seed:seed-newtool");
+    expect(hostExecCalls).toContain("ghq get -u github.com/Soul-Brews-Studio/new-tool");
+    expect(createdWorktrees).toEqual([
+      { repoPath, parentDir, repoName, oracle: "seed", name: "newtool", deps: { fresh: false, named: false } },
+    ]);
+  });
+
+  test("surfaces guarded wake option errors before tmux mutation", async () => {
+    await expect(captureLogs(() => cmdWake("mawjs", { bud: true }))).rejects.toThrow("--bud requires --task <slug> or --wt <slug>");
+    await expect(captureLogs(() => cmdWake("mawjs", { signalOnBirth: true }))).rejects.toThrow("--signal-on-birth requires --bud");
+    await expect(captureLogs(() => cmdWake("mawjs", { session: "bad/session" }))).rejects.toThrow("invalid target session 'bad/session'");
+    sessions = [];
+    hasSessions = new Set();
+    await expect(captureLogs(() => cmdWake("mawjs", { session: "project" }))).rejects.toThrow("target session 'project' not found");
+    expect(newSessionCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+  });
+
+  test("surfaces snapshot selection failures", async () => {
+    snapshotReturn = null;
+    await expect(captureLogs(() => cmdWake("mawjs", { fromSnapshot: true, snapshotId: "missing" }))).rejects.toThrow("snapshot not found: missing");
+
+    snapshotReturn = makeSnapshot("71-other");
+    await expect(captureLogs(() => cmdWake("mawjs", { fromSnapshot: true }))).rejects.toThrow("has no session for mawjs");
+  });
+
+  test("dry-runs foreign sessions and wake-bud previews without rehydrating", async () => {
+    sessions = [{ name: "project" }];
+    hasSessions = new Set(["project"]);
+    windowsBySession = { project: [] };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { session: "project", dryRun: true, task: "Fix 42", bud: true, signalOnBirth: true }),
+    );
+
+    expect(result).toBe("project:mawjs");
+    expect(logs.join("\n")).toContain("would wake window 'mawjs' in workspace session 'project'");
+    expect(logs.join("\n")).toContain("would stamp wake-bud lineage");
+    expect(logs.join("\n")).toContain("would drop wake-bud birth signal");
+    expect(findWorktreesCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
   });
 
   test("wakes into an explicit foreign workspace session without home-session lookup side effects", async () => {

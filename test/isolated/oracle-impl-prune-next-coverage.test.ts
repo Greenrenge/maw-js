@@ -7,7 +7,7 @@ import { join } from "path";
 import type { OracleEntry } from "../../src/sdk";
 import type { StaleEntry } from "../../src/commands/plugins/oracle/impl-stale";
 
-const prune = await import("../../src/commands/plugins/oracle/impl-prune.ts?oracle-impl-prune-next-coverage");
+const prune = await import("../../src/commands/plugins/oracle/impl-prune");
 
 const originalLog = console.log;
 
