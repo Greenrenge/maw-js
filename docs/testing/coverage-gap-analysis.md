@@ -1,19 +1,19 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T10:26:17.290Z
+Generated: 2026-05-18T10:39:17.295Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **72.0%** (36673/50952)
+Overall line coverage: **72.0%** (36693/50952)
 Overall function coverage: **90.1%** (3778/4193)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 6 | 82.3% (6994/8502) | 91.1% (697/765) | n/a (0/0) |
+| cli/dispatch | 91 | 6 | 82.5% (7014/8502) | 91.1% (697/765) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 79.4% (911/1148) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 2 | 0 | 73.6% (89/121) | 100.0% (15/15) | n/a (0/0) |
@@ -167,11 +167,11 @@ Overall function coverage: **90.1%** (3778/4193)
 | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 105 | 76.7% |
 | cli/dispatch | `src/cli/cmd-update.ts` | 94 | 78.4% |
 | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% |
-| cli/dispatch | `src/commands/shared/wake-resolve-scan-suggest.ts` | 74 | 64.3% |
 | plugin dispatch | `src/plugin/registry-invoke.ts` | 68 | 68.4% |
 | routing/aliases | `src/core/routing.ts` | 62 | 73.7% |
 | cli/dispatch | `src/commands/shared/fleet-sync.ts` | 61 | 0.0% |
 | routing/aliases | `src/cli/top-aliases.ts` | 60 | 79.6% |
+| transport | `src/core/transport/curl-fetch.ts` | 59 | 68.4% |
 
 ## Critical gaps to prioritize
 
