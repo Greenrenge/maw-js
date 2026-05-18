@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T04:20:40.159Z
+Generated: 2026-05-18T04:30:02.140Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **70.1%** (35283/50343)
-Overall function coverage: **89.5%** (3628/4053)
+Overall line coverage: **70.6%** (35494/50302)
+Overall function coverage: **89.5%** (3654/4081)
 
 ## Module summary
 
@@ -17,11 +17,11 @@ Overall function coverage: **89.5%** (3628/4053)
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 75.3% (855/1136) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 42 | 74.4% (10739/14428) | 86.2% (1043/1210) | n/a (0/0) |
+| other | 180 | 41 | 75.0% (10798/14402) | 86.3% (1049/1216) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 80.7% (1077/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 124 | 60.4% (12136/20095) | 90.0% (1170/1300) | n/a (0/0) |
+| vendor plugins | 245 | 122 | 61.2% (12288/20080) | 90.0% (1190/1322) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -43,10 +43,10 @@ Overall function coverage: **89.5%** (3628/4053)
 | 14 | critical | cli/dispatch | `src/cli/dispatch.ts` | 95 | 47.5% | 57.1% | partial coverage |
 | 15 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/index.ts` | 87 | 20.9% | 27.3% | partial coverage |
 | 16 | critical | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% | n/a | absent from LCOV |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/avengers/impl.ts` | 86 | 0.0% | n/a | absent from LCOV |
-| 18 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 85 | 78.3% | 95.7% | partial coverage |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-status.ts` | 85 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/views/plugins.tsx` | 85 | 0.0% | n/a | absent from LCOV |
+| 17 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 85 | 78.3% | 95.7% | partial coverage |
+| 18 | medium | other | `src/commands/plugins/team/team-status.ts` | 84 | 0.0% | n/a | absent from LCOV |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/check/impl.ts` | 84 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/team/impl.ts` | 84 | 13.4% | 0.0% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
