@@ -14,6 +14,7 @@ export function _setDirs(teams: string, tasks: string) {
 
 export interface TeamMember {
   name: string;
+  role?: string;
   agentId?: string;
   agentType?: string;
   tmuxPaneId?: string;
@@ -56,7 +57,7 @@ export function currentLeadSessionId(env: NodeJS.ProcessEnv = process.env): stri
 
 export function teamTeammateNames(team: TeamConfig): string[] {
   return (team.members || [])
-    .filter(m => m.agentType !== "team-lead")
+    .filter(m => m.agentType !== "team-lead" && m.role !== "lead" && m.name !== "team-lead")
     .map(m => m.name)
     .filter(Boolean);
 }
