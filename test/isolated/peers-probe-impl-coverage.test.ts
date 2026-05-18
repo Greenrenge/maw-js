@@ -41,9 +41,11 @@ beforeAll(async () => {
 
 describe("peers probe coverage slice", () => {
   const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
   });
 
   test("classifies probe branches and hints", () => {
@@ -130,6 +132,39 @@ describe("peers probe coverage slice", () => {
     const result = await probeModule.probePeer("http://127.0.0.1:49999", 10);
     expect(result).toMatchObject({ node: null, error: { code: "TIMEOUT" } });
     globalThis.fetch = original;
+  });
+
+  test("timer callbacks abort /info failures and best-effort identity fetches", async () => {
+    globalThis.setTimeout = ((fn: TimerHandler, _ms?: number, ...args: unknown[]) => {
+      if (typeof fn === "function") fn(...args as []);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.signal?.aborted).toBe(true);
+      const err = new Error("aborted by timer") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    }) as typeof fetch;
+
+    await expect(probeModule.probePeer("http://127.0.0.1:3456", 25)).resolves.toMatchObject({
+      node: null,
+      error: { code: "TIMEOUT", message: "aborted by timer" },
+    });
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/info") return Response.json({ maw: true, node: "timer-ok" });
+      expect(init?.signal?.aborted).toBe(true);
+      const err = new Error("identity timer") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    }) as typeof fetch;
+
+    await expect(probeModule.probePeer("http://127.0.0.1:3456", 25)).resolves.toEqual({
+      node: "timer-ok",
+      nickname: null,
+    });
   });
 
   test("returns BAD_BODY when /info response JSON parse fails", async () => {

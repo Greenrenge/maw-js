@@ -713,6 +713,26 @@ describe("invokePlugin — WASM handle result", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  test("preCacheBridge can use late-bound bridge memory and allocator before handle", async () => {
+    const plug = writeWasmPlugin("bridge-precache", WASM_HANDLE_ZERO);
+    stubSetTimeout();
+    let identityPtr = 0;
+
+    const result = await invokePlugin(
+      plug,
+      { source: "cli", args: [] },
+      {
+        preCacheBridge: async (bridge: any) => {
+          bridge._setCachedIdentity(JSON.stringify({ node: "cached-node" }));
+          identityPtr = bridge.env.maw_identity();
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(identityPtr).toBeGreaterThan(0);
+  });
+
   test("timeout guard rejects stalled WASM execution", async () => {
     const plug = writeWasmPlugin("timeout", WASM_HANDLE_ZERO);
     const result = await invokePlugin(

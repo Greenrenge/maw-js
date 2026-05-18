@@ -222,6 +222,23 @@ describe("oracle impl-list second-pass isolated coverage", () => {
     expect(genericOut).toContain("No oracles found. Run maw oracle scan to refresh.");
   });
 
+  test("filters non-empty rows by awake and org in one json listing", async () => {
+    currentCache = freshCache();
+    manifestEntries = [
+      { name: "awake", repo: "Alpha/awake-oracle", hasFleetConfig: true, sources: ["fleet"] },
+      { name: "sleepy", repo: "Alpha/sleepy-oracle", hasFleetConfig: true, sources: ["fleet"] },
+      { name: "other", repo: "Beta/other-oracle", hasFleetConfig: true, sources: ["fleet"] },
+    ];
+    sessions = [{ name: "live", windows: [{ index: 0, name: "awake-oracle" }, { index: 1, name: "other-oracle" }] }];
+
+    const out = await capture(() => impl.cmdOracleList({ awake: true, org: "Alpha", json: true, stale: true }));
+    const parsed = JSON.parse(out);
+
+    expect(parsed.total).toBe(1);
+    expect(parsed.awake).toBe(1);
+    expect(parsed.oracles.map((oracle: any) => oracle.name)).toEqual(["awake"]);
+  });
+
   test("sorts grouped formatted rows by org, awake state, and name while showing paths", async () => {
     currentCache = freshCache();
     manifestEntries = [
@@ -229,17 +246,20 @@ describe("oracle impl-list second-pass isolated coverage", () => {
       { name: "bravo", repo: "Alpha/bravo-oracle", hasFleetConfig: true, sources: ["fleet"] },
       { name: "alpha", repo: "Alpha/alpha-oracle", localPath: "/tmp/alpha", hasPsi: true, sources: ["oracles-json"] },
       { name: "awake", repo: "Alpha/awake-oracle", hasFleetConfig: true, sources: ["fleet"] },
+      { name: "mystery", repo: "Alpha/mystery-oracle", sources: ["session"] },
     ];
     sessions = [{ name: "live", windows: [{ index: 0, name: "awake-oracle" }] }];
 
     const plain = stripAnsi(await capture(() => impl.cmdOracleList({ stale: true, path: true })));
 
-    expect(plain).toContain("Oracle Fleet  (1 awake / 4 total)");
-    expect(plain).toContain("Alpha (3):");
+    expect(plain).toContain("Oracle Fleet  (1 awake / 5 total)");
+    expect(plain).toContain("Alpha (4):");
     expect(plain).toContain("Zed (1):");
-    expect(plain.indexOf("Alpha (3):")).toBeLessThan(plain.indexOf("Zed (1):"));
+    expect(plain.indexOf("Alpha (4):")).toBeLessThan(plain.indexOf("Zed (1):"));
     expect(plain.indexOf("fleet+awake  awake")).toBeLessThan(plain.indexOf("fs           alpha"));
     expect(plain.indexOf("fs           alpha")).toBeLessThan(plain.indexOf("fleet        bravo"));
+    expect(plain).toContain("fs (?)       mystery");
+    expect(plain).toContain("uncertain");
     expect(plain).toContain("/tmp/alpha");
     expect(plain).toContain("not cloned");
   });

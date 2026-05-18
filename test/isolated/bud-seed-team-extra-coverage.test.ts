@@ -30,6 +30,7 @@ mock.module(join(root, "src/vendor/mpr-plugins/team/team-lifecycle"), () => ({
 
 const seed = await import("../../src/vendor/mpr-plugins/bud/from-repo-seed.ts?bud-seed-extra");
 const helpers = await import("../../src/vendor/mpr-plugins/team/team-helpers.ts?team-extra");
+const reincarnationHelpers = await import("../../src/vendor/mpr-plugins/team/team-helpers");
 const team = await import("../../src/vendor/mpr-plugins/team/team-reincarnation.ts?team-extra");
 
 const original = {
@@ -56,6 +57,7 @@ beforeEach(() => {
   teamsDir = join(temp, "teams");
   tasksDir = join(temp, "tasks");
   helpers._setDirs(teamsDir, tasksDir);
+  reincarnationHelpers._setDirs(teamsDir, tasksDir);
   mkdirSync(join(temp, "oracle", "ψ"), { recursive: true });
   process.chdir(join(temp, "oracle"));
   logs = [];
@@ -67,6 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   console.log = original.log;
   helpers._setDirs(join(process.env.HOME || original.cwd, ".claude/teams"), join(process.env.HOME || original.cwd, ".claude/tasks"));
+  reincarnationHelpers._setDirs(join(process.env.HOME || original.cwd, ".claude/teams"), join(process.env.HOME || original.cwd, ".claude/tasks"));
   process.chdir(original.cwd);
   if (original.envSession === undefined) delete process.env.CLAUDE_SESSION_ID;
   else process.env.CLAUDE_SESSION_ID = original.envSession;
@@ -114,6 +117,32 @@ describe("bud seed helpers extra coverage", () => {
 });
 
 describe("team reincarnation extra coverage", () => {
+  test("resume claims orphaned live teams without requiring an archive manifest", () => {
+    writeJson(join(teamsDir, "claimed", "config.json"), {
+      name: "claimed",
+      leadSessionId: "old-lead-session-long",
+      members: [
+        { name: "leader", agentType: "team-lead", tmuxPaneId: "%0" },
+        { name: "scout", tmuxPaneId: "%1" },
+        { name: "builder", tmuxPaneId: "%2" },
+      ],
+    });
+
+    team.cmdTeamResume("claimed");
+
+    const output = logs.join("\n");
+    expect(output).toContain("claimed orphaned team 'claimed'");
+    expect(output).toContain("old lead: old-lead");
+    expect(output).toContain("new lead: lead-now");
+    expect(output).toContain("teammates: 2 (scout, builder)");
+    expect(spawnCalls).toEqual([]);
+  });
+
+  test("resume reports the searched archive path when no team can be restored", () => {
+    expect(() => team.cmdTeamResume("missing-team"))
+      .toThrow("no archived team 'missing-team' found");
+  });
+
   test("resume reports archived teams with no members", () => {
     writeJson(join(temp, "oracle", "ψ", "memory", "mailbox", "teams", "empty", "manifest.json"), { members: [] });
 
@@ -154,5 +183,20 @@ describe("team reincarnation extra coverage", () => {
     expect(output).toContain("alpha_findings.md (2 lines)");
     expect(output).toContain("other:");
     expect(output).toContain("misc.json");
+  });
+
+  test("team lives reports no orders and no findings for sparse mailboxes", () => {
+    const mailbox = join(temp, "oracle", "ψ", "memory", "mailbox", "minimal");
+    mkdirSync(mailbox, { recursive: true });
+    writeFileSync(join(mailbox, "note.json"), "{}");
+
+    team.cmdTeamLives("minimal");
+
+    const output = logs.join("\n");
+    expect(output).toContain("standing orders:");
+    expect(output).toContain("no");
+    expect(output).toContain("findings:");
+    expect(output).toContain("none");
+    expect(output).toContain("note.json");
   });
 });

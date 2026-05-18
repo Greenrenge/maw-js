@@ -13,6 +13,7 @@ let peers: unknown[] = [];
 let aggregated: any[] = [];
 let tmuxSessions: any[] = [];
 let tmuxShouldThrow = false;
+let aggregateShouldThrow = false;
 let captureCalls: unknown[] = [];
 let previewCalls: unknown[] = [];
 let broadcastSessionCalls: unknown[] = [];
@@ -39,6 +40,7 @@ mock.module(import.meta.resolve("../../src/core/transport/peers"), () => ({
   getPeers: () => peers,
   getAggregatedSessions: async (seed: unknown[]) => {
     aggregateCalls.push(seed);
+    if (aggregateShouldThrow) throw new Error("peer aggregation failed");
     return aggregated;
   },
 }));
@@ -89,7 +91,11 @@ function makeState(overrides: Partial<any> = {}) {
     feedBuffer: [],
     transportRouter: {
       published: [] as unknown[],
-      async publishPresence(payload: unknown) { this.published.push(payload); },
+      rejectPresence: false,
+      async publishPresence(payload: unknown) {
+        this.published.push(payload);
+        if (this.rejectPresence) throw new Error("presence offline");
+      },
     },
     captureInterval: null,
     sessionInterval: null,
@@ -109,6 +115,7 @@ beforeEach(() => {
   aggregated = [{ name: "peer", windows: [], source: "remote" }];
   tmuxSessions = [{ name: "cached", windows: [{ index: 2, name: "cached-oracle", active: false }] }];
   tmuxShouldThrow = false;
+  aggregateShouldThrow = false;
   captureCalls = [];
   previewCalls = [];
   broadcastSessionCalls = [];
@@ -203,6 +210,24 @@ describe("engine interval orchestration", () => {
     expect(state.feedUnsub).toBeNull();
   });
 
+  test("stopIntervals invokes the installed feed unsubscribe and presence publish rejections stay soft", async () => {
+    const state = makeState({
+      sessionCache: { sessions: [{ name: "local", windows: [{ index: 1, name: "alpha-oracle", active: true }] }], json: "" },
+    });
+    startIntervals(state, () => {});
+    expect(state.feedListeners.size).toBe(1);
+
+    state.transportRouter.rejectPresence = true;
+    await timers[4].callback();
+    await Promise.resolve();
+    expect(state.transportRouter.published).toHaveLength(1);
+
+    state.clients.clear();
+    stopIntervals(state);
+    expect(state.feedListeners.size).toBe(0);
+    expect(state.feedUnsub).toBeNull();
+  });
+
   test("sendInitialSessions combines local cache, tmux fallback, peer cache, and busy-agent scan", async () => {
     const ws = makeWs("initial");
     const cachedState = makeState({
@@ -233,5 +258,14 @@ describe("engine interval orchestration", () => {
     const emptyState = makeState({ clients: new Set(), sessionCache: { sessions: [], json: "" } });
     await sendInitialSessions(emptyWs, emptyState);
     expect(JSON.parse(emptyWs.sent[0])).toEqual({ type: "sessions", sessions: [] });
+
+    const peerFailureWs = makeWs("peer-failure");
+    tmuxShouldThrow = false;
+    peers = ["remote"];
+    aggregateShouldThrow = true;
+    const peerFailureState = makeState({ clients: new Set(), sessionCache: { sessions: [], json: "" }, peerSessionsCache: [] });
+    await sendInitialSessions(peerFailureWs, peerFailureState);
+    expect(peerFailureState.peerSessionsCache).toEqual([]);
+    expect(JSON.parse(peerFailureWs.sent[0]).sessions).toEqual(tmuxSessions);
   });
 });

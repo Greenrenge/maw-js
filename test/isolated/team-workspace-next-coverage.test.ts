@@ -6,6 +6,7 @@ type OracleRegistry = {
 
 let sessionExists = new Set<string>();
 let tmuxRunResult = "";
+let tmuxRunError: Error | undefined;
 let selectLayoutFailures = new Set<string>();
 let layoutCalls: Array<{ target: string; layout: string }> = [];
 let wakeCalls: Array<{ oracle: string; opts: Record<string, unknown> }> = [];
@@ -20,7 +21,10 @@ const originalWarn = console.warn;
 mock.module("maw-js/sdk", () => ({
   tmux: {
     hasSession: async (name: string) => sessionExists.has(name),
-    run: async () => tmuxRunResult,
+    run: async () => {
+      if (tmuxRunError) throw tmuxRunError;
+      return tmuxRunResult;
+    },
     selectLayout: async (target: string, layout: string) => {
       layoutCalls.push({ target, layout });
       if (selectLayoutFailures.has(target)) throw new Error(`layout failed for ${target}`);
@@ -56,6 +60,7 @@ const {
 beforeEach(() => {
   sessionExists = new Set<string>();
   tmuxRunResult = "";
+  tmuxRunError = undefined;
   selectLayoutFailures = new Set<string>();
   layoutCalls = [];
   wakeCalls = [];
@@ -100,8 +105,28 @@ describe("team workspace next-pass coverage", () => {
       .rejects.toThrow("not in tmux and no 'team-a' session exists");
   });
 
+  test("treats failed tmux session lookup as outside tmux for session resolution", async () => {
+    process.env.TMUX = "/tmp/tmux-100/default,1,0";
+    tmuxRunError = new Error("display failed");
+
+    await expect(resolveTeamBringSession("team-a"))
+      .rejects.toThrow("not in tmux and no 'team-a' session exists");
+  });
+
   test("falls back from lead layout target to window zero and chooses tiled for larger teams", async () => {
     selectLayoutFailures.add("workspace:lead");
+
+    await expect(applyTeamBringLayout("workspace", 5)).resolves.toBe("tiled");
+
+    expect(layoutCalls).toEqual([
+      { target: "workspace:lead", layout: "tiled" },
+      { target: "workspace:0", layout: "tiled" },
+    ]);
+  });
+
+  test("ignores layout failures on both preferred and fallback windows", async () => {
+    selectLayoutFailures.add("workspace:lead");
+    selectLayoutFailures.add("workspace:0");
 
     await expect(applyTeamBringLayout("workspace", 5)).resolves.toBe("tiled");
 

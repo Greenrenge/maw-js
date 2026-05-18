@@ -33,7 +33,14 @@ mock.module("readline", () => ({
   }),
 }));
 
-const { runPromptLoop, ttyAsk } = await import("../../src/vendor/mpr-plugins/init/prompts.ts?init-prompts-next-coverage");
+const {
+  runPromptLoop,
+  ttyAsk,
+  validateGhqRoot,
+  validateNodeName,
+  validatePeerName,
+  validatePeerUrl,
+} = await import("../../src/vendor/mpr-plugins/init/prompts.ts?init-prompts-next-coverage");
 
 beforeEach(() => {
   originalToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -97,5 +104,57 @@ describe("init prompts next coverage", () => {
       "Peer 1 URL=done",
     ]);
     expect(writes).toEqual([]);
+  });
+
+  test("validators and retry failures are covered in the ttyAsk-enabled module load", async () => {
+    expect(validateNodeName("m5")).toBeNull();
+    expect(validateNodeName("bad_name")).toContain("Node name must");
+    expect(validateGhqRoot("", "/Users/tester")).toEqual({ ok: false, err: "Path must be absolute" });
+    expect(validateGhqRoot("relative", "/Users/tester")).toEqual({
+      ok: false,
+      err: "Path must be absolute (start with / or ~)",
+    });
+    expect(validateGhqRoot("~/Code", "/Users/tester")).toEqual({ ok: true, path: "/Users/tester/Code" });
+    expect(validatePeerUrl("")).toBe("URL required");
+    expect(validatePeerUrl("ftp://host")).toBe("URL must start with http:// or https://");
+    expect(validatePeerUrl("http://[broken")).toContain("Invalid URL");
+    expect(validatePeerUrl("https://ok.example.test")).toBeNull();
+    expect(validatePeerName("peer-1")).toBeNull();
+    expect(validatePeerName("bad_name")).toContain("Name must");
+
+    const writes: string[] = [];
+    const invalidNodeAsk = scriptedAsk(["bad_name", "also_bad", "still_bad"], []);
+    await expect(runPromptLoop(invalidNodeAsk, { node: "default-node" }, "/Users/tester", (msg) => writes.push(msg))).rejects.toThrow(
+      "Aborted after 3 invalid attempts",
+    );
+    expect(writes).toHaveLength(3);
+  });
+
+  test("runPromptLoop retries invalid peer URL and peer name in the ttyAsk-enabled module load", async () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "env-token";
+    const calls: Array<{ question: string; defaultVal?: string }> = [];
+    const writes: string[] = [];
+    const ask = scriptedAsk([
+      "m5",
+      "",
+      "yes",
+      "not-a-url",
+      "https://white.example.test:3456",
+      "bad_name",
+      "white",
+      "done",
+    ], calls);
+
+    const result = await runPromptLoop(ask, { node: "default-node" }, "/Users/tester", (msg) => writes.push(msg));
+
+    expect(result).toEqual({
+      node: "m5",
+      token: "",
+      federate: true,
+      peers: [{ name: "white", url: "https://white.example.test:3456" }],
+    });
+    expect(calls.map((call) => call.question)).toContain("Peer 1 URL");
+    expect(writes.join("\n")).toContain("URL must start with http:// or https://");
+    expect(writes.join("\n")).toContain("Name must be 1-31 chars");
   });
 });

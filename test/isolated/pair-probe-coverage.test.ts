@@ -5,6 +5,7 @@ let fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 let fetchCalls: string[] = [];
 
 const originalFetch = globalThis.fetch;
+const originalSetTimeout = globalThis.setTimeout;
 
 mock.module("dns/promises", () => ({
   lookup: (host: string) => lookupImpl(host),
@@ -12,6 +13,7 @@ mock.module("dns/promises", () => ({
 
 const {
   PROBE_EXIT_CODES,
+  PROBE_HINTS,
   classifyProbeError,
   formatProbeError,
   isValidMawHandshake,
@@ -31,6 +33,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  globalThis.setTimeout = originalSetTimeout;
 });
 
 describe("pair probe classifiers and formatting", () => {
@@ -41,6 +44,8 @@ describe("pair probe classifiers and formatting", () => {
     expect(classifyProbeError({ code: "ConnectionRefused" })).toBe("REFUSED");
     expect(classifyProbeError({ name: "AbortError" })).toBe("TIMEOUT");
     expect(classifyProbeError({ code: "CERT_HAS_EXPIRED" })).toBe("TLS");
+    expect(classifyProbeError({ code: "SELF_SIGNED_CERT_IN_CHAIN" })).toBe("TLS");
+    expect(classifyProbeError({ code: "WEIRD" })).toBe("UNKNOWN");
     expect(classifyProbeError("wat")).toBe("UNKNOWN");
     expect(PROBE_EXIT_CODES.TIMEOUT).toBe(5);
   });
@@ -53,10 +58,12 @@ describe("pair probe classifiers and formatting", () => {
 
     const mdns = { code: "DNS" as const, message: "query ENOTIMP white.local", at: "now" };
     expect(pickHint(mdns)).toContain("avahi-daemon");
+    expect(pickHint({ code: "UNKNOWN", message: "weird", at: "now" })).toBe(PROBE_HINTS.UNKNOWN);
     const formatted = formatProbeError(mdns, "http://white.local:3456/base", "white");
     expect(formatted).toContain("peer handshake failed");
     expect(formatted).toContain("host: white.local:3456");
     expect(formatted).toContain("retry: maw peers probe white");
+    expect(formatProbeError(mdns, "not a url", "bad")).toContain("host: not a url");
   });
 });
 
@@ -145,5 +152,38 @@ describe("probePeer", () => {
     };
     const timeout = await probePeer("http://127.0.0.1:3456", 25);
     expect(timeout.error?.code).toBe("TIMEOUT");
+  });
+
+  test("timer callbacks abort /info failures and best-effort identity fetches", async () => {
+    globalThis.setTimeout = ((fn: TimerHandler, _ms?: number, ...args: unknown[]) => {
+      if (typeof fn === "function") fn(...args as []);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    fetchImpl = async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(true);
+      const err = new Error("aborted by timer") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    };
+
+    await expect(probePeer("http://127.0.0.1:3456", 25)).resolves.toMatchObject({
+      node: null,
+      error: { code: "TIMEOUT", message: "aborted by timer" },
+    });
+
+    fetchImpl = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/info") return Response.json({ maw: true, node: "timer-ok" });
+      expect(init?.signal?.aborted).toBe(true);
+      const err = new Error("identity timer") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    };
+
+    await expect(probePeer("http://127.0.0.1:3456", 25)).resolves.toEqual({
+      node: "timer-ok",
+      nickname: null,
+    });
   });
 });

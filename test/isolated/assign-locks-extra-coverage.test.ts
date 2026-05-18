@@ -174,6 +174,10 @@ const lockTargets = [
     label: "pair/internal",
     load: () => import("../../src/vendor/mpr-plugins/pair/internal/lock"),
   },
+  {
+    label: "peers/plugin",
+    load: () => import("../../src/vendor/mpr-plugins/peers/lock"),
+  },
 ];
 
 function lockPathFor(label: string): string {
@@ -481,6 +485,24 @@ describe("peers lock helper extra coverage", () => {
       });
       expect(fsCalls).toContainEqual({ fn: "readSync", args: [READ_FD] });
       expect(fsCalls.filter((call) => call.fn === "unlinkSync").length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  test("all lock helpers wait once on a live holder before retrying acquisition", async () => {
+    for (const [idx, target] of lockTargets.entries()) {
+      resetFsMockState();
+      openPlan = [{ code: "EEXIST" }, 1_500 + idx];
+      readLockContents = String(process.pid);
+      setNowPlan([1_000, 1_001, 1_001, 1_100]);
+      const { withPeersLock } = await target.load();
+
+      const result = withPeersLock(lockPathFor(target.label), () => "waited");
+
+      expect(result).toBe("waited");
+      expect(fsCalls.filter((call) => call.fn === "openSync" && call.args[1] === "wx")).toHaveLength(2);
+      expect(fsCalls).toContainEqual({ fn: "readSync", args: [READ_FD] });
+      expect(fsCalls).toContainEqual({ fn: "writeSync", args: [1_500 + idx, String(process.pid)] });
+      Date.now = realDateNow;
     }
   });
 

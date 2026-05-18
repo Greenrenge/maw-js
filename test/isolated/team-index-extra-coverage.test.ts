@@ -65,7 +65,7 @@ let teamsDir = mkdtempSync(join(tmpdir(), "maw-team-index-extra-teams-"));
 let loadTeamResult: Team | undefined;
 let hostExecQueue: Array<string | Error> = [];
 let throwOnResume = false;
-let childExecSyncResult: string | Error = "";
+let listViaError = false;
 let unreadMessages: InboxMessage[] = [];
 let inboxMessages: InboxMessage[] = [];
 let markReadResult = 0;
@@ -73,13 +73,6 @@ let layoutSnapshot: any = null;
 
 mock.module("os", () => ({
   homedir: () => homeDir,
-}));
-
-mock.module("child_process", () => ({
-  execSync: () => {
-    if (childExecSyncResult instanceof Error) throw childExecSyncResult;
-    return childExecSyncResult;
-  },
 }));
 
 mock.module(at("../../src/commands/plugins/team/impl"), () => ({
@@ -92,7 +85,10 @@ mock.module(at("../../src/commands/plugins/team/impl"), () => ({
   },
   cmdTeamLives: (...args: unknown[]) => calls.cmdTeamLives.push(args),
   cmdTeamShutdown: async (...args: unknown[]) => { calls.cmdTeamShutdown.push(args); },
-  cmdTeamList: () => calls.cmdTeamList.push([]),
+  cmdTeamList: () => {
+    calls.cmdTeamList.push([]);
+    if (listViaError) console.error("listed on stderr");
+  },
 }));
 
 mock.module(at("../../src/commands/plugins/team/task-ops"), () => ({
@@ -240,7 +236,7 @@ beforeEach(() => {
   loadTeamResult = undefined;
   hostExecQueue = [];
   throwOnResume = false;
-  childExecSyncResult = "";
+  listViaError = false;
   unreadMessages = [];
   inboxMessages = [];
   markReadResult = 0;
@@ -317,6 +313,13 @@ describe("team index extra isolated coverage", () => {
     expect(calls.cmdTeamTaskList).toEqual([["single-team"]]);
   });
 
+  test("captures stderr output from command helpers", async () => {
+    listViaError = true;
+    const result = await teamHandler({ source: "cli", args: ["list"] });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("listed on stderr");
+  });
+
   test("close handles no-op panes, current pane skip, and kill failures", async () => {
     process.env.TMUX = "/tmp/tmux";
     process.env.TMUX_PANE = "%1";
@@ -387,6 +390,28 @@ describe("team index extra isolated coverage", () => {
     expect(result.ok).toBe(true);
     expect(String(calls.hostExec.at(-1)?.[0])).toContain("tmux send-keys -t '%2'");
     expect(result.output).toContain("sent to bob@room: it's ready");
+  });
+
+  test("enter reports available pane-backed members and sends to a matching agent id", async () => {
+    process.env.MAW_TEAM = "room";
+    loadTeamResult = {
+      name: "room",
+      members: [
+        { name: "lead", agentType: "team-lead", tmuxPaneId: "%0" },
+        { name: "alice", agentId: "alice@room", tmuxPaneId: "%1", color: "red" },
+        { name: "bob", agentId: "bob@room", tmuxPaneId: "%2", color: "blue" },
+      ],
+    };
+
+    let result = await teamHandler({ source: "cli", args: ["enter", "missing"] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("agent not found");
+
+    resetCalls();
+    result = await teamHandler({ source: "cli", args: ["enter", "alice@room"] });
+    expect(result.ok).toBe(true);
+    expect(calls.hostExec).toEqual([["tmux send-keys -t '%1' Enter"]]);
+    expect(result.output).toContain("enter sent to alice@room");
   });
 
   test("layout applies both tiled and main-vertical tmux layouts", async () => {

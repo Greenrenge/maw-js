@@ -240,6 +240,8 @@ describe("tmux-class isolated coverage", () => {
     await t.selectWindow("home:notes");
     await t.switchClient("home");
     await t.killWindow("home:notes");
+    await t.killSession("child");
+    await t.killPane("home:dead.0");
     await expect(t.getPaneCommand("home:0")).resolves.toBe("zsh");
     await expect(t.getPaneCommands(["home:0", "missing"])).resolves.toEqual({ "home:0": "zsh" });
     await expect(t.getPaneInfo("home:1")).resolves.toEqual({ command: "bun", cwd: "/tmp/repo" });
@@ -267,6 +269,8 @@ describe("tmux-class isolated coverage", () => {
       { subcommand: "select-window", args: ["-t", "home:notes"] },
       { subcommand: "switch-client", args: ["-t", "home"] },
       { subcommand: "kill-window", args: ["-t", "home:notes"] },
+      { subcommand: "kill-session", args: ["-t", "child"] },
+      { subcommand: "kill-pane", args: ["-t", "home:dead.0"] },
       { subcommand: "list-panes", args: ["-t", "home:0", "-F", "#{pane_current_command}"] },
       { subcommand: "list-panes", args: ["-a", "-F", "#{session_name}:#{window_index}|||#{pane_current_command}"] },
       { subcommand: "list-panes", args: ["-t", "home:1", "-F", "#{pane_current_command}\t#{pane_current_path}"] },
@@ -322,6 +326,17 @@ describe("tmux-class isolated coverage", () => {
     await expect(info.getPaneInfos(["home:chat.0", "home:chat.1"])).resolves.toEqual({
       "home:chat.0": { command: "bun", cwd: "/tmp/repo" },
     });
+  });
+
+  test("best-effort wrappers swallow direct run failures in the shared tryRun path", async () => {
+    const soft = new RunTmux()
+      .queue("kill-session", new Error("session gone"))
+      .queue("kill-pane", new Error("pane gone"))
+      .queue("set-option", new Error("option gone"));
+
+    await expect(soft.killSession("missing")).resolves.toBeUndefined();
+    await expect(soft.killPane("missing:0.0")).resolves.toBeUndefined();
+    await expect(soft.setOption("missing", "status", "off")).resolves.toBeUndefined();
   });
 
   test("exitModeIfNeeded handles active mode, benign races, and probe failures", async () => {

@@ -85,6 +85,14 @@ function ascii(text: string): number[] {
   return [...Buffer.from(text, "utf-8")];
 }
 
+function str(text: string): number[] {
+  return [...u32(Buffer.byteLength(text)), ...ascii(text)];
+}
+
+function i32(value: number): number[] {
+  return [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >> 24) & 0xff];
+}
+
 function wasmModule(sections: number[][]): number[] {
   return [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, ...sections.flat()];
 }
@@ -116,6 +124,45 @@ function wasiStartWasm(): number[] {
     section(3, [0x01, 0x00]),
     section(7, [0x01, 0x06, ...ascii("_start"), 0x00, 0x00]),
     section(10, [0x01, 0x02, 0x00, 0x0b]),
+  ]);
+}
+
+function wasiStdioWasm(): number[] {
+  const memory = new Array<number>(80).fill(0);
+  memory.splice(0, 8, ...i32(32), ...i32(4));
+  memory.splice(8, 8, ...i32(48), ...i32(4));
+  memory.splice(16, 8, ...i32(64), ...i32(8));
+  memory.splice(32, 4, ...ascii("out\n"));
+  memory.splice(48, 4, ...ascii("err\n"));
+
+  const startBody = [
+    0x00,
+    0x41, 0x00, 0x41, 0x10, 0x41, 0x01, 0x41, 0x1c, 0x10, 0x01, 0x1a,
+    0x41, 0x01, 0x41, 0x00, 0x41, 0x01, 0x41, 0x1c, 0x10, 0x00, 0x1a,
+    0x41, 0x02, 0x41, 0x08, 0x41, 0x01, 0x41, 0x1c, 0x10, 0x00, 0x1a,
+    0x0b,
+  ];
+
+  return wasmModule([
+    section(1, [
+      0x02,
+      0x60, 0x04, 0x7f, 0x7f, 0x7f, 0x7f, 0x01, 0x7f,
+      0x60, 0x00, 0x00,
+    ]),
+    section(2, [
+      0x02,
+      ...str("wasi_snapshot_preview1"), ...str("fd_write"), 0x00, 0x00,
+      ...str("wasi_snapshot_preview1"), ...str("fd_read"), 0x00, 0x00,
+    ]),
+    section(3, [0x01, 0x01]),
+    section(5, [0x01, 0x00, 0x01]),
+    section(7, [
+      0x02,
+      ...str("_start"), 0x00, 0x02,
+      ...str("memory"), 0x02, 0x00,
+    ]),
+    section(10, [0x01, ...u32(startBody.length), ...startBody]),
+    section(11, [0x01, 0x00, 0x41, 0x00, 0x0b, ...u32(memory.length), ...memory]),
   ]);
 }
 
@@ -346,5 +393,37 @@ describe("plugin loader focused branch coverage", () => {
     expect(errorSpy.mock.calls.some((call) => (
       call[0] === "[plugin] failed to load invalid.wasm:" && String(call[1]).length > 0
     ))).toBe(true);
+  });
+
+  test("WASI wasm stdio adapters handle stdin, stdout, and stderr callbacks", async () => {
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const system = new PluginSystem();
+      writeWasmFile("stdio.wasm", wasiStdioWasm());
+
+      await loadPlugins(system, tempDir, "user");
+      await system.emit(event("stdio"));
+
+      expect(system.stats().plugins.map((plugin) => [plugin.name, plugin.type, plugin.source])).toEqual([
+        ["stdio.wasm", "wasm-wasi", "user"],
+      ]);
+      expect(stdoutChunks.join("")).toContain("out");
+      expect(stderrChunks.join("")).toContain("err");
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+    }
   });
 });

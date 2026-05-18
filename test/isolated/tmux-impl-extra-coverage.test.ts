@@ -93,6 +93,7 @@ mock.module(join(srcRoot, "src/core/fleet/worktrees-scan"), () => ({
 const impl = await import("../../src/commands/plugins/tmux/impl");
 const {
   _sendTracker,
+  cmdTmuxAttach,
   cmdTmuxKill,
   cmdTmuxLayout,
   cmdTmuxLs,
@@ -128,6 +129,15 @@ async function capture(fn: () => void | Promise<void>) {
     console.warn = original.warn;
   }
   return { logs: logs.join("\n"), warnings: warnings.join("\n") };
+}
+
+function installProcessExitThrow() {
+  const exits: number[] = [];
+  (process as any).exit = (code?: number) => {
+    exits.push(code ?? 0);
+    throw new Error(`process.exit:${code ?? 0}`);
+  };
+  return exits;
 }
 
 beforeEach(() => {
@@ -208,6 +218,39 @@ describe("tmux impl extra coverage", () => {
     expect(resolveTmuxTarget("live-alpha")).toEqual({ resolved: "live-alpha", source: "live-session (live-alpha)" });
     expect(resolveTmuxTarget("nomatch")).toEqual({ resolved: "nomatch", source: "session-name" });
     expect(resolveTmuxTarget("beta")).toEqual({ resolved: "33-live-beta", source: "live-session (33-live-beta)" });
+  });
+
+  test("kill/list/attach fallback callbacks handle failed lookups and sleeping roster filters", async () => {
+    hostFailures.set("list-panes -a -F", new Error("pane list failed"));
+    await capture(() => cmdTmuxKill("scratch", { force: true }));
+    expect(hostCalls.some(cmd => cmd.includes("kill-pane -t 'scratch'"))).toBe(true);
+
+    hostFailures = new Map([["session_created", new Error("created lookup failed")]]);
+    panes = [{ id: "%1", target: "alpha:0.0", command: "zsh", title: "shell", lastActivity: Math.floor(Date.now() / 1000) - 1 }];
+    const recent = await capture(() => cmdTmuxLs({ all: true, recent: true }));
+    expect(recent.logs).toContain("alpha:0.0");
+
+    hostFailures = new Map([["display-message", new Error("current session failed")]]);
+    process.env.TMUX = "/tmp/tmux,1,2";
+    panes = [{ id: "%2", target: "current:0.0", command: "zsh", title: "shell" }];
+    const scoped = await capture(() => cmdTmuxLs({}));
+    expect(scoped.logs).toContain("No panes in current session");
+
+    hostFailures = new Map();
+    delete process.env.TMUX;
+    panes = [{ id: "%3", target: "awake-oracle:0.0", command: "node", title: "agent" }];
+    ghqRepos = ["/repos/awake-oracle", "/repos/sleeping-oracle", "/repos/not-oracle.txt"];
+    const roster = await capture(() => cmdTmuxLs({ all: true, compact: true, roster: true }));
+    expect(roster.logs).toContain("sleeping-oracle");
+
+    impl._tty.isStdoutTTY = () => true;
+    impl._tty.readChoice = () => { throw new Error("tty closed"); };
+    ghqRepos = ["/repos/one-oracle", "/repos/two-oracle"];
+    const exits = installProcessExitThrow();
+    await capture(() => {
+      expect(() => cmdTmuxAttach("oracle")).toThrow("process.exit:1");
+    });
+    expect(exits).toEqual([1]);
   });
 
   test("resolveTmuxTarget accepts unique same-word numbered fleet shorthand (#1794)", () => {

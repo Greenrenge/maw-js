@@ -129,6 +129,19 @@ describe("src/lib/sleep next coverage", () => {
     expect(calls).not.toContain("kill:54-mawjs:neo-12-dev-");
   });
 
+  test("prints available windows before throwing when no exact or fuzzy target matches", async () => {
+    windowResults = [
+      [{ name: "neo-prod" }, { name: "other-oracle" }],
+    ];
+
+    await expect(cmdSleepOne("neo", "dev")).rejects.toThrow(
+      "window 'neo-dev' not found in session '54-mawjs'",
+    );
+
+    expect(calls).toContain("error:\u001b[90mavailable:\u001b[0m neo-prod, other-oracle");
+    expect(calls.some((entry) => entry.startsWith("literal:"))).toBe(false);
+  });
+
   test("force-kills an exact target that still exists after the grace wait", async () => {
     windowResults = [
       [{ name: "neo-oracle" }],
@@ -151,6 +164,7 @@ describe("src/lib/sleep next coverage", () => {
     ];
 
     await cmdSleepOne("neo");
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(calls).toContain("literal:54-mawjs:neo-oracle:/");

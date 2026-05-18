@@ -114,6 +114,22 @@ describe("vendor team status isolated coverage", () => {
     expect(hostExecCalls).toEqual([]);
   });
 
+  test("discovers team directories when no explicit team name is provided", async () => {
+    writeTeam("ops");
+    const teamsRoot = join(homeDir, ".claude", "teams");
+    writeFileSync(join(teamsRoot, "README.txt"), "not a team directory");
+    writeTask("ops", 1, "Keep coverage high", "completed", "alpha");
+    hostExecOutput = "%1 ops:0 zsh";
+
+    await cmdTeamStatus();
+
+    expect(hostExecCalls).toEqual([
+      "tmux list-panes -a -F '#{pane_id} #{session_name}:#{window_index} #{pane_current_command}'",
+    ]);
+    expect(output()).toContain("Team: ops");
+    expect(output()).toContain("Tasks: 1/1 done");
+  });
+
   test("warns for an explicitly requested missing team after a safe tmux probe failure", async () => {
     hostExecError = new Error("tmux unavailable");
 

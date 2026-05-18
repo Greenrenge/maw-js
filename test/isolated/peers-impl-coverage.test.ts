@@ -178,6 +178,29 @@ describe("src/lib/peers impl focused coverage", () => {
     expect(peers.carol).toEqual(result.peer);
   });
 
+  test("cmdAdd refuses TOFU mismatches without overwriting an existing peer", async () => {
+    peers.frank = {
+      url: "http://old-frank",
+      node: "old-node",
+      pubkey: "cached-key",
+      addedAt: "old-added",
+      lastSeen: "old-seen",
+    };
+    probeResult = { node: "new-node", pubkey: "observed-key" };
+    evaluateDecision = { kind: "mismatch", cached: "cached-key", observed: "observed-key" };
+
+    const result = await implModule.cmdAdd({ alias: "frank", url: "http://new-frank" });
+
+    expect(result).toMatchObject({
+      alias: "frank",
+      overwrote: true,
+      peer: { url: "http://old-frank", node: "old-node" },
+    });
+    expect(result.pubkeyMismatch?.message).toContain("cached-key → observed-key");
+    expect(peers.frank.url).toBe("http://old-frank");
+    expect(tofuCalls).toEqual([]);
+  });
+
   test("cmdProbe covers missing, error, success refresh, explicit nickname clear, and remove-race", async () => {
     await expect(implModule.cmdProbe("missing")).rejects.toThrow('peer "missing" not found');
 

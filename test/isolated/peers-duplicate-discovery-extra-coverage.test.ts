@@ -85,6 +85,32 @@ describe.each(duplicateModules)("%s peers duplicate detection exports", (_label,
     expect(logs[0]).toContain("\x1b[33m⚠ duplicate <oracle>:<node> claim");
     expect(logs[1]).toContain("maw peers remove <alias>");
   });
+
+  test("sorts multiple duplicate groups and uses the default boot logger", () => {
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (msg?: unknown) => {
+      warnings.push(String(msg));
+    };
+
+    try {
+      const duplicates = mod.warnDuplicatesAtBoot({
+        peers: {
+          zOne: peer({ url: "http://z-1", identity: { oracle: "zed", node: "node" } }),
+          aOne: peer({ url: "http://a-1", identity: { oracle: "aaa", node: "node" } }),
+          zTwo: peer({ url: "http://z-2", identity: { oracle: "zed", node: "node" } }),
+          aTwo: peer({ url: "http://a-2", identity: { oracle: "aaa", node: "node" } }),
+        },
+      });
+
+      expect(duplicates.map((dup) => dup.key)).toEqual(["aaa:node", "zed:node"]);
+      expect(warnings).toHaveLength(4);
+      expect(warnings[0]).toContain('duplicate <oracle>:<node> claim "aaa:node"');
+      expect(warnings[2]).toContain('duplicate <oracle>:<node> claim "zed:node"');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
 
 describe("src/lib/peers impl extra branch coverage", () => {
@@ -213,6 +239,39 @@ describe("src/lib/peers impl extra branch coverage", () => {
     expect(impl.cmdRemove("missing")).toBe(false);
     expect(impl.cmdRemove("closed")).toBe(true);
     expect(peers.closed).toBeUndefined();
+  });
+
+  test("cmdProbe refreshes an existing peer and cmdForget delegates after validation", async () => {
+    peers.probed = peer({
+      url: "http://probed.local:3456",
+      node: "old-node",
+      nickname: "Old Nick",
+      identity: { oracle: "old-oracle", node: "old-node" },
+    });
+    probeResult = {
+      node: "fresh-node",
+      nickname: null,
+      identity: { oracle: "fresh-oracle", node: "fresh-node" },
+    };
+
+    const result = await impl.cmdProbe("probed");
+
+    expect(result).toMatchObject({
+      alias: "probed",
+      url: "http://probed.local:3456",
+      node: "fresh-node",
+      ok: true,
+    });
+    expect(peers.probed).toMatchObject({
+      node: "fresh-node",
+      identity: { oracle: "fresh-oracle", node: "fresh-node" },
+    });
+    expect(peers.probed.nickname).toBeUndefined();
+    expect(peers.probed.lastError).toBeUndefined();
+    expect(appliedKinds).toEqual(["match"]);
+
+    await expect(impl.cmdForget("BadAlias")).rejects.toThrow("invalid alias");
+    expect(await impl.cmdForget("probed")).toBe("not-found");
   });
 });
 

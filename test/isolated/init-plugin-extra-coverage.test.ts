@@ -20,11 +20,16 @@ const {
 let cmdInitCalls: any[] = [];
 let cmdInitResult: any = { ok: true };
 let cmdInitThrow: Error | null = null;
+let cmdInitConsoleOutput = false;
 
 mock.module(join(srcRoot, "src/vendor/mpr-plugins/init/impl"), () => ({
   cmdInit: async (opts: any) => {
     cmdInitCalls.push(opts);
     opts.writer?.("cmd-init log");
+    if (cmdInitConsoleOutput) {
+      console.log("cmd-init console log");
+      console.error("cmd-init console error");
+    }
     if (cmdInitThrow) throw cmdInitThrow;
     return cmdInitResult;
   },
@@ -47,6 +52,7 @@ afterEach(() => {
   cmdInitCalls = [];
   cmdInitResult = { ok: true };
   cmdInitThrow = null;
+  cmdInitConsoleOutput = false;
   console.error = originalError;
   console.log = originalLog;
   process.stderr.write = originalStderrWrite as any;
@@ -152,6 +158,23 @@ describe("init plugin handler extra coverage", () => {
     expect(ok).toEqual({ ok: true, output: undefined });
     expect(streamed).toEqual(["cmd-init log"]);
     expect(cmdInitCalls.at(-1).args).toEqual(["--non-interactive", "--force"]);
+  });
+
+  test("captures console log and error through handler hooks", async () => {
+    cmdInitConsoleOutput = true;
+
+    const result = await initHandler({ source: "cli", args: ["--non-interactive"] } as any);
+
+    expect(result).toEqual({
+      ok: true,
+      output: [
+        "cmd-init log",
+        "cmd-init console log",
+        "cmd-init console error",
+      ].join("\n"),
+    });
+    expect(console.log).toBe(originalLog);
+    expect(console.error).toBe(originalError);
   });
 
   test("translates API body fields into non-interactive CLI args", async () => {

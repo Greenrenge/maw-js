@@ -77,6 +77,33 @@ afterAll(() => {
 });
 
 describe("oracle impl-register next coverage", () => {
+  test("findInFleet derives org/repo from project_repos for oracle-suffixed entries", () => {
+    writeFileSync(
+      join(TEST_FLEET_DIR, "repo-backed.json"),
+      JSON.stringify({
+        windows: [{ name: "repo-backed-oracle" }],
+        project_repos: ["Soul-Brews-Studio/repo-backed-oracle"],
+        budded_from: "ancestor",
+        budded_at: "2026-05-18T00:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    const found = register.findInFleet("repo-backed", TEST_FLEET_DIR);
+
+    expect(found).toMatchObject({
+      source: "fleet",
+      entry: {
+        org: "Soul-Brews-Studio",
+        repo: "repo-backed-oracle",
+        name: "repo-backed",
+        has_fleet_config: true,
+        budded_from: "ancestor",
+        budded_at: "2026-05-18T00:00:00.000Z",
+      },
+    });
+  });
+
   test("findInFleet skips malformed configs, accepts direct window names, and fills defaults", () => {
     writeFileSync(join(TEST_FLEET_DIR, "bad.json"), "{ invalid", "utf8");
     writeFileSync(
@@ -211,5 +238,23 @@ describe("oracle impl-register next coverage", () => {
     expect(output).toContain("Source:  filesystem");
     expect(output).toContain("Repo:    plain-oracle");
     expect(output).toContain(`Path:    ${oracleEntry("plain").local_path}`);
+  });
+
+  test("cmdOracleRegister default discovery falls through to filesystem lookup", async () => {
+    mkdirSync(join(TEST_GHQ_ROOT, "github.com", "Soul-Brews-Studio", "disky-oracle", "ψ"), { recursive: true });
+
+    await register.cmdOracleRegister("disky");
+
+    const written = JSON.parse(readFileSync(REGISTRY_FILE, "utf8"));
+    expect(written.oracles.map((entry: OracleEntry) => entry.name)).toEqual(["disky"]);
+    expect(written.oracles[0]).toMatchObject({
+      org: "Soul-Brews-Studio",
+      repo: "disky-oracle",
+      has_psi: true,
+    });
+
+    const output = stripAnsi(logs.join("\n"));
+    expect(output).toContain("Registered disky");
+    expect(output).toContain("Source:  filesystem");
   });
 });

@@ -11,6 +11,8 @@ let pushPreviewsCalls = 0;
 let crashCalls = 0;
 let onCrashCallbacks: Array<() => Promise<void> | void> = [];
 let sshSessions: typeof tmuxSessions = [];
+let listSessionsError: Error | null = null;
+let sendInitialError: Error | null = null;
 let sentKeys: Array<{ target: string; body: string }> = [];
 let findWindowLookups: string[] = [];
 
@@ -66,6 +68,7 @@ mock.module("../../src/engine/engine-intervals", () => ({
   },
   sendInitialSessions: async (ws: { send: (message: string) => void }, state: { sessionCache: { sessions: unknown[] } }) => {
     sendInitialCalls += 1;
+    if (sendInitialError) throw sendInitialError;
     ws.send(JSON.stringify({ type: "sessions", sessions: state.sessionCache.sessions }));
   },
 }));
@@ -104,7 +107,10 @@ mock.module("../../src/core/transport/peers", () => ({
 }));
 
 mock.module("../../src/core/transport/ssh", () => ({
-  listSessions: async () => sshSessions,
+  listSessions: async () => {
+    if (listSessionsError) throw listSessionsError;
+    return sshSessions;
+  },
   findWindow: (sessions: typeof tmuxSessions, name: string) => {
     findWindowLookups.push(name);
     for (const session of sessions) {
@@ -152,6 +158,8 @@ beforeEach(() => {
   crashCalls = 0;
   onCrashCallbacks = [];
   sshSessions = tmuxSessions;
+  listSessionsError = null;
+  sendInitialError = null;
   sentKeys = [];
   findWindowLookups = [];
   console.log = () => undefined;
@@ -231,6 +239,40 @@ describe("MawEngine index extra coverage", () => {
 
     for (const listener of feedListeners) listener({ type: "note" });
     expect(feedEvents).toEqual([{ type: "note" }]);
+  });
+
+  test("transport router and websocket open swallow async fallback rejections", async () => {
+    tmuxSessions = [];
+    sshSessions = [];
+    listSessionsError = new Error("ssh list failed");
+    const feedListeners = new Set<(event: any) => void>();
+    const engine = new MawEngine({ feedBuffer: [{ id: "old" }, { id: "new" }] as any[], feedListeners });
+    await flush();
+
+    let remoteHandler: ((msg: { to: string; from: string; body: string; transport: string }) => Promise<void>) | undefined;
+    let publishFeedCalls = 0;
+    const router = {
+      onMessage: (handler: typeof remoteHandler) => { remoteHandler = handler; },
+      publishFeed: async () => {
+        publishFeedCalls += 1;
+        throw new Error("feed publish failed");
+      },
+    } as any;
+    engine.setTransportRouter(router);
+
+    await remoteHandler?.({ to: "missing-oracle", from: "mba", body: "lost", transport: "mqtt" });
+    expect(sentKeys).toEqual([]);
+
+    for (const listener of feedListeners) listener({ type: "note" });
+    await flush();
+    expect(publishFeedCalls).toBe(1);
+
+    sendInitialError = new Error("initial send failed");
+    const { ws, messages } = makeWs();
+    engine.handleOpen(ws);
+    await flush();
+    expect(sendInitialCalls).toBeGreaterThanOrEqual(1);
+    expect(messages).toContainEqual({ type: "feed-history", events: [{ id: "new" }] });
   });
 
   test("constructor warning path still starts intervals after tmux cache init fails", async () => {
