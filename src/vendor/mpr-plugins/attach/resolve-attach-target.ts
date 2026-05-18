@@ -1,3 +1,5 @@
+import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
+
 /**
  * Resolve a `maw attach <target>` invocation into a tiered match.
  *
@@ -63,9 +65,19 @@ const stripDash = (s: string) => s.replace(/-+$/, "");
 function nameMatches(name: string, target: string, fuzzy: boolean = false): boolean {
   const n = name.toLowerCase();
   const t = target.toLowerCase();
-  if (n === t || n.endsWith(`-${t}`) || stripDash(n) === stripDash(t)) return true;
+  if (n === t || n.endsWith(`-${t}`) || n === `${t}-oracle` || n.endsWith(`-${t}-oracle`) || stripDash(n) === stripDash(t)) return true;
   if (fuzzy && t.length > 0 && n.includes(t)) return true;
   return false;
+}
+
+function windowMatchesOracle(windowName: string, target: string): boolean {
+  const n = windowName.toLowerCase();
+  const t = target.toLowerCase();
+  return n === t || n === `${t}-oracle` || n.endsWith(`-${t}-oracle`);
+}
+
+function sessionMatches(session: SessionLike, target: string, fuzzy: boolean): boolean {
+  return nameMatches(session.name, target, fuzzy) || session.windows.some(w => windowMatchesOracle(w.name, target));
 }
 
 export async function resolveAttachTarget(
@@ -74,10 +86,11 @@ export async function resolveAttachTarget(
   opts: { fuzzy?: boolean } = {},
 ): Promise<ResolveResult> {
   const fuzzy = Boolean(opts.fuzzy);
-  const sessions = await deps.listSessions();
+  const sessions = (await deps.listSessions())
+    .filter(s => !isInfrastructureChannelSessionName(s.name, target));
 
-  // Tier 1 — live tmux session matches.
-  const runningMatches = sessions.filter(s => nameMatches(s.name, target, fuzzy));
+  // Tier 1 — live tmux session/window matches.
+  const runningMatches = sessions.filter(s => sessionMatches(s, target, fuzzy));
   if (runningMatches.length === 1) {
     return { tier: 1, sessionName: runningMatches[0].name };
   }
