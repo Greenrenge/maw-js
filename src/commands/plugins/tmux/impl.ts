@@ -2,7 +2,7 @@ import { readdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { hostExec, tmux, tmuxCmd } from "../../../sdk";
-import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
+import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
@@ -102,6 +102,10 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     if (r.kind === "exact" || r.kind === "fuzzy") {
       return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
     }
+    const prefix = resolveNumericFleetStemPrefix(target, sessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `fleet-stem (${prefix.match.name})` };
+    }
   } catch { /* no fleet dir — fall through */ }
 
   // 3.7 — Live tmux sessions (covers sessions not in fleet config).
@@ -110,6 +114,10 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     const r = resolveSessionTarget(target, liveSessions);
     if (r.kind === "exact" || r.kind === "fuzzy") {
       return { resolved: r.match.name, source: `live-session (${r.match.name})` };
+    }
+    const prefix = resolveNumericFleetStemPrefix(target, liveSessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `live-session (${prefix.match.name})` };
     }
   }
 

@@ -461,6 +461,24 @@ describe("findWorktrees and detectSession runtime paths", () => {
     expect(errors.some((line) => line.includes("matches 2 sessions"))).toBe(true);
   });
 
+  test("detectSession reuses an unambiguous short prefix of a numbered fleet session (#1794)", async () => {
+    sessions = [{ name: "20-homekeeper" }, { name: "maw-pty-1" }];
+    await expect(detectSession("homeke")).resolves.toBe("20-homekeeper");
+
+    sessions = [{ name: "20-homekeeper" }, { name: "21-homekey" }];
+    exitCalls = [];
+    errors = [];
+    await expect(detectSession("homeke")).resolves.toBeNull();
+    expect(exitCalls).toContain(1);
+    expect(errors.some((line) => line.includes("'homeke' is ambiguous"))).toBe(true);
+
+    sessions = [{ name: "114-mawjs-no2" }];
+    exitCalls = [];
+    errors = [];
+    await expect(detectSession("mawjs")).resolves.toBeNull();
+    expect(exitCalls).toEqual([]);
+  });
+
   test("detectSession falls back to fleet session configs only when that session is live", async () => {
     writeFleet("fleet-neo", [{ name: "neo-oracle" }]);
     sessions = [{ name: "fleet-neo" }];

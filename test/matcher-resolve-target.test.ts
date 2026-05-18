@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   resolveByName,
+  resolveNumericFleetStemPrefix,
   resolveSessionTarget,
   resolveWorktreeTarget,
 } from "../src/core/matcher/resolve-target";
@@ -211,6 +212,21 @@ describe("resolveSessionTarget — #535 regression (numeric-prefix fleet collisi
     const r = resolveByName("mawjs", items);
     expect(r.kind).toBe("fuzzy");
     if (r.kind === "fuzzy") expect(r.match.name).toBe("114-mawjs-no2");
+  });
+
+  test("numeric fleet stem prefix helper resolves only same-word shorthand (#1794)", () => {
+    const home = resolveNumericFleetStemPrefix("homeke", [sess("20-homekeeper")]);
+    expect(home.kind).toBe("fuzzy");
+    if (home.kind === "fuzzy") expect(home.match.name).toBe("20-homekeeper");
+
+    const dashed = resolveNumericFleetStemPrefix("mawjs", [sess("114-mawjs-no2")]);
+    expect(dashed.kind).toBe("none");
+
+    const ambiguous = resolveNumericFleetStemPrefix("homeke", [
+      sess("20-homekeeper"),
+      sess("21-homekey"),
+    ]);
+    expect(ambiguous.kind).toBe("ambiguous");
   });
 });
 

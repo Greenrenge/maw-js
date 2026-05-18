@@ -58,6 +58,7 @@ const {
   cmdTmuxPeek,
   cmdTmuxSend,
   cmdTmuxSplit,
+  resolveTmuxTarget,
 } = impl;
 
 const original = {
@@ -115,6 +116,39 @@ afterEach(() => {
 });
 
 describe("tmux impl extra coverage", () => {
+  test("resolveTmuxTarget accepts unique same-word numbered fleet shorthand (#1794)", () => {
+    fleetFiles = ["20-homekeeper.json"];
+    expect(resolveTmuxTarget("homeke")).toEqual({
+      resolved: "20-homekeeper",
+      source: "fleet-stem (20-homekeeper)",
+    });
+
+    fleetFiles = ["114-mawjs-no2.json"];
+    expect(resolveTmuxTarget("mawjs")).toEqual({
+      resolved: "mawjs",
+      source: "session-name",
+    });
+  });
+
+  test("resolveTmuxTarget accepts unique same-word live-session shorthand (#1794)", () => {
+    (Bun as any).spawnSync = (args: unknown[]) => {
+      if (Array.isArray(args) && args[0] === "tmux" && args[1] === "list-sessions") {
+        return {
+          exitCode: 0,
+          stdout: new TextEncoder().encode("20-homekeeper\n"),
+          stderr: new Uint8Array(),
+          success: true,
+        };
+      }
+      return { exitCode: 0, stdout: new Uint8Array(), stderr: new Uint8Array(), success: true };
+    };
+
+    expect(resolveTmuxTarget("homeke")).toEqual({
+      resolved: "20-homekeeper",
+      source: "live-session (20-homekeeper)",
+    });
+  });
+
   test("ls reports empty current-session and all-session states", async () => {
     const current = await capture(() => cmdTmuxLs());
     expect(current.logs).toContain("No panes in current session '(none)'");

@@ -119,6 +119,23 @@ describe("detectSession (#769) — URL-aware resolution", () => {
     expect(result).toBe("48-mawjs-codex");
   });
 
+  it("short fuzzy token reuses unique numbered canonical fleet session (#1794)", async () => {
+    tmuxSessions = [
+      { name: "20-homekeeper" },
+      { name: "mawjs-view" },
+    ];
+    const result = await detectSession("homeke");
+    expect(result).toBe("20-homekeeper");
+  });
+
+  it("short fuzzy fleet fallback does not hijack dashed sub-oracle sessions (#535/#1794)", async () => {
+    tmuxSessions = [
+      { name: "114-mawjs-no2" },
+    ];
+    const result = await detectSession("mawjs");
+    expect(result).toBeNull();
+  });
+
   it("genuine multi-exact-match on full name still errors", async () => {
     tmuxSessions = [
       { name: "10-m5-oracle" },

@@ -119,6 +119,36 @@ export const resolveSessionTarget = <T extends { name: string }>(
   items: readonly T[],
 ): ResolveResult<T> => resolveByName(target, items, { fleetSessions: true });
 
+/**
+ * Resolve a short prefix of the canonical stem in numbered fleet sessions.
+ *
+ * `resolveSessionTarget` deliberately excludes numeric sessions from
+ * prefix/middle matching so `mawjs` cannot hijack `114-mawjs-no2` (#535).
+ * Wake/attach still need a constrained operator shorthand for a unique
+ * canonical stem, e.g. `homeke` → `20-homekeeper` (#1794). This helper only
+ * accepts prefixes that continue within the same word; a dash boundary after
+ * the target stays unresolved (`mawjs` does not match `114-mawjs-no2`).
+ */
+export function resolveNumericFleetStemPrefix<T extends { name: string }>(
+  target: string,
+  items: readonly T[],
+): ResolveResult<T> {
+  const lc = target.trim().toLowerCase();
+  if (!lc) return { kind: "none" };
+
+  const matches = items.filter((it) => {
+    const n = it.name.toLowerCase();
+    if (!/^\d+-/.test(n)) return false;
+    const stem = n.replace(/^\d+-/, "");
+    if (!stem.startsWith(lc) || stem.length <= lc.length) return false;
+    return stem.charAt(lc.length) !== "-";
+  });
+
+  if (matches.length === 1) return { kind: "fuzzy", match: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+  return { kind: "none" };
+}
+
 export const resolveWorktreeTarget = <T extends { name: string }>(
   target: string,
   items: readonly T[],

@@ -2,7 +2,7 @@ import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { ghqFind, ghqList } from "../../core/ghq";
 import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
-import { resolveSessionTarget } from "../../core/matcher/resolve-target";
+import { resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
@@ -433,11 +433,29 @@ export async function detectSession(oracle: string, urlRepoName?: string): Promi
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
   // fleet sessions suffix-match, surface loudly rather than silently picking one.
-  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`));
+  const numericSessions = sessions.filter(s => /^\d+-/.test(s.name));
+  const numeric = numericSessions.filter(s => s.name.endsWith(`-${oracle}`));
   if (numeric.length === 1) return numeric[0]!.name;
   if (numeric.length > 1) {
     console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numeric.length} fleet sessions:`);
     for (const s of numeric) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+
+  // #1794 — wake may be invoked with a short fuzzy oracle token ("homeke")
+  // while the live fleet session is the canonical numbered name
+  // ("20-homekeeper"). `resolveSessionTarget(..., { fleetSessions: true })`
+  // correctly refuses numeric prefix/middle matches so `maw a mawjs` does not
+  // hijack `114-mawjs-no2` (#535), but that also means a safe prefix of the
+  // canonical fleet stem misses and wake tries to create a duplicate session.
+  // Accept only prefixes that continue inside the same word, not at a dash
+  // boundary, and fail loudly when more than one live fleet stem matches.
+  const numericPrefix = resolveNumericFleetStemPrefix(oracle, numericSessions);
+  if (numericPrefix.kind === "fuzzy") return numericPrefix.match.name;
+  if (numericPrefix.kind === "ambiguous") {
+    console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numericPrefix.candidates.length} fleet sessions:`);
+    for (const s of numericPrefix.candidates) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
     console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
     process.exit(1);
   }
