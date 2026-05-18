@@ -1,27 +1,27 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T23:16:50.253Z
+Generated: 2026-05-18T23:31:54.613Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **99.6%** (37091/37238)
+Overall line coverage: **99.6%** (37104/37238)
 Overall function coverage: **98.7%** (4966/5029)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 99.7% (6327/6346) | 98.8% (797/807) | n/a (0/0) |
+| cli/dispatch | 91 | 0 | 99.8% (6332/6346) | 98.8% (797/807) | n/a (0/0) |
 | config/runtime | 19 | 0 | 99.4% (937/943) | 100.0% (133/133) | n/a (0/0) |
 | fleet | 17 | 0 | 99.5% (782/786) | 99.0% (102/103) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 5 | 99.5% (10291/10347) | 99.0% (1425/1440) | n/a (0/0) |
+| other | 172 | 5 | 99.5% (10295/10347) | 99.0% (1425/1440) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.7% (893/896) | 98.9% (88/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 99.8% (505/506) | 97.3% (73/75) | n/a (0/0) |
-| transport | 28 | 0 | 99.7% (1883/1888) | 98.9% (439/444) | n/a (0/0) |
+| transport | 28 | 0 | 99.9% (1887/1888) | 98.9% (439/444) | n/a (0/0) |
 | vendor plugins | 245 | 2 | 99.7% (15384/15437) | 98.5% (1891/1920) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
@@ -38,24 +38,24 @@ Overall function coverage: **98.7%** (4966/5029)
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 12 | 90.3% | 96.3% | partial coverage |
 | 2 | medium | other | `src/commands/plugins/oracle/impl-register.ts` | 5 | 95.5% | 100.0% | partial coverage |
-| 3 | critical | cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 5 | 87.2% | 100.0% | partial coverage |
-| 4 | medium | other | `src/cli.ts` | 4 | 90.0% | 100.0% | partial coverage |
-| 5 | medium | other | `src/commands/plugins/oracle/impl-stale.ts` | 4 | 96.4% | 100.0% | partial coverage |
-| 6 | medium | other | `src/commands/plugins/plugin/install-extraction.ts` | 4 | 95.3% | 100.0% | partial coverage |
-| 7 | medium | other | `src/commands/plugins/team/index.ts` | 4 | 99.0% | 100.0% | partial coverage |
-| 8 | critical | cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 4 | 97.0% | 100.0% | partial coverage |
-| 9 | critical | transport | `src/transports/hub-config.ts` | 4 | 89.2% | 100.0% | partial coverage |
-| 10 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 4 | 97.6% | 100.0% | partial coverage |
-| 11 | critical | cli/dispatch | `src/commands/shared/workspace-store.ts` | 3 | 96.3% | 100.0% | partial coverage |
-| 12 | medium | config/runtime | `src/config/load.ts` | 3 | 98.5% | 100.0% | partial coverage |
-| 13 | medium | config/runtime | `src/core/runtime/hooks.ts` | 3 | 91.7% | 100.0% | partial coverage |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/attach/impl.ts` | 3 | 95.8% | 83.3% | partial coverage |
-| 15 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/peers-store.ts` | 3 | 96.1% | 100.0% | partial coverage |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/peers-impl.ts` | 3 | 97.3% | 100.0% | partial coverage |
-| 17 | low | vendor plugins | `src/vendor/mpr-plugins/peers/store.ts` | 3 | 96.1% | 100.0% | partial coverage |
-| 18 | critical | cli/dispatch | `src/cli/instance-pid.ts` | 2 | 98.5% | 89.5% | partial coverage |
-| 19 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 2 | 99.2% | 100.0% | partial coverage |
-| 20 | medium | other | `src/commands/plugins/plugin/lock.ts` | 2 | 98.8% | 100.0% | partial coverage |
+| 3 | medium | other | `src/cli.ts` | 4 | 90.0% | 100.0% | partial coverage |
+| 4 | medium | other | `src/commands/plugins/oracle/impl-stale.ts` | 4 | 96.4% | 100.0% | partial coverage |
+| 5 | medium | other | `src/commands/plugins/team/index.ts` | 4 | 99.0% | 100.0% | partial coverage |
+| 6 | critical | cli/dispatch | `src/commands/shared/wake-cmd-helpers.ts` | 4 | 97.0% | 100.0% | partial coverage |
+| 7 | low | vendor plugins | `src/vendor/mpr-plugins/init/internal/plugin-lock.ts` | 4 | 97.6% | 100.0% | partial coverage |
+| 8 | critical | cli/dispatch | `src/commands/shared/workspace-store.ts` | 3 | 96.3% | 100.0% | partial coverage |
+| 9 | medium | config/runtime | `src/config/load.ts` | 3 | 98.5% | 100.0% | partial coverage |
+| 10 | medium | config/runtime | `src/core/runtime/hooks.ts` | 3 | 91.7% | 100.0% | partial coverage |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/attach/impl.ts` | 3 | 95.8% | 83.3% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/internal/peers-store.ts` | 3 | 96.1% | 100.0% | partial coverage |
+| 13 | low | vendor plugins | `src/vendor/mpr-plugins/pair/internal/peers-impl.ts` | 3 | 97.3% | 100.0% | partial coverage |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/peers/store.ts` | 3 | 96.1% | 100.0% | partial coverage |
+| 15 | critical | cli/dispatch | `src/cli/instance-pid.ts` | 2 | 98.5% | 89.5% | partial coverage |
+| 16 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 2 | 99.2% | 100.0% | partial coverage |
+| 17 | medium | other | `src/commands/plugins/plugin/lock.ts` | 2 | 98.8% | 100.0% | partial coverage |
+| 18 | medium | other | `src/commands/plugins/plugin/registry-fetch.ts` | 2 | 96.1% | 100.0% | partial coverage |
+| 19 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 2 | 99.5% | 94.4% | partial coverage |
+| 20 | critical | fleet | `src/core/fleet/claude-sessions.ts` | 2 | 98.6% | 94.7% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
@@ -115,7 +115,7 @@ Overall function coverage: **98.7%** (4966/5029)
 | cli/dispatch | `src/commands/shared/plugin-create-as.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 87.2% | 100.0% |
+| cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-install.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugins-ls-info.ts` | 100.0% | 100.0% |
@@ -202,7 +202,7 @@ Overall function coverage: **98.7%** (4966/5029)
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
 | transport | `src/transports/http.ts` | 100.0% | 100.0% |
-| transport | `src/transports/hub-config.ts` | 89.2% | 100.0% |
+| transport | `src/transports/hub-config.ts` | 100.0% | 100.0% |
 | transport | `src/transports/hub-connection.ts` | 99.2% | 100.0% |
 | transport | `src/transports/hub-transport.ts` | 100.0% | 100.0% |
 | transport | `src/transports/hub.ts` | 100.0% | 100.0% |
@@ -227,11 +227,11 @@ Overall function coverage: **98.7%** (4966/5029)
 
 ## Critical gaps to prioritize
 
-- `src/commands/shared/plugin-create-scaffold.ts` (cli/dispatch): 5 uncovered lines, 87.2% line coverage.
 - `src/commands/shared/wake-cmd-helpers.ts` (cli/dispatch): 4 uncovered lines, 97.0% line coverage.
-- `src/transports/hub-config.ts` (transport): 4 uncovered lines, 89.2% line coverage.
 - `src/commands/shared/workspace-store.ts` (cli/dispatch): 3 uncovered lines, 96.3% line coverage.
 - `src/cli/instance-pid.ts` (cli/dispatch): 2 uncovered lines, 98.5% line coverage.
+- `src/commands/shared/comm-send.ts` (cli/dispatch): 2 uncovered lines, 99.5% line coverage.
+- `src/core/fleet/claude-sessions.ts` (fleet): 2 uncovered lines, 98.6% line coverage.
 
 ## Prioritization guidance
 
