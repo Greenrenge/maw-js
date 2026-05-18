@@ -13,7 +13,18 @@ function writeFixture(root: string): void {
   mkdirSync(join(root, "coverage"), { recursive: true });
   mkdirSync(join(root, "docs/testing"), { recursive: true });
 
-  writeFileSync(join(root, "src/runtime.ts"), "export const covered = 1;\nexport const partiallyCovered = 2;\n");
+  writeFileSync(
+    join(root, "src/runtime.ts"),
+    [
+      "// Bun may emit DA entries for comments; accounting ignores this.",
+      "interface Shape {",
+      "  name: string;",
+      "}",
+      "export const covered = 1;",
+      "export const partiallyCovered = 2;",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(join(root, "src/uncovered.ts"), "export const missing = 3;\n");
   writeFileSync(
     join(root, "src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts"),
@@ -24,9 +35,13 @@ function writeFixture(root: string): void {
     [
       "TN:",
       "SF:src/runtime.ts",
-      "DA:1,1",
+      "DA:1,0",
       "DA:2,0",
-      "LF:2",
+      "DA:3,0",
+      "DA:4,0",
+      "DA:5,1",
+      "DA:6,0",
+      "LF:6",
       "LH:1",
       "FNF:0",
       "FNH:0",
@@ -55,6 +70,7 @@ describe("coverage accounting for non-Bun AssemblyScript sources", () => {
     expect(result.status).toBe(0);
     const report = readFileSync(join(root, "docs/testing/coverage-gap-analysis.md"), "utf8");
     expect(report).toContain("Overall line coverage: **33.3%** (1/3)");
+    expect(report).not.toContain("Overall line coverage: **14.3%** (1/7)");
     expect(report).toContain("Source handled outside Bun LCOV");
     expect(report).toContain("src/wasm/maw-plugin-sdk-assemblyscript/assembly/");
     expect(report).toContain("asc-compiled WebAssembly");

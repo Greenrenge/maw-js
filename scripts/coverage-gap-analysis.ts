@@ -27,12 +27,45 @@ function relPath(file: string): string {
   return rel.replace(/^\.\//, "");
 }
 
-function countSourceLines(file: string): number {
+function sourceLineNumbers(file: string): Set<number> {
   const text = readFileSync(file, "utf8");
-  return text.split(/\r?\n/).filter((line) => {
+  const lineNumbers = new Set<number>();
+  let inBlockComment = false;
+
+  text.split(/\r?\n/).forEach((line, index) => {
+    const lineNo = index + 1;
     const trimmed = line.trim();
-    return trimmed.length > 0 && !trimmed.startsWith("//") && !trimmed.startsWith("/*") && !trimmed.startsWith("*");
-  }).length;
+    if (!trimmed) return;
+
+    if (inBlockComment) {
+      if (trimmed.includes("*/")) inBlockComment = false;
+      return;
+    }
+
+    if (trimmed.startsWith("//")) return;
+    if (trimmed.startsWith("/*")) {
+      if (!trimmed.includes("*/")) inBlockComment = true;
+      return;
+    }
+    if (trimmed.startsWith("*") || trimmed.startsWith("*/")) return;
+
+    // Bun LCOV can report DA entries for syntactic separators and type-only
+    // declarations. These lines do not represent runtime branches users can
+    // exercise with tests, so keep badge/gap accounting focused on source lines
+    // that can plausibly execute.
+    if (/^[{}\]\)(;,:]*$/.test(trimmed)) return;
+    if (/^(export\s+)?(interface|type)\s+/.test(trimmed)) return;
+    if (/^(public\s+|private\s+|protected\s+|readonly\s+)*[A-Za-z_$][\w$]*\??:\s*[^=]+[,;]?$/.test(trimmed)) return;
+    if (/^[A-Za-z_$][\w$]*\??\([^)]*\):\s*[^=]+;?$/.test(trimmed)) return;
+
+    lineNumbers.add(lineNo);
+  });
+
+  return lineNumbers;
+}
+
+function countSourceLines(file: string): number {
+  return sourceLineNumbers(file).size;
 }
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -83,7 +116,12 @@ function parseLcov(path: string): Map<string, FileCov> {
       else if (line.startsWith("BRF:")) cov.branchesFound = Number(line.slice(4)) || 0;
       else if (line.startsWith("BRH:")) cov.branchesHit = Number(line.slice(4)) || 0;
     }
-    if (cov.linesFound === 0 && da.size > 0) {
+    if (existsSync(file) && da.size > 0) {
+      const sourceLines = sourceLineNumbers(file);
+      const sourceDa = [...da.entries()].filter(([lineNo]) => sourceLines.has(lineNo));
+      cov.linesFound = sourceDa.length;
+      cov.linesHit = sourceDa.filter(([, hits]) => hits > 0).length;
+    } else if (cov.linesFound === 0 && da.size > 0) {
       cov.linesFound = da.size;
       cov.linesHit = [...da.values()].filter((hits) => hits > 0).length;
     }
@@ -202,7 +240,7 @@ md.push(`Generated: ${generatedAt}`);
 md.push("");
 md.push(`Input: \`${lcovPath}\``);
 md.push("");
-md.push(`Coverage scope: Bun LCOV plus zero-coverage accounting for tracked \`src/**/*.ts\` files absent from LCOV.`);
+md.push(`Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked \`src/**/*.ts\` files absent from LCOV.`);
 md.push(`Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.`);
 md.push("");
 md.push(`Overall line coverage: **${pct(overall.linesHit, overall.linesFound)}** (${overall.linesHit}/${overall.linesFound})`);
@@ -279,7 +317,8 @@ md.push(`## Notes`);
 md.push("");
 md.push(`- Critical = routing/aliases, CLI dispatch, transports, fleet, matcher, and plugin dispatch.`);
 md.push(`- Low-risk = vendor plugin surfaces and UI/cosmetic code where smoke/manual tests often provide better value than line-driven unit tests.`);
-md.push(`- Files absent from LCOV are counted as zero-covered using non-empty/non-comment source lines so the report exposes untouched modules, not only imported files.`);
+md.push(`- Bun DA entries are source-line-normalized to ignore comments, syntactic separators, and type-only declarations that cannot be exercised at runtime.
+- Files absent from LCOV are counted as zero-covered using the same source-line normalization so the report exposes untouched modules, not only imported files.`);
 md.push(`- AssemblyScript SDK sources under \`src/wasm/maw-plugin-sdk-assemblyscript/assembly/\` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.`);
 md.push("");
 

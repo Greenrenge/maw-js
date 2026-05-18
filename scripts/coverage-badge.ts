@@ -27,12 +27,45 @@ function relPath(file: string): string {
   return rel.replace(/^\.\//, "");
 }
 
-function countSourceLines(file: string): number {
+function sourceLineNumbers(file: string): Set<number> {
   const text = readFileSync(file, "utf8");
-  return text.split(/\r?\n/).filter((line) => {
+  const lineNumbers = new Set<number>();
+  let inBlockComment = false;
+
+  text.split(/\r?\n/).forEach((line, index) => {
+    const lineNo = index + 1;
     const trimmed = line.trim();
-    return trimmed.length > 0 && !trimmed.startsWith("//") && !trimmed.startsWith("/*") && !trimmed.startsWith("*");
-  }).length;
+    if (!trimmed) return;
+
+    if (inBlockComment) {
+      if (trimmed.includes("*/")) inBlockComment = false;
+      return;
+    }
+
+    if (trimmed.startsWith("//")) return;
+    if (trimmed.startsWith("/*")) {
+      if (!trimmed.includes("*/")) inBlockComment = true;
+      return;
+    }
+    if (trimmed.startsWith("*") || trimmed.startsWith("*/")) return;
+
+    // Bun LCOV can report DA entries for syntactic separators and type-only
+    // declarations. These lines do not represent runtime branches users can
+    // exercise with tests, so keep badge/gap accounting focused on source lines
+    // that can plausibly execute.
+    if (/^[{}\]\)(;,:]*$/.test(trimmed)) return;
+    if (/^(export\s+)?(interface|type)\s+/.test(trimmed)) return;
+    if (/^(public\s+|private\s+|protected\s+|readonly\s+)*[A-Za-z_$][\w$]*\??:\s*[^=]+[,;]?$/.test(trimmed)) return;
+    if (/^[A-Za-z_$][\w$]*\??\([^)]*\):\s*[^=]+;?$/.test(trimmed)) return;
+
+    lineNumbers.add(lineNo);
+  });
+
+  return lineNumbers;
+}
+
+function countSourceLines(file: string): number {
+  return sourceLineNumbers(file).size;
 }
 
 function walkSource(dir: string, out: string[] = []): string[] {
@@ -76,7 +109,12 @@ function parseLcov(path: string): Map<string, Counts> {
       else if (line.startsWith("FNF:")) counts.funcsFound = Number(line.slice(4)) || 0;
       else if (line.startsWith("FNH:")) counts.funcsHit = Number(line.slice(4)) || 0;
     }
-    if (counts.linesFound === 0 && lineHits.size > 0) {
+    if (existsSync(file) && lineHits.size > 0) {
+      const sourceLines = sourceLineNumbers(file);
+      const sourceLineHits = [...lineHits.entries()].filter(([lineNo]) => sourceLines.has(lineNo));
+      counts.linesFound = sourceLineHits.length;
+      counts.linesHit = sourceLineHits.filter(([, hits]) => hits > 0).length;
+    } else if (counts.linesFound === 0 && lineHits.size > 0) {
       counts.linesFound = lineHits.size;
       counts.linesHit = [...lineHits.values()].filter((hits) => hits > 0).length;
     }
