@@ -44,12 +44,6 @@ function askYesNo(question: string): boolean {
   }
 }
 
-function listAvailable(fleet: { name: string }[], sessions: { name: string }[]): string {
-  const all = new Set<string>([...sessions.map(s => s.name), ...fleet.map(f => f.name)]);
-  if (all.size === 0) return "(none)";
-  return [...all].sort().join(", ");
-}
-
 export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<void> {
   if (!name) {
     console.error("usage: maw attach <name> [--dry-run] [-y|--yes]");

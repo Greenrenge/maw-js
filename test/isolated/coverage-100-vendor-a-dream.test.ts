@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -71,6 +71,59 @@ describe("coverage-100 vendor-a dream hooks", () => {
     expect(content).toContain("## Connections");
     expect(content).toContain("unblocks");
     expect(content).toContain("## Insights");
+  });
+
+  test("insight and speculation hooks render active, hotspot, risk, and latest-file paths", async () => {
+    const pain = {
+      category: "pain",
+      title: "cache rebuild failure loop",
+      detail: "failure detail",
+      source: "pain-source",
+      project: "maw-js",
+      confidence: "high",
+      daysAgo: 2,
+      action: "fix cache",
+    } as any;
+    const secondPain = { ...pain, title: "cache rebuild failure flakes", source: "pain-source-2" };
+    const plan = {
+      category: "plan",
+      title: "cache rebuild failure plan",
+      detail: "plan detail",
+      source: "plan-source",
+      project: "maw-js",
+      confidence: "medium",
+      daysAgo: 1,
+    } as any;
+    const lost = { ...pain, category: "lost", title: "old silent repo", project: "legacy", daysAgo: 120 };
+    const repos = [
+      { name: "maw-js", staleDays: 1, uncommittedFiles: 8, lastCommitMsg: "raise coverage" },
+      { name: "legacy", staleDays: 120, uncommittedFiles: 0, lastCommitMsg: "old" },
+    ] as any[];
+
+    const insights = __dreamImplCoverageHooks.generateInsights([pain, secondPain, plan, lost], repos);
+    expect(insights.join("\n")).toContain("Active: 1 repos");
+    expect(insights.join("\n")).toContain("Hotspots: maw-js (2)");
+    expect(insights.join("\n")).toContain("Coverage: 2/2 pains");
+    expect(insights.join("\n")).toContain("Forgotten: 1 repos");
+    expect(insights.join("\n")).toContain("At risk: maw-js (8 files)");
+
+    const specPath = __dreamImplCoverageHooks.writeSpeculations([pain, plan], repos);
+    expect(readFileSync(specPath, "utf-8")).toContain("Likely next session");
+    expect(readFileSync(specPath, "utf-8")).toContain("Risks");
+
+    const dreamDir = join(tempDir, "ψ", "writing", "dreams");
+    const morpheusDir = join(tempDir, "ψ", "memory", "morpheus");
+    mkdirSync(dreamDir, { recursive: true });
+    mkdirSync(morpheusDir, { recursive: true });
+    writeFileSync(join(dreamDir, "latest.md"), "- dream item\n- dream second\n");
+    writeFileSync(join(morpheusDir, "latest.md"), "- speculation item\n");
+    await __dreamImplCoverageHooks.speculateFromExisting();
+    expect(logs.join("\n")).toContain("Latest dream");
+    expect(logs.join("\n")).toContain("Latest speculation");
+
+    logs = [];
+    __dreamImplCoverageHooks.printHelp();
+    expect(logs.join("\n")).toContain("usage: maw dream");
   });
 
   test("pure extractors cover inline sections, generated titles, and keyword thresholds", () => {

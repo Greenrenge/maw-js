@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  encodeSegment,
+  formatZenohScoutResult,
+  keyexprFromReply,
+  parseDiscoveryKey,
   discoveryKey,
   readZenohScoutConfig,
   runZenohScout,
@@ -78,5 +82,66 @@ describe("coverage-100 vendor-a zenoh scout gaps", () => {
     const wasm = await runZenohScout(config, { importZenoh: async () => { throw new Error("WebAssembly __wbindgen failed"); } });
     expect(wasm.error).toBe("zenoh_runtime_unsupported");
     expect(wasm.hint).toContain("failed to initialize");
+  });
+
+  test("open fallback, disabled formatting, invalid replies, and non-URL hosts are covered", async () => {
+    const config = readZenohScoutConfig({
+      node: "m5",
+      oracle: "codex",
+      port: 3456,
+      zenoh: { locator: "ws://root.example", scout: { enabled: false, timeoutMs: 0, keyPrefix: "custom/prefix///" } },
+    } as any);
+    expect(config).toMatchObject({
+      enabled: false,
+      locator: "ws://root.example",
+      timeoutMs: 1,
+      keyPrefix: "custom/prefix",
+    });
+
+    const calls: string[] = [];
+    const api: ZenohApi = {
+      Config: FakeConfig,
+      KeyExpr: FakeKeyExpr,
+      open: async () => ({
+        liveliness: () => ({
+          async declareToken() {
+            throw new Error("advertise should be disabled");
+          },
+          async get() {
+            calls.push("get");
+            return undefined;
+          },
+        }),
+        async close() {
+          calls.push("close");
+          throw new Error("close ignored");
+        },
+      }),
+    };
+
+    const result = await runZenohScout({ ...config, enabled: true, advertise: false }, { importZenoh: async () => api });
+    expect(result).toMatchObject({ ok: true, total: 0, peers: [] });
+    expect(calls).toEqual(["get", "close"]);
+
+    expect(formatZenohScoutResult({ ...result, enabled: false, hint: undefined })).toContain("zenoh-scout disabled");
+    expect(formatZenohScoutResult({ ...result, ok: false, error: "boom", hint: "fix it" })).toContain("zenoh-scout unavailable");
+    expect(formatZenohScoutResult(result)).toContain("no zenoh discoveries");
+
+    const key = [
+      "custom/prefix",
+      encodeSegment("remote"),
+      encodeSegment("oracle"),
+      encodeSegment("not a url"),
+      encodeSegment("pair,send"),
+      "alive",
+    ].join("/");
+    const parsed = parseDiscoveryKey(key, "custom/prefix", new Date("2026-05-19T00:00:00.000Z"));
+    expect(parsed).toMatchObject({ node: "remote", oracle: "oracle", host: "not a url", capabilities: ["pair", "send"] });
+    expect(formatZenohScoutResult({ ...result, peers: [parsed!], total: 1 })).toContain("remote");
+
+    expect(parseDiscoveryKey("other/prefix", "custom/prefix")).toBeNull();
+    expect(parseDiscoveryKey("custom/prefix/too/few", "custom/prefix")).toBeNull();
+    expect(keyexprFromReply({ result: () => ({ keyexpr: () => "literal-key" }) })).toBe("literal-key");
+    expect(keyexprFromReply({ result: () => ({}) })).toBeNull();
   });
 });
