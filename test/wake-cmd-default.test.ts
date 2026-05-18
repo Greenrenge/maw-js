@@ -174,8 +174,6 @@ describe("fresh wake tmux readiness — default coverage", () => {
 
   it("retries transient can't-find-session setup races", async () => {
     let attempts = 0;
-    let visibilityChecks = 0;
-
     const result = await retryFreshSessionTmuxStep("47-mawjs", "launch main window", async () => {
       attempts++;
       if (attempts === 1) throw new Error("[local:local] can't find session: 47-mawjs");
@@ -184,16 +182,10 @@ describe("fresh wake tmux readiness — default coverage", () => {
       attempts: 3,
       delayMs: 5,
       sleep: async () => {},
-      hasSession: async session => {
-        expect(session).toBe("47-mawjs");
-        visibilityChecks++;
-        return true;
-      },
     });
 
     expect(result).toBe("launched");
     expect(attempts).toBe(2);
-    expect(visibilityChecks).toBe(1);
   });
 
   it("does not hide unrelated setup failures", async () => {

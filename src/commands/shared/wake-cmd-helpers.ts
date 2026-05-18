@@ -67,8 +67,8 @@ export function shouldOfferExistingSessionAttach(
   return !opts.attach && !opts.split && !opts.bring && Boolean(isTTY) && env.MAW_TEST_MODE !== "1";
 }
 
-const FRESH_SESSION_READY_ATTEMPTS = 8;
-const FRESH_SESSION_READY_DELAY_MS = 150;
+const FRESH_SESSION_READY_ATTEMPTS = 20;
+const FRESH_SESSION_READY_DELAY_MS = 250;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -129,19 +129,11 @@ export async function retryFreshSessionTmuxStep<T>(
       if (!isFreshSessionLookupRace(error, session) || attempt === attempts) {
         throw error;
       }
+      // Do not gate fresh wake on a separate has-session probe: on loaded
+      // tmux servers that external lookup can lag behind the real session,
+      // while the next concrete tmux operation (or attach) is the useful
+      // source of truth. Sleep briefly, then retry the operation itself.
       await wait(delayMs);
-      try {
-        await waitForTmuxSessionReady(session, {
-          hasSession: deps.hasSession,
-          sleep: wait,
-          attempts: 2,
-          delayMs,
-        });
-      } catch {
-        // Fresh tmux sessions can become attachable even when an external
-        // has-session probe lags or races the server. Keep retrying the real
-        // tmux step instead of failing on the probe itself.
-      }
     }
   }
 
