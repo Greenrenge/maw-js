@@ -180,6 +180,10 @@ describe("loadWasmCommand", () => {
     const cached = wasmInstances.get(path);
     expect(cached?.handle(0, 0)).toBe(0);
     expect(cached?.memory.buffer.byteLength).toBe(65_536);
+    const identityPtr = cached!.bridge.env.maw_identity();
+    const identityLen = new DataView(cached!.memory.buffer).getUint32(identityPtr, true);
+    const identity = new TextDecoder().decode(new Uint8Array(cached!.memory.buffer, identityPtr + 4, identityLen));
+    expect(identity).toBe('{"error":"identity not pre-cached"}');
     expect(logs.join("\n")).toContain(`loaded wasm: hello-tool.wasm (memory: 1/${WASM_MEMORY_MAX_PAGES} pages)`);
   });
 

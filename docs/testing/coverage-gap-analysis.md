@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T20:17:57.792Z
+Generated: 2026-05-18T20:27:59.247Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **98.9%** (36822/37234)
-Overall function coverage: **95.5%** (4776/4999)
+Overall line coverage: **99.0%** (36848/37234)
+Overall function coverage: **95.8%** (4790/4999)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 99.3% (6298/6343) | 94.7% (755/797) | n/a (0/0) |
+| cli/dispatch | 91 | 0 | 99.3% (6298/6343) | 95.0% (757/797) | n/a (0/0) |
 | config/runtime | 19 | 0 | 99.3% (936/943) | 99.2% (132/133) | n/a (0/0) |
 | fleet | 17 | 0 | 99.0% (778/786) | 99.0% (102/103) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 11 | 98.9% (10236/10347) | 95.5% (1363/1427) | n/a (0/0) |
+| other | 172 | 11 | 99.0% (10239/10347) | 95.6% (1364/1427) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 99.8% (505/506) | 97.3% (73/75) | n/a (0/0) |
 | transport | 28 | 0 | 99.7% (1882/1888) | 97.5% (431/442) | n/a (0/0) |
-| vendor plugins | 245 | 4 | 98.5% (15209/15436) | 94.8% (1816/1915) | n/a (0/0) |
+| vendor plugins | 245 | 4 | 98.7% (15232/15436) | 95.4% (1827/1915) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -68,7 +68,7 @@ Overall function coverage: **95.5%** (4776/4999)
 | cli/dispatch | `src/cli/command-registry-execute.ts` | 100.0% | 83.3% |
 | cli/dispatch | `src/cli/command-registry-match.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/command-registry-types.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/cli/command-registry-wasm.ts` | 100.0% | 50.0% |
+| cli/dispatch | `src/cli/command-registry-wasm.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/command-registry.ts` | 96.4% | 100.0% |
 | cli/dispatch | `src/cli/dispatch-match.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/cli/dispatch.ts` | 100.0% | 92.9% |
