@@ -6,10 +6,18 @@ type Counts = { linesFound: number; linesHit: number; funcsFound: number; funcsH
 type FileCov = Counts & { file: string; sourceLines: number; missingFromLcov: boolean };
 
 type ModuleSummary = Counts & { files: number; missingFiles: number };
+type ExcludedSourceSummary = { root: string; reason: string; files: number; sourceLines: number };
 
 const cwd = process.cwd();
 const lcovPath = process.argv[2] || "coverage/lcov.info";
 const outPath = process.argv[3] || "docs/testing/coverage-gap-analysis.md";
+
+const excludedSourceRoots = [
+  {
+    root: "src/wasm/maw-plugin-sdk-assemblyscript/assembly/",
+    reason: "AssemblyScript SDK source is compiled with asc to WebAssembly; Bun LCOV cannot map wasm execution back to these TypeScript-like sources.",
+  },
+] as const;
 
 function relPath(file: string): string {
   const normalized = file.replaceAll("\\", "/");
@@ -42,6 +50,10 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function excludedSourceReason(file: string): string | undefined {
+  return excludedSourceRoots.find((entry) => file.startsWith(entry.root))?.reason;
+}
+
 function emptyCounts(): Counts {
   return { linesFound: 0, linesHit: 0, funcsFound: 0, funcsHit: 0, branchesFound: 0, branchesHit: 0 };
 }
@@ -56,6 +68,7 @@ function parseLcov(path: string): Map<string, FileCov> {
     if (!sf) continue;
     const file = relPath(sf.slice(3));
     if (!file.startsWith("src/") || !/\.tsx?$/.test(file) || file.endsWith(".d.ts") || file.endsWith(".test.ts")) continue;
+    if (excludedSourceReason(file)) continue;
 
     const cov: FileCov = { file, sourceLines: existsSync(file) ? countSourceLines(file) : 0, missingFromLcov: false, ...emptyCounts() };
     const da = new Map<number, number>();
@@ -123,8 +136,18 @@ function escCell(value: string): string {
 }
 
 const lcov = parseLcov(lcovPath);
+const excludedSources = new Map<string, ExcludedSourceSummary>();
 for (const abs of walk("src")) {
   const file = relPath(abs);
+  const excludedReason = excludedSourceReason(file);
+  if (excludedReason) {
+    const root = excludedSourceRoots.find((entry) => file.startsWith(entry.root))?.root ?? file;
+    const summary = excludedSources.get(root) || { root, reason: excludedReason, files: 0, sourceLines: 0 };
+    summary.files += 1;
+    summary.sourceLines += countSourceLines(abs);
+    excludedSources.set(root, summary);
+    continue;
+  }
   if (lcov.has(file)) continue;
   const sourceLines = countSourceLines(abs);
   lcov.set(file, {
@@ -180,6 +203,7 @@ md.push("");
 md.push(`Input: \`${lcovPath}\``);
 md.push("");
 md.push(`Coverage scope: Bun LCOV plus zero-coverage accounting for tracked \`src/**/*.ts\` files absent from LCOV.`);
+md.push(`Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.`);
 md.push("");
 md.push(`Overall line coverage: **${pct(overall.linesHit, overall.linesFound)}** (${overall.linesHit}/${overall.linesFound})`);
 md.push(`Overall function coverage: **${pct(overall.funcsHit, overall.funcsFound)}** (${overall.funcsHit}/${overall.funcsFound})`);
@@ -191,6 +215,18 @@ md.push(`| Module | Files | Missing from LCOV | Lines | Functions | Branches |`)
 md.push(`| --- | ---: | ---: | ---: | ---: | ---: |`);
 for (const [name, summary] of [...modules.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
   md.push(`| ${escCell(name)} | ${summary.files} | ${summary.missingFiles} | ${pct(summary.linesHit, summary.linesFound)} (${summary.linesHit}/${summary.linesFound}) | ${pct(summary.funcsHit, summary.funcsFound)} (${summary.funcsHit}/${summary.funcsFound}) | ${pct(summary.branchesHit, summary.branchesFound)} (${summary.branchesHit}/${summary.branchesFound}) |`);
+}
+md.push("");
+md.push(`## Source handled outside Bun LCOV`);
+md.push("");
+if (excludedSources.size === 0) {
+  md.push(`No source roots were excluded from Bun LCOV accounting.`);
+} else {
+  md.push(`| Source root | Files | Source lines | Reason |`);
+  md.push(`| --- | ---: | ---: | --- |`);
+  for (const source of [...excludedSources.values()].sort((a, b) => a.root.localeCompare(b.root))) {
+    md.push(`| \`${source.root}\` | ${source.files} | ${source.sourceLines} | ${escCell(source.reason)} |`);
+  }
 }
 md.push("");
 md.push(`## Top 20 uncovered files by executable/source line count`);
@@ -244,6 +280,7 @@ md.push("");
 md.push(`- Critical = routing/aliases, CLI dispatch, transports, fleet, matcher, and plugin dispatch.`);
 md.push(`- Low-risk = vendor plugin surfaces and UI/cosmetic code where smoke/manual tests often provide better value than line-driven unit tests.`);
 md.push(`- Files absent from LCOV are counted as zero-covered using non-empty/non-comment source lines so the report exposes untouched modules, not only imported files.`);
+md.push(`- AssemblyScript SDK sources under \`src/wasm/maw-plugin-sdk-assemblyscript/assembly/\` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.`);
 md.push("");
 
 mkdirSync(dirname(outPath), { recursive: true });

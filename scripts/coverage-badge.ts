@@ -15,6 +15,10 @@ const cwd = realpathSync(process.cwd());
 const lcovPath = process.argv[2] || "coverage/lcov.info";
 const outPath = process.argv[3] || "coverage/maw-js-coverage.json";
 
+const excludedSourceRoots = [
+  "src/wasm/maw-plugin-sdk-assemblyscript/assembly/",
+] as const;
+
 function relPath(file: string): string {
   const realFile = existsSync(file) ? realpathSync(file) : file;
   const normalized = realFile.replaceAll("\\", "/");
@@ -46,6 +50,10 @@ function walkSource(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function isExcludedSource(file: string): boolean {
+  return excludedSourceRoots.some((root) => file.startsWith(root));
+}
+
 function parseLcov(path: string): Map<string, Counts> {
   if (!existsSync(path)) throw new Error(`coverage lcov not found: ${path}`);
   const files = new Map<string, Counts>();
@@ -55,6 +63,7 @@ function parseLcov(path: string): Map<string, Counts> {
     if (!source) continue;
     const file = relPath(source.slice(3));
     if (!file.startsWith("src/") || !/\.tsx?$/.test(file) || file.endsWith(".d.ts") || file.endsWith(".test.ts")) continue;
+    if (isExcludedSource(file)) continue;
 
     const counts: Counts = { linesFound: 0, linesHit: 0, funcsFound: 0, funcsHit: 0 };
     const lineHits = new Map<number, number>();
@@ -101,6 +110,7 @@ function formatPercent(percent: number): string {
 const files = parseLcov(lcovPath);
 for (const abs of walkSource("src")) {
   const file = relPath(abs);
+  if (isExcludedSource(file)) continue;
   if (files.has(file)) continue;
   files.set(file, { linesFound: countSourceLines(abs), linesHit: 0, funcsFound: 0, funcsHit: 0 });
 }

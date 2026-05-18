@@ -1,12 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T12:02:15.456Z
+Generated: 2026-05-18T12:18:35.303Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
+Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **72.0%** (36737/50997)
+Overall line coverage: **72.4%** (36737/50730)
 Overall function coverage: **90.2%** (3784/4197)
 
 ## Module summary
@@ -17,11 +18,17 @@ Overall function coverage: **90.2%** (3784/4197)
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
 | fleet | 17 | 0 | 79.4% (911/1148) | 93.1% (94/101) | n/a (0/0) |
 | matcher | 2 | 0 | 73.6% (89/121) | 100.0% (15/15) | n/a (0/0) |
-| other | 181 | 40 | 76.2% (11147/14627) | 87.2% (1104/1266) | n/a (0/0) |
+| other | 176 | 35 | 77.6% (11147/14360) | 87.2% (1104/1266) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 81.3% (1084/1334) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (637/766) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.9% (420/438) | n/a (0/0) |
 | vendor plugins | 245 | 121 | 62.1% (12512/20141) | 90.4% (1211/1339) | n/a (0/0) |
+
+## Source handled outside Bun LCOV
+
+| Source root | Files | Source lines | Reason |
+| --- | ---: | ---: | --- |
+| `src/wasm/maw-plugin-sdk-assemblyscript/assembly/` | 5 | 267 | AssemblyScript SDK source is compiled with asc to WebAssembly; Bun LCOV cannot map wasm execution back to these TypeScript-like sources. |
 
 ## Top 20 uncovered files by executable/source line count
 
@@ -29,24 +36,24 @@ Overall function coverage: **90.2%** (3784/4197)
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 97.5% | partial coverage |
 | 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 97.2% | partial coverage |
-| 3 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
-| 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 139 | 78.5% | 94.4% | partial coverage |
-| 5 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 120 | 72.6% | 100.0% | partial coverage |
-| 6 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 115 | 81.3% | 78.0% | partial coverage |
-| 7 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 115 | 76.8% | 81.6% | partial coverage |
-| 8 | medium | other | `src/commands/plugins/tmux/impl.ts` | 110 | 83.5% | 70.6% | partial coverage |
-| 9 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
-| 10 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/memory.ts` | 96 | 0.0% | n/a | absent from LCOV |
-| 11 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 94 | 78.4% | 90.0% | partial coverage |
-| 12 | medium | other | `src/lib/federation-auth.ts` | 93 | 69.9% | 76.2% | partial coverage |
-| 13 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/index.ts` | 87 | 20.9% | 27.3% | partial coverage |
-| 14 | low | vendor plugins | `src/vendor/mpr-plugins/team/impl.ts` | 87 | 13.0% | 0.0% | partial coverage |
-| 15 | critical | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% | n/a | absent from LCOV |
-| 16 | low | vendor plugins | `src/vendor/mpr-plugins/bud/smart-default-org.ts` | 83 | 0.0% | n/a | absent from LCOV |
-| 17 | medium | other | `src/commands/plugins/oracle/impl-scan.ts` | 82 | 4.7% | 0.0% | partial coverage |
-| 18 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 82 | 74.2% | 70.8% | partial coverage |
-| 19 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/impl.ts` | 81 | 0.0% | n/a | absent from LCOV |
-| 20 | medium | other | `src/lib/peers/impl.ts` | 80 | 62.3% | 66.7% | partial coverage |
+| 3 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 139 | 78.5% | 94.4% | partial coverage |
+| 4 | medium | other | `src/commands/plugins/plugin/install-handlers.ts` | 120 | 72.6% | 100.0% | partial coverage |
+| 5 | critical | cli/dispatch | `src/commands/shared/wake-cmd.ts` | 115 | 81.3% | 78.0% | partial coverage |
+| 6 | critical | cli/dispatch | `src/commands/shared/wake-resolve-impl.ts` | 115 | 76.8% | 81.6% | partial coverage |
+| 7 | medium | other | `src/commands/plugins/tmux/impl.ts` | 110 | 83.5% | 70.6% | partial coverage |
+| 8 | low | vendor plugins | `src/vendor/mpr-plugins/token/lib.ts` | 98 | 52.9% | 100.0% | partial coverage |
+| 9 | critical | cli/dispatch | `src/cli/cmd-update.ts` | 94 | 78.4% | 90.0% | partial coverage |
+| 10 | medium | other | `src/lib/federation-auth.ts` | 93 | 69.9% | 76.2% | partial coverage |
+| 11 | low | vendor plugins | `src/vendor/mpr-plugins/bg/src/index.ts` | 87 | 20.9% | 27.3% | partial coverage |
+| 12 | low | vendor plugins | `src/vendor/mpr-plugins/team/impl.ts` | 87 | 13.0% | 0.0% | partial coverage |
+| 13 | critical | plugin dispatch | `src/plugin/types.ts` | 86 | 0.0% | n/a | absent from LCOV |
+| 14 | low | vendor plugins | `src/vendor/mpr-plugins/bud/smart-default-org.ts` | 83 | 0.0% | n/a | absent from LCOV |
+| 15 | medium | other | `src/commands/plugins/oracle/impl-scan.ts` | 82 | 4.7% | 0.0% | partial coverage |
+| 16 | low | vendor plugins | `src/vendor/mpr-plugins/doctor/impl.ts` | 82 | 74.2% | 70.8% | partial coverage |
+| 17 | low | vendor plugins | `src/vendor/mpr-plugins/incubate/impl.ts` | 81 | 0.0% | n/a | absent from LCOV |
+| 18 | medium | other | `src/lib/peers/impl.ts` | 80 | 62.3% | 66.7% | partial coverage |
+| 19 | low | vendor plugins | `src/vendor/mpr-plugins/pulse/index.ts` | 80 | 0.0% | n/a | absent from LCOV |
+| 20 | low | vendor plugins | `src/vendor/mpr-plugins/done/done-autosave.ts` | 79 | 0.0% | n/a | absent from LCOV |
 
 ## Critical files at or above the 80% line target
 
@@ -193,3 +200,4 @@ Overall function coverage: **90.2%** (3784/4197)
 - Critical = routing/aliases, CLI dispatch, transports, fleet, matcher, and plugin dispatch.
 - Low-risk = vendor plugin surfaces and UI/cosmetic code where smoke/manual tests often provide better value than line-driven unit tests.
 - Files absent from LCOV are counted as zero-covered using non-empty/non-comment source lines so the report exposes untouched modules, not only imported files.
+- AssemblyScript SDK sources under `src/wasm/maw-plugin-sdk-assemblyscript/assembly/` are not counted as zero-covered Bun TypeScript because their runtime is asc-compiled WebAssembly. Keep covering them with AssemblyScript wasm harness tests and compiler checks.
