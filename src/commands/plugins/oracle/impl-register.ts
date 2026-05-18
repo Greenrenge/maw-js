@@ -27,6 +27,14 @@ export interface DiscoveredOracle {
   entry: OracleEntry;
 }
 
+export interface RegisterDeps {
+  readRawCache?: () => Record<string, unknown>;
+  writeRawCache?: (data: Record<string, unknown>) => void;
+  findInFleetFn?: (name: string) => DiscoveredOracle | null;
+  findInTmuxFn?: (name: string) => Promise<DiscoveredOracle | null>;
+  findInFilesystemFn?: (name: string) => DiscoveredOracle | null;
+}
+
 export function findInFleet(
   name: string,
   fleetDir: string = FLEET_DIR,
@@ -162,13 +170,7 @@ export function writeRawRegistry(file: string, data: Record<string, unknown>): v
 export async function cmdOracleRegister(
   name: string,
   opts: RegisterOpts = {},
-  deps: {
-    readRawCache?: () => Record<string, unknown>;
-    writeRawCache?: (data: Record<string, unknown>) => void;
-    findInFleetFn?: (name: string) => DiscoveredOracle | null;
-    findInTmuxFn?: (name: string) => Promise<DiscoveredOracle | null>;
-    findInFilesystemFn?: (name: string) => DiscoveredOracle | null;
-  } = {},
+  deps: RegisterDeps = {},
 ): Promise<void> {
   if (!name) throw new Error("register requires a name: maw oracle register <name>");
 

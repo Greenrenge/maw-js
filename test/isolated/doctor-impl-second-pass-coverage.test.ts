@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realChildProcess from "child_process";
 import * as realFs from "fs";
+import * as realOs from "os";
 import { join } from "path";
 
 const C = { green: "", red: "", yellow: "", gray: "", reset: "" };
@@ -34,7 +35,7 @@ function fakeProc(code: number, stdout = "", stderr = "") {
   } as unknown as ReturnType<typeof Bun.spawn>;
 }
 
-mock.module("os", () => ({ homedir: () => HOME }));
+mock.module("os", () => ({ ...realOs, homedir: () => HOME }));
 
 mock.module("child_process", () => ({
   ...realChildProcess,
@@ -144,6 +145,23 @@ describe("doctor impl second-pass coverage", () => {
     expect(logs.join("\n")).toContain("run: cd /repo/dev/maw-js && bun link");
   });
 
+  test("install check attempts reinstall when no dev bun-link is protecting the missing binary", async () => {
+    fsMode = "missing-bin";
+
+    const result = await cmdDoctor(["install"]);
+
+    expect(result.ok).toBe(false);
+    expect(result.checks).toEqual([
+      {
+        name: "install",
+        ok: false,
+        message: "reinstall did not produce the binary — manual intervention needed",
+      },
+    ]);
+    expect(execCalls).toEqual(["bun add -g github:Soul-Brews-Studio/maw-js"]);
+    expect(logs.join("\n")).toContain("attempting reinstall");
+  });
+
   test("install check reports a broken maw symlink target", async () => {
     fsMode = "broken-link";
 
@@ -158,6 +176,24 @@ describe("doctor impl second-pass coverage", () => {
       },
     ]);
     expect(execCalls).toEqual([]);
+  });
+
+  test("smoke suite reports clean plugin symlinks and unreadable plugin directories", async () => {
+    realFs.writeFileSync(join(PLUGINS_DIR, "good"), "ok");
+    realFs.writeFileSync(join(PLUGINS_DIR, "plain"), "plain");
+
+    const clean = await cmdDoctor(["smoke"]);
+    expect(clean.checks[5]).toEqual({ name: "smoke:plugins", ok: true, message: "2 plugins loaded (0 broken)" });
+    expect(clean.checks[6]).toEqual({ name: "smoke:symlinks", ok: true, message: "no broken symlinks" });
+
+    realFs.rmSync(PLUGINS_DIR, { recursive: true, force: true });
+    realFs.writeFileSync(PLUGINS_DIR, "not a directory");
+    const unreadable = await cmdDoctor(["smoke"]);
+    expect(unreadable.ok).toBe(false);
+    expect(unreadable.checks[5]!.name).toBe("smoke:plugins");
+    expect(unreadable.checks[5]!.ok).toBe(false);
+    expect(unreadable.checks[6]!.name).toBe("smoke:symlinks");
+    expect(unreadable.checks[6]!.ok).toBe(false);
   });
 
   test("smoke suite reports command failures, broken plugin symlinks, and summary counts", async () => {

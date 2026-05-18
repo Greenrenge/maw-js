@@ -163,6 +163,68 @@ describe("doctor impl runtime coverage", () => {
     expect(result.checks[1]).toEqual(staleCheck);
   });
 
+  test("peers check is fail-soft for unreadable cache and unreadable config", async () => {
+    loadPeersError = new Error("cache corrupt");
+
+    const unreadableCache = await cmdDoctor(["peers"]);
+
+    expect(unreadableCache.ok).toBe(true);
+    expect(unreadableCache.checks[0]).toEqual({
+      name: "peers:duplicates",
+      ok: true,
+      message: "peer cache unreadable (cache corrupt) — skipping dedup check",
+    });
+
+    loadPeersError = null;
+    configError = new Error("bad config");
+    peersStore = {
+      solo: {
+        url: "http://solo.example:3456",
+        node: "remote",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        identity: { oracle: "solo", node: "remote" },
+      },
+    };
+
+    const unreadableConfig = await cmdDoctor(["peers"]);
+
+    expect(unreadableConfig.ok).toBe(true);
+    expect(unreadableConfig.checks[0]).toEqual({
+      name: "peers:duplicates",
+      ok: true,
+      message: "no <oracle>:<node> collisions across 1 peer",
+    });
+  });
+
+  test("version check handles pm2 parse failures, missing env ports, unreachable fetches, and aligned versions", async () => {
+    pm2Jlist = "not json";
+    await expect(cmdDoctor(["version"])).resolves.toMatchObject({
+      ok: true,
+      checks: [{ name: "version:pm2", ok: true }],
+    });
+
+    pm2Jlist = JSON.stringify([
+      null,
+      { name: "other", pm_id: 1, pm2_env: { env: { MAW_PORT: "4444" } } },
+      { name: "maw-worker", pm_id: 2, pm2_env: { env: { PORT: "4568" } } },
+      { name: "maw", pm_id: 3, pm2_env: { env: { MAW_PORT: "not-a-port" } } },
+    ]);
+    fetchOk = false;
+    const unreachable = await cmdDoctor(["version"]);
+    expect(unreachable.ok).toBe(false);
+    expect(unreachable.checks.map(c => c.name)).toEqual(["version:maw-worker#2", "version:maw#3"]);
+    expect(unreachable.checks[0]!.message).toContain("unreachable at :4568");
+    expect(unreachable.checks[1]!.message).toContain("unreachable at :3456");
+
+    fetchOk = true;
+    const sourceMatch = unreachable.checks[0]!.message.match(/source ([^ ]+)/);
+    expect(sourceMatch).not.toBeNull();
+    fetchVersion = sourceMatch![1]!;
+    const aligned = await cmdDoctor(["version"]);
+    expect(aligned.ok).toBe(true);
+    expect(aligned.checks.every(c => c.message.startsWith("aligned"))).toBe(true);
+  });
+
   test("manifest check invalidates cache, reports cross-source gaps, and remains warning-only", async () => {
     manifestValue = [
       { name: "ghost", node: "local", sources: ["agent"] },

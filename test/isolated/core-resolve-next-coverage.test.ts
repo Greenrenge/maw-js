@@ -87,6 +87,28 @@ describe("core resolve next coverage", () => {
     });
   });
 
+  test("exact owner-qualified queries normalize missing oracle suffix and pick invalid choices as null", async () => {
+    await expect(resolveOracle("soul/neo", {
+      nameSpace: "any",
+      matchPolicy: "exact",
+      repos: ["/gh/soul/neo-oracle", "/gh/soul/neo-tools"],
+    })).resolves.toEqual({
+      kind: "exact",
+      oracle: { owner: "soul", repo: "neo-oracle", path: "/gh/soul/neo-oracle" },
+    });
+
+    await expect(resolveOracle("other/neo", {
+      nameSpace: "any",
+      matchPolicy: "prefix",
+      repos: ["/gh/soul/neo-oracle"],
+    })).resolves.toEqual({ kind: "not-found" });
+
+    await expect(pickOracle([{ owner: "one", repo: "neo-oracle" }], {
+      stream: { write: () => true },
+      reader: Readable.from(["9\n"]) as NodeJS.ReadStream,
+    })).resolves.toBeNull();
+  });
+
   test("empty queries miss without matching otherwise valid oracle repos", async () => {
     await expect(resolveOracle("   ", {
       nameSpace: "any",

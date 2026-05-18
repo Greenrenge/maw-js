@@ -85,6 +85,7 @@ describe("vendor init plugin-lock next coverage", () => {
 
     expect(schemaError(null)).toContain("not a JSON object");
     expect(schemaError({ plugins: {} })).toContain("missing numeric 'schema'");
+    expect(schemaError({ schema: LOCK_SCHEMA + 1, plugins: {} })).toContain("migration:");
     expect(schemaError({ schema: LOCK_SCHEMA, plugins: { tool: null } })).toContain("entry 'tool' is not an object");
     expect(schemaError({ schema: LOCK_SCHEMA, plugins: { tool: { sha256: HASH_A, source: "./tool.tgz" } } })).toContain(
       "missing 'version'",

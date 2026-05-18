@@ -211,8 +211,6 @@ function hashTarballArtifact(tarballPath: string): { ok: true; hash: string; ver
       relPath = manifest.entry!;
     } else if (manifest.artifact) {
       relPath = manifest.artifact.path;
-    } else if (hasEntry) {
-      relPath = manifest.entry!;
     } else {
       return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with 'maw plugin build' or declare an entry path" };
     }

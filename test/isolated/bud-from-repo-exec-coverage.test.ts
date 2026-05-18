@@ -190,6 +190,21 @@ describe("bud from-repo exec", () => {
     expect(logLines.join("\n")).toContain("run `maw wake sprout`");
   });
 
+  test("writes a fresh root scaffold without lineage and can leave the vault tracked", async () => {
+    const repo = makeRepo("root-scaffold");
+    const logLines: string[] = [];
+
+    await applyFromRepoInjection(plan(repo), { stem: "rooty", trackVault: true } as any, (line) => logLines.push(line));
+
+    const claude = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    expect(claude).toContain("# rooty-oracle");
+    expect(claude).toContain("Oracle scaffolding injected on");
+    expect(claude).toContain("- **Origin**: injected into existing repo (not budded from a parent)");
+    expect(claude).not.toContain("oracle-lineage");
+    expect(existsSync(join(repo, ".gitignore"))).toBe(false);
+    expect(logLines.join("\n")).toContain("CLAUDE.md written (full template)");
+  });
+
   test("appends to existing files idempotently and respects tracked or already-ignored vaults", async () => {
     const repo = makeRepo("existing");
     mkdirSync(join(repo, ".claude"), { recursive: true });

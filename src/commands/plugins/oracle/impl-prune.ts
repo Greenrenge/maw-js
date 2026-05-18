@@ -39,6 +39,16 @@ export interface RetiredEntry extends OracleEntry {
   retired_reasons: string[];
 }
 
+export interface PruneDeps {
+  readEntries?: () => OracleEntry[];
+  listAwake?: () => Promise<Set<string>>;
+  runStale?: typeof runStaleScan;
+  promptConfirm?: (msg: string) => Promise<boolean>;
+  readRawCache?: () => Record<string, unknown>;
+  writeRawCache?: (data: Record<string, unknown>) => void;
+  now?: () => Date;
+}
+
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function emptyLineage(e: OracleEntry): boolean {
@@ -119,18 +129,9 @@ export async function listAwakeOracles(
 
 export async function runPrune(
   opts: PruneOpts = {},
-  deps: {
-    readEntries?: () => OracleEntry[];
-    listAwake?: () => Promise<Set<string>>;
-    runStale?: typeof runStaleScan;
-    promptConfirm?: (msg: string) => Promise<boolean>;
-    readRawCache?: () => Record<string, unknown>;
-    writeRawCache?: (data: Record<string, unknown>) => void;
-    now?: () => Date;
-  } = {},
+  deps: PruneDeps = {},
 ): Promise<PruneCandidate[]> {
   const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const rawCache = readRawCache();
   const entries: OracleEntry[] = (rawCache.oracles as OracleEntry[] | undefined) ?? [];
@@ -156,15 +157,7 @@ export async function runPrune(
 
 export async function cmdOraclePrune(
   opts: PruneOpts = {},
-  deps: {
-    readEntries?: () => OracleEntry[];
-    listAwake?: () => Promise<Set<string>>;
-    runStale?: typeof runStaleScan;
-    promptConfirm?: (msg: string) => Promise<boolean>;
-    readRawCache?: () => Record<string, unknown>;
-    writeRawCache?: (data: Record<string, unknown>) => void;
-    now?: () => Date;
-  } = {},
+  deps: PruneDeps = {},
 ): Promise<void> {
   const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
   const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));

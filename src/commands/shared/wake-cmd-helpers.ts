@@ -59,8 +59,29 @@ export function writeWakeBudBirthSignal(
   });
 }
 
+export interface ExistingSessionAttachOpts {
+  attach?: boolean;
+  split?: boolean;
+  bring?: boolean;
+}
+
+export interface WaitForTmuxSessionReadyDeps {
+  hasSession?: (session: string) => Promise<boolean>;
+  sleep?: (ms: number) => Promise<void>;
+  attempts?: number;
+  delayMs?: number;
+  throwOnTimeout?: boolean;
+}
+
+export interface RetryFreshSessionTmuxStepDeps {
+  sleep?: (ms: number) => Promise<void>;
+  attempts?: number;
+  delayMs?: number;
+  hasSession?: (session: string) => Promise<boolean>;
+}
+
 export function shouldOfferExistingSessionAttach(
-  opts: { attach?: boolean; split?: boolean; bring?: boolean },
+  opts: ExistingSessionAttachOpts,
   isTTY = process.stdin.isTTY,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -87,13 +108,7 @@ function isFreshSessionLookupRace(error: unknown, session: string): boolean {
 
 export async function waitForTmuxSessionReady(
   session: string,
-  deps: {
-    hasSession?: (session: string) => Promise<boolean>;
-    sleep?: (ms: number) => Promise<void>;
-    attempts?: number;
-    delayMs?: number;
-    throwOnTimeout?: boolean;
-  } = {},
+  deps: WaitForTmuxSessionReadyDeps = {},
 ): Promise<void> {
   const hasSession = deps.hasSession ?? (async () => false);
   const wait = deps.sleep ?? sleep;
@@ -118,12 +133,7 @@ export async function retryFreshSessionTmuxStep<T>(
   session: string,
   label: string,
   step: () => Promise<T>,
-  deps: {
-    sleep?: (ms: number) => Promise<void>;
-    attempts?: number;
-    delayMs?: number;
-    hasSession?: (session: string) => Promise<boolean>;
-  } = {},
+  deps: RetryFreshSessionTmuxStepDeps = {},
 ): Promise<T> {
   const wait = deps.sleep ?? sleep;
   const attempts = deps.attempts ?? FRESH_SESSION_READY_ATTEMPTS;
