@@ -49,6 +49,18 @@ describe("resolveTarget — session alias window guards (#1565/#1611)", () => {
     });
   });
 
+  test("prefers the exact unnumbered session over a stripped -oracle duplicate", () => {
+    const sessions: Session[] = [
+      { name: "69-thclaws-thclaws", windows: [win(1, "thclaws-thclaws")] },
+      { name: "70-thclaws-thclaws-oracle", windows: [win(1, "thclaws-thclaws-oracle")] },
+    ];
+
+    expect(resolveTarget("thclaws-thclaws", CONFIG, sessions)).toEqual({
+      type: "local",
+      target: "69-thclaws-thclaws:1",
+    });
+  });
+
   test("multi-window alias without an oracle window refuses the first-window fallback", () => {
     const sessions: Session[] = [
       { name: "54-mawjs", windows: [win(1, "mawjs-issuer"), win(2, "notes")] },

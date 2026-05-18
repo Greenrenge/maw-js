@@ -41,6 +41,7 @@ const realSdk = {
     listWindows: _rSdk.tmux.listWindows.bind(_rSdk.tmux),
     newSession: _rSdk.tmux.newSession.bind(_rSdk.tmux),
     newWindow: _rSdk.tmux.newWindow.bind(_rSdk.tmux),
+    run: _rSdk.tmux.run.bind(_rSdk.tmux),
     sendText: _rSdk.tmux.sendText.bind(_rSdk.tmux),
     selectWindow: _rSdk.tmux.selectWindow.bind(_rSdk.tmux),
     setEnvironment: _rSdk.tmux.setEnvironment.bind(_rSdk.tmux),
@@ -153,6 +154,7 @@ let findWorktreesCalls: Array<{ parentDir: string; repoName: string; taskSlug?: 
 let setSessionEnvCalls: string[];
 let newSessionCalls: Array<{ name: string; opts: any }>;
 let newWindowCalls: Array<{ session: string; name: string; opts: any }>;
+let tmuxRunCalls: Array<[string, ...Array<string | number>]>;
 let sendTextCalls: Array<{ target: string; text: string }>;
 let selectWindowCalls: string[];
 let restoreTabOrderCalls: string[];
@@ -289,6 +291,11 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
       if (!mockActive) return realSdk.tmux.newWindow(session, name, opts);
       newWindowCalls.push({ session, name, opts });
       addWindow(session, name, opts);
+    },
+    run: async (subcommand: string, ...args: Array<string | number>) => {
+      if (!mockActive) return realSdk.tmux.run(subcommand, ...args);
+      tmuxRunCalls.push([subcommand, ...args]);
+      return "";
     },
     sendText: async (target: string, text: string) => {
       if (!mockActive) return realSdk.tmux.sendText(target, text);
@@ -570,6 +577,7 @@ beforeEach(() => {
   setSessionEnvCalls = [];
   newSessionCalls = [];
   newWindowCalls = [];
+  tmuxRunCalls = [];
   sendTextCalls = [];
   selectWindowCalls = [];
   restoreTabOrderCalls = [];
@@ -830,6 +838,25 @@ describe("cmdWake main-suite coverage", () => {
     expect(newWindowCalls).toEqual([]);
     expect(sendTextCalls).toEqual([]);
     expect(logs.join("\n")).toContain("'mawjs-oracle' running in 54-mawjs");
+  });
+
+  test("respawns an existing running window when an explicit engine is requested", async () => {
+    paneCommandDefault = "claude";
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs", { engine: "thclaws" }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-oracle");
+    expect(sendTextCalls).toEqual([]);
+    expect(tmuxRunCalls).toContainEqual([
+      "respawn-pane",
+      "-k",
+      "-t",
+      "54-mawjs:mawjs-oracle",
+      `cd ${repoPath} && thclaws --agent mawjs-oracle`,
+    ]);
+    expect(logs.join("\n")).toContain("switching engine to thclaws");
   });
 
   test("reuses a cross-repo worktree for --wt when the slug matches (#1775)", async () => {

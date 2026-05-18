@@ -223,10 +223,23 @@ function resolveSessionAliasWindowTarget(
 
   const wanted = new Set(sessionAliasNames(query).map((name) => name.toLowerCase()));
   if (!wanted.size) return null;
-  const matches = writable.filter((s) =>
+  let matches = writable.filter((s) =>
     sessionAliasNames(s.name).some((name) => wanted.has(name.toLowerCase())),
   );
   if (!matches.length) return null;
+
+  // When both numbered forms exist for the same oracle, prefer the session
+  // whose unnumbered name exactly matches the user's alias. Example:
+  // `maw run thclaws-thclaws` must choose `69-thclaws-thclaws` over
+  // `70-thclaws-thclaws-oracle`; the latter only matches after stripping
+  // `-oracle` and is a weaker alias.
+  if (matches.length > 1) {
+    const normalizedQuery = query.trim().toLowerCase();
+    const exactUnnumbered = matches.filter((s) =>
+      s.name.trim().replace(/^\d+-/, "").toLowerCase() === normalizedQuery,
+    );
+    if (exactUnnumbered.length === 1) matches = exactUnnumbered;
+  }
 
   if (matches.length > 1) {
     return {

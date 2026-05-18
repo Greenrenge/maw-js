@@ -68,6 +68,13 @@ export const _wtPicker = {
   },
 };
 
+async function respawnPaneWithCommand(target: string, command: string): Promise<boolean> {
+  const runner = (tmux as unknown as { run?: (subcommand: string, ...args: Array<string | number>) => Promise<string> }).run;
+  if (typeof runner !== "function") return false;
+  await runner.call(tmux, "respawn-pane", "-k", "-t", target, command);
+  return true;
+}
+
 /**
  * Show a numbered picker when `--wt <host>` matches multiple existing
  * worktrees (#1768). Returns the picked candidate, or null if the choice is
@@ -639,18 +646,25 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   const existingWindow = findExistingWakeWindow(knownWindows, oracle, windowName);
   if (existingWindow) {
+      const target = `${session}:${existingWindow}`;
       if (opts.prompt) {
-        await tmux.selectWindow(`${session}:${existingWindow}`);
+        await tmux.selectWindow(target);
         const escaped = opts.prompt.replace(/'/g, "'\\''");
-        await tmux.sendText(`${session}:${existingWindow}`, `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`);
+        const promptCommand = `${buildCommandInDir(existingWindow, targetPath, opts.engine)} -p '${escaped}'`;
+        if (opts.engine) {
+          if (!(await respawnPaneWithCommand(target, promptCommand))) {
+            await tmux.sendText(target, promptCommand);
+          }
+        } else {
+          await tmux.sendText(target, promptCommand);
+        }
         if (opts.attach) await attachToSession(session);
-        await maybeSplit(`${session}:${existingWindow}`, opts);
-        await maybeOpenWindow(`${session}:${existingWindow}`, opts);
+        await maybeSplit(target, opts);
+        await maybeOpenWindow(target, opts);
         await recordWakeSnapshot();
-        return `${session}:${existingWindow}`;
+        return target;
       }
       // Check if agent is actually alive in the pane
-      const target = `${session}:${existingWindow}`;
       const infos = await getPaneInfos([target]);
       const info = infos[target];
       const agentAlive = info && isAgentCommand(info.command);
@@ -658,6 +672,22 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       if (!agentAlive) {
         console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — agent dead, re-launching...`);
         await tmux.sendText(target, buildCommandInDir(existingWindow, targetPath, opts.engine));
+        if (opts.attach) {
+          await tmux.selectWindow(target);
+          await attachToSession(session);
+        }
+        await maybeSplit(target, opts);
+        await maybeOpenWindow(target, opts);
+        await recordWakeSnapshot();
+        return target;
+      }
+
+      if (opts.engine) {
+        console.log(`\x1b[33m⚡\x1b[0m '${existingWindow}' in ${session} — switching engine to ${opts.engine}...`);
+        const command = buildCommandInDir(existingWindow, targetPath, opts.engine);
+        if (!(await respawnPaneWithCommand(target, command))) {
+          await tmux.sendText(target, command);
+        }
         if (opts.attach) {
           await tmux.selectWindow(target);
           await attachToSession(session);
