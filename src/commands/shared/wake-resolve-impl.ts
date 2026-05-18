@@ -1,6 +1,7 @@
 import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
-import { ghqFind } from "../../core/ghq";
+import { ghqFind, ghqList } from "../../core/ghq";
+import { pickOracle, resolveOracle as resolveSharedOracle, type OracleRef } from "../../core/resolve";
 import { resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
@@ -73,11 +74,6 @@ function repoSlugFromPath(path: string): string {
   return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
 }
 
-function localOracleRepoPath(match: string, repos: string[]): string | null {
-  const lower = match.toLowerCase();
-  return repos.find(p => repoNameFromPath(p).toLowerCase() === lower) ?? null;
-}
-
 function stripOracleSuffix(name: string): string {
   return name.replace(/-oracle$/i, "");
 }
@@ -138,6 +134,66 @@ export function resolveLocalOracleRepoName(oracle: string, repos: string[]): Loc
   return { kind: "none" };
 }
 
+
+function isInteractivePickerAvailable(): boolean {
+  try {
+    const { isatty } = require("node:tty") as typeof import("node:tty");
+    return isatty(0) && isatty(1);
+  } catch {
+    return !!process.stdin.isTTY && !!process.stdout.isTTY;
+  }
+}
+
+function oracleSlug(ref: OracleRef): string {
+  return `${ref.owner}/${ref.repo}`;
+}
+
+function repoInfoFromOracleRef(ref: OracleRef): { repoPath: string; repoName: string; parentDir: string } | null {
+  if (!ref.path) return null;
+  return { repoPath: ref.path, repoName: ref.repo, parentDir: ref.path.replace(/\/[^/]+$/, "") };
+}
+
+async function resolveLocalOracleWithPicker(
+  oracle: string,
+): Promise<{ repoPath: string; repoName: string; parentDir: string; fuzzy: boolean } | null> {
+  const repos = await ghqList().catch(() => [] as string[]);
+  if (repos.length === 0) return null;
+  let result = await resolveSharedOracle(oracle, {
+    nameSpace: "oracle",
+    matchPolicy: "exact",
+    repos,
+  });
+  let fuzzy = false;
+
+  if (result.kind === "not-found") {
+    result = await resolveSharedOracle(oracle, {
+      nameSpace: "oracle",
+      matchPolicy: "substring",
+      repos,
+    });
+    fuzzy = result.kind === "exact";
+  }
+
+  if (result.kind === "not-found") return null;
+  if (result.kind === "exact") {
+    const info = repoInfoFromOracleRef(result.oracle);
+    return info ? { ...info, fuzzy } : null;
+  }
+
+  console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${result.candidates.length} local oracles:`);
+  for (const c of result.candidates) console.error(`\x1b[90m    • ${oracleSlug(c)}\x1b[0m`);
+
+  if (isInteractivePickerAvailable()) {
+    const picked = await pickOracle(result.candidates);
+    const info = picked ? repoInfoFromOracleRef(picked) : null;
+    if (info) return { ...info, fuzzy: false };
+    console.error(`\x1b[90m  aborted\x1b[0m`);
+  } else {
+    console.error(`\x1b[90m  use the full name: maw wake <org>/<repo>\x1b[0m`);
+  }
+  process.exit(1);
+}
+
 export async function resolveOracle(
   oracle: string,
   opts?: { allLocal?: boolean },
@@ -150,24 +206,11 @@ export async function resolveOracle(
   // silently picks one org when both `laris-co/pulse-oracle` and
   // `Soul-Brews-Studio/pulse-oracle` are local. Bare-name ambiguity must fail
   // loudly with org/repo candidates.
-  try {
-    const { ghqList } = await import("../../core/ghq");
-    const repos = await ghqList();
-    const resolvedLocal = resolveLocalOracleRepoName(oracle, repos);
-    if (resolvedLocal.kind === "exact" || resolvedLocal.kind === "fuzzy") {
-      const match = localOracleRepoPath(resolvedLocal.match, repos)
-        ?? await ghqFind(`/${resolvedLocal.match}`);
-      if (match) {
-        if (resolvedLocal.kind === "fuzzy") console.log(`\x1b[36m→\x1b[0m fuzzy match: ${resolvedLocal.match}`);
-        return { repoPath: match, repoName: match.split("/").pop()!, parentDir: match.replace(/\/[^/]+$/, "") };
-      }
-    } else if (resolvedLocal.kind === "ambiguous") {
-      console.error(`\x1b[33m⚠\x1b[0m '${oracle}' matches ${resolvedLocal.candidates.length} local oracles:`);
-      for (const c of resolvedLocal.candidates) console.error(`\x1b[90m    • ${c}\x1b[0m`);
-      console.error(`\x1b[90m  use the full name: maw wake <org>/<repo>\x1b[0m`);
-      process.exit(1);
-    }
-  } catch { /* ghq unavailable — fall through */ }
+  const resolvedLocal = await resolveLocalOracleWithPicker(oracle);
+  if (resolvedLocal) {
+    if (resolvedLocal.fuzzy) console.log(`\x1b[36m→\x1b[0m fuzzy match: ${resolvedLocal.repoName}`);
+    return { repoPath: resolvedLocal.repoPath, repoName: resolvedLocal.repoName, parentDir: resolvedLocal.parentDir };
+  }
 
   // Fleet configs — oracle known in a fleet, repo may need to be cloned (#237)
   let fleetRepo: string | null = null;
