@@ -327,6 +327,26 @@ describe("cmd-update fifth-pass runtime branches", () => {
     expect(_fs.readFileSync(`${mawBin}.prev`, "utf-8")).toBe("previous crash stash");
   });
 
+  test("stale .prev rotation success preserves crash copy and continues retry install", async () => {
+    prepareInstallHome();
+    _fs.writeFileSync(`${mawBin}.prev`, "previous crash stash");
+    spawnExitQueue = [1, 0, 0];
+
+    const res = await captureRun(["update", "v26.5.16-alpha.1053", "--yes"], { testMode: null });
+
+    expect(res.code).toBeUndefined();
+    expect(spawnCalls).toEqual([
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["bun", "add", "-g", "github:Soul-Brews-Studio/maw-js#v26.5.16-alpha.1053"],
+      ["maw", "--version"],
+    ]);
+    expect(res.stderr).toContain("rotated stale");
+    const crashStashes = _fs.readdirSync(dirname(mawBin)).filter((entry) => entry.startsWith("maw.prev.crash."));
+    expect(crashStashes).toHaveLength(1);
+    expect(_fs.readFileSync(join(dirname(mawBin), crashStashes[0]), "utf-8")).toBe("previous crash stash");
+    expect(_fs.existsSync(`${mawBin}.prev`)).toBe(false);
+  });
+
   test("release-binary fallback success verifies the fresh binary, discards stashes, and reports pruned plugin links", async () => {
     prepareInstallHome();
     prepareLocalClone("26.5.16-alpha.9999");

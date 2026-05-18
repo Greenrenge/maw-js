@@ -254,4 +254,20 @@ describe("install-handlers third-pass coverage", () => {
     expect(downloadCalls).toEqual(["https://gh.example/owner/repo/archive/refs/tags/v1.tar.gz"]);
     expect(recordInstallCalls.at(-1)).toMatchObject({ name: "nested-tool", source: "github:owner/repo/nested/tool@v1" });
   });
+
+  test("github handler falls back from plugins-prefixed probe to literal single-segment subpath", async () => {
+    process.env.MAW_GITHUB_BASE_URL = "https://gh.example";
+    const ghTarball = makeTarball("github-literal-subpath");
+    queueDownload({ ok: true, path: ghTarball });
+    queueExtract({ subpaths: { "plugins/tool": null } });
+    queueExtract({ subpaths: { tool: defaultManifest("literal-tool") } });
+
+    await installFromGithub({ owner: "owner", repo: "repo", subpath: "tool", ref: "v2" }, { force: true });
+
+    expect(downloadCalls).toEqual(["https://gh.example/owner/repo/archive/refs/tags/v2.tar.gz"]);
+    expect(recordInstallCalls).toHaveLength(1);
+    expect(recordInstallCalls[0]).toMatchObject({ name: "literal-tool", source: "github:owner/repo/tool@v2" });
+    expect(printCalls.at(-1)?.[1]).toBe(join(installDir, "literal-tool"));
+    expect(existsSync(join(ghTarball, ".."))).toBe(false);
+  });
 });
