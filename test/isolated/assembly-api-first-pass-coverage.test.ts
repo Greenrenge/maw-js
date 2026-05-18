@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { join } from "path";
 
@@ -29,6 +29,7 @@ const sends: Array<{ target: string; message: string }> = [];
 const fetches: string[] = [];
 
 function compileHarness(): void {
+  mkdirSync(tmpRoot, { recursive: true });
   tmpDir = mkdtempSync(join(tmpRoot, "assembly-api-harness-"));
   const entryPath = join(tmpDir, "api-harness.ts");
   wasmPath = join(tmpDir, "api-harness.wasm");

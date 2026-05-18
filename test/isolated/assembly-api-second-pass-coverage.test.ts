@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -37,6 +37,7 @@ let exportsRef: HarnessExports;
 let hostState: HostState;
 
 function compileHarness(): void {
+  mkdirSync(tmpRoot, { recursive: true });
   tmpDir = mkdtempSync(join(tmpRoot, "maw-assembly-api-second-pass-"));
   const entryPath = join(tmpDir, "api-second-pass-harness.ts");
   wasmPath = join(tmpDir, "api-second-pass-harness.wasm");

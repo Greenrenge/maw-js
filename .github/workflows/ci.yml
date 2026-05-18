@@ -21,8 +21,14 @@ jobs:
             run: bun run test -- --shard 3/4
           - name: unit-4of4
             run: bun run test -- --shard 4/4
-          - name: isolated
-            run: bun run test:isolated
+          - name: isolated-1of4
+            run: bun run test:isolated -- --shard 1/4
+          - name: isolated-2of4
+            run: bun run test:isolated -- --shard 2/4
+          - name: isolated-3of4
+            run: bun run test:isolated -- --shard 3/4
+          - name: isolated-4of4
+            run: bun run test:isolated -- --shard 4/4
           - name: plugin
             run: bun run test:plugin
           - name: mock-smoke
