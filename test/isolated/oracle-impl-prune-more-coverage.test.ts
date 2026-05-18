@@ -131,6 +131,39 @@ describe("oracle impl-prune focused isolated coverage", () => {
     expect(staleCandidates).toEqual([]);
   });
 
+  test("listAwakeOracles extracts oracle windows and ignores tmux failures", async () => {
+    sessions = [{ name: "ops", windows: [{ name: "awake-oracle" }, { name: "helper" }] }];
+    await expect(prune.listAwakeOracles()).resolves.toEqual(new Set(["awake"]));
+
+    sessions = new Error("tmux unavailable");
+    await expect(prune.listAwakeOracles()).resolves.toEqual(new Set());
+  });
+
+  test("stale JSON output includes tier reasons and force can be aborted", async () => {
+    await prune.cmdOraclePrune({ stale: true, json: true }, {
+      runStale: async () => [
+        staleEntry("dead-awake", "DEAD", { awake: true, recommendation: "dead but attached" }),
+        staleEntry("stale-sleeping", "STALE", { awake: false, recommendation: "stale and quiet" }),
+      ],
+    });
+
+    const json = JSON.parse(output());
+    expect(json).toMatchObject({ schema: 1, count: 2, dry_run: true });
+    expect(json.candidates[0].tier).toBe("DEAD");
+    expect(json.candidates[0].reasons).toEqual(["DEAD (>90d)", "dead but attached"]);
+    expect(json.candidates[1].reasons).toContain("no tmux");
+
+    logs = [];
+    writeRegistry({ oracles: [oracleEntry({ name: "abort-me", local_path: "" })] });
+    await prune.cmdOraclePrune({ force: true }, {
+      listAwake: async () => new Set<string>(),
+      promptConfirm: async () => false,
+    });
+
+    expect(stripAnsi(output())).toContain("Aborted.");
+    expect((readRegistry().oracles as OracleEntry[]).map((entry) => entry.name)).toEqual(["abort-me"]);
+  });
+
   test("dry-run human report lists candidates and leaves the temp registry unchanged", async () => {
     const registry = {
       oracles: [

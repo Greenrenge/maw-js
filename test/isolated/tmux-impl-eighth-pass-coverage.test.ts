@@ -257,6 +257,34 @@ describe("tmux impl eighth-pass branch coverage", () => {
     await expect(cmdTmuxKill("%1")).rejects.toThrow("kill failed for '%1' (from pane-id): kill bad");
   });
 
+  test("kill resolves fallback pane aliases before issuing kill-pane", async () => {
+    hostResponses.set(
+      "list-panes -a -F",
+      "%71|||demo:2.0|||worker-title|||tile-role|||/repos/mawjs-oracle.wt-7-codex\n",
+    );
+
+    const printed = await capture(() => cmdTmuxKill("mawjs-codex"));
+
+    expect(hostCalls).toContain("tmux list-panes -a -F '#{pane_id}|||#{session_name}:#{window_index}.#{pane_index}|||#{pane_title}|||#{@maw_tile_role}|||#{pane_current_path}'");
+    expect(hostCalls.at(-1)).toBe("tmux kill-pane -t '%71'");
+    expect(printed.logs).toContain("killed pane mawjs-codex → %71");
+    expect(printed.logs).toContain("worktree-alias (mawjs-codex)");
+  });
+
+  test("kill reports ambiguous pane aliases with concrete targets", async () => {
+    hostResponses.set(
+      "list-panes -a -F",
+      [
+        "%71|||demo:2.0|||codex||||||/repos/a",
+        "%72|||demo:3.0|||codex||||||/repos/b",
+      ].join("\n"),
+    );
+
+    await expect(cmdTmuxKill("codex")).rejects.toThrow("'codex' is ambiguous — matches 2 panes:");
+    expect(hostCalls.at(-1)).toContain("list-panes -a -F");
+    expect(hostCalls).not.toContain("tmux kill-pane -t 'codex'");
+  });
+
   test("attach recovery auto-wakes one candidate and exits for invalid tty selection", async () => {
     impl._tty.isStdoutTTY = () => true;
     ghqRepos = ["/opt/Code/github.com/Soul-Brews-Studio/pulse-oracle"];

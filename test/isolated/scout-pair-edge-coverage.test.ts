@@ -60,6 +60,39 @@ describe("scout-pair edge coverage", () => {
     expect(result).toEqual({ ok: false, error: "rejected" });
   });
 
+  test("uses the default retry sleep when no sleep dependency is injected", async () => {
+    let attempts = 0;
+    const result = await initiatePair(peer(), "alice", "mawjs", 3456, {
+      getPeerKeyFn: () => "a".repeat(64),
+      loadConfigFn: () => ({} as any),
+      fetchFn: (async () => {
+        attempts += 1;
+        if (attempts === 1) return new Response("temporary", { status: 500 });
+        return Response.json({ ok: true });
+      }) as typeof fetch,
+      cmdAddFn: (async () => ({
+        alias: "bob",
+        overwrote: false,
+        peer: { url: "http://bob:3456", node: "bob", addedAt: "now", lastSeen: "now" },
+      })) as typeof import("../../src/lib/peers/impl").cmdAdd,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(attempts).toBe(2);
+  });
+
+  test("falls back to an empty 4xx response body when text reading fails", async () => {
+    const response = new Response("not readable", { status: 403 });
+    response.text = async () => { throw new Error("body gone"); };
+
+    const result = await initiatePair(peer(), "alice", "mawjs", 3456, {
+      ...baseDeps,
+      fetchFn: (async () => response) as typeof fetch,
+    });
+
+    expect(result).toEqual({ ok: false, error: "http_403: " });
+  });
+
   test("rejects incomplete proof payloads before writing peer state", async () => {
     let wrote = false;
     const result = await initiatePair(peer(), "alice", "mawjs", 3456, {

@@ -87,4 +87,38 @@ describe("attach resolver channel-session filtering", () => {
       ],
     });
   });
+
+  test("fuzzy mode resolves freshly woken live sessions by substring", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [
+        { name: "01-Somwind", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    }, { fuzzy: true });
+
+    expect(result).toEqual({ tier: 1, sessionName: "01-Somwind" });
+  });
+
+  test("strict mode leaves substring-only fleet matches unresolved", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "Somwind-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("fuzzy mode can resolve substring-only sleeping fleet matches", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "Somwind-oracle", windows: [{ name: "main" }] },
+      ],
+    }, { fuzzy: true });
+
+    expect(result).toEqual({ tier: 2, fleetName: "Somwind-oracle" });
+  });
+
 });

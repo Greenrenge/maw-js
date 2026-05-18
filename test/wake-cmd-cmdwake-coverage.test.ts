@@ -949,6 +949,44 @@ describe("cmdWake main-suite coverage", () => {
     expect(logs.join("\n")).toContain("switching engine to thclaws");
   });
 
+  test("sends prompts into an existing window without creating duplicates", async () => {
+    const { result } = await captureLogs(() =>
+      cmdWake("mawjs", { prompt: "quote safe", split: true, window: true }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-oracle");
+    expect(newWindowCalls).toEqual([]);
+    expect(selectWindowCalls).toEqual(["54-mawjs:mawjs-oracle"]);
+    expect(sendTextCalls).toEqual([
+      {
+        target: "54-mawjs:mawjs-oracle",
+        text: `cd ${repoPath} && codex --agent mawjs-oracle -p 'quote safe'`,
+      },
+    ]);
+    expect(maybeSplitCalls).toEqual([
+      { target: "54-mawjs:mawjs-oracle", opts: expect.objectContaining({ split: true, window: true }) },
+    ]);
+    expect(maybeOpenWindowCalls).toEqual([
+      { target: "54-mawjs:mawjs-oracle", opts: expect.objectContaining({ split: true, window: true }) },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("uses a numeric pre-resolved session without re-detecting the oracle", async () => {
+    sessions = [{ name: "03-other" }, { name: "54-mawjs" }];
+    hasSessions = new Set(["03-other", "54-mawjs"]);
+
+    const { result } = await captureLogs(() =>
+      cmdWake("54-mawjs", { noRehydrate: true }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-oracle");
+    expect(detectSessionCalls).toEqual([]);
+    expect(setSessionEnvCalls).toEqual(["54-mawjs"]);
+    expect(newSessionCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+  });
+
   test("reuses a cross-repo worktree for --wt when the slug matches (#1775)", async () => {
     repoName = "homelab";
     repoPath = join(parentDir, repoName);

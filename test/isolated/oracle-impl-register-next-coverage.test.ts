@@ -157,6 +157,33 @@ describe("oracle impl-register next coverage", () => {
     });
   });
 
+  test("raw registry helpers tolerate invalid input and write normalized JSON", () => {
+    const file = join(TEST_CONFIG_DIR, "raw-helper.json");
+    expect(register.readRawRegistry(file)).toEqual({});
+
+    writeFileSync(file, "{ invalid", "utf8");
+    expect(register.readRawRegistry(file)).toEqual({});
+
+    register.writeRawRegistry(file, { oracles: [oracleEntry("helper")] });
+    expect(readFileSync(file, "utf8")).toEndWith("\n");
+    expect(JSON.parse(readFileSync(file, "utf8")).oracles[0].name).toBe("helper");
+  });
+
+  test("cmdOracleRegister rejects duplicate names and missing discovery results", async () => {
+    await expect(register.cmdOracleRegister("dupe", {}, {
+      readRawCache: () => ({ oracles: [oracleEntry("dupe", { org: "ExistingOrg" })] }),
+      writeRawCache: () => { throw new Error("should not write duplicate"); },
+    })).rejects.toThrow("already registered (org: ExistingOrg)");
+
+    await expect(register.cmdOracleRegister("missing", {}, {
+      readRawCache: () => ({ oracles: [] }),
+      writeRawCache: () => { throw new Error("should not write missing"); },
+      findInFleetFn: () => null,
+      findInTmuxFn: async () => null,
+      findInFilesystemFn: () => null,
+    })).rejects.toThrow("not found in fleet, tmux, or filesystem");
+  });
+
   test("cmdOracleRegister prints human output including local path and validates required name", async () => {
     await expect(register.cmdOracleRegister("")).rejects.toThrow("register requires a name");
 

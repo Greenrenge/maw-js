@@ -1,14 +1,14 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T20:06:53.733Z
+Generated: 2026-05-18T20:17:57.792Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **98.9%** (36816/37233)
-Overall function coverage: **95.4%** (4769/4998)
+Overall line coverage: **98.9%** (36822/37234)
+Overall function coverage: **95.5%** (4776/4999)
 
 ## Module summary
 
@@ -18,10 +18,10 @@ Overall function coverage: **95.4%** (4769/4998)
 | config/runtime | 19 | 0 | 99.3% (936/943) | 99.2% (132/133) | n/a (0/0) |
 | fleet | 17 | 0 | 99.0% (778/786) | 99.0% (102/103) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (89/89) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 11 | 98.9% (10232/10346) | 95.4% (1361/1427) | n/a (0/0) |
+| other | 172 | 11 | 98.9% (10236/10347) | 95.5% (1363/1427) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 99.2% (889/896) | 96.6% (86/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 99.8% (505/506) | 97.3% (73/75) | n/a (0/0) |
-| transport | 28 | 0 | 99.6% (1880/1888) | 96.6% (426/441) | n/a (0/0) |
+| transport | 28 | 0 | 99.7% (1882/1888) | 97.5% (431/442) | n/a (0/0) |
 | vendor plugins | 245 | 4 | 98.5% (15209/15436) | 94.8% (1816/1915) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
@@ -39,7 +39,7 @@ Overall function coverage: **95.4%** (4769/4998)
 | 1 | medium | other | `src/commands/plugins/oracle/impl-prune.ts` | 12 | 90.3% | 88.9% | partial coverage |
 | 2 | medium | other | `src/cli.ts` | 6 | 85.0% | 100.0% | partial coverage |
 | 3 | medium | other | `src/commands/plugins/team/index.ts` | 6 | 98.5% | 78.9% | partial coverage |
-| 4 | medium | other | `src/commands/plugins/oracle/impl-register.ts` | 5 | 95.5% | 80.0% | partial coverage |
+| 4 | medium | other | `src/commands/plugins/oracle/impl-register.ts` | 5 | 95.5% | 86.7% | partial coverage |
 | 5 | critical | cli/dispatch | `src/commands/shared/plugin-create-scaffold.ts` | 5 | 87.2% | 100.0% | partial coverage |
 | 6 | critical | fleet | `src/core/fleet/snapshot.ts` | 5 | 91.8% | 100.0% | partial coverage |
 | 7 | low | vendor plugins | `src/vendor/mpr-plugins/bud/impl.ts` | 5 | 95.5% | 100.0% | partial coverage |
@@ -191,14 +191,14 @@ Overall function coverage: **95.4%** (4769/4998)
 | routing/aliases | `src/cli/top-aliases.ts` | 99.4% | 100.0% |
 | routing/aliases | `src/core/routing.ts` | 100.0% | 92.0% |
 | transport | `src/core/transport/curl-fetch.ts` | 100.0% | 85.7% |
-| transport | `src/core/transport/mqtt-publish.ts` | 100.0% | 66.7% |
+| transport | `src/core/transport/mqtt-publish.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/peers.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/pty.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/ssh.ts` | 100.0% | 95.5% |
 | transport | `src/core/transport/tmux-class.ts` | 100.0% | 97.5% |
 | transport | `src/core/transport/tmux-pane-lock.ts` | 100.0% | 87.5% |
 | transport | `src/core/transport/tmux-pane-tags.ts` | 100.0% | 100.0% |
-| transport | `src/core/transport/tmux-types.ts` | 80.0% | 66.7% |
+| transport | `src/core/transport/tmux-types.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/tmux.ts` | 100.0% | 100.0% |
 | transport | `src/core/transport/transport.ts` | 100.0% | 96.4% |
 | transport | `src/transports/http.ts` | 100.0% | 100.0% |
@@ -211,7 +211,7 @@ Overall function coverage: **95.4%** (4769/4998)
 | transport | `src/transports/mdns.ts` | 100.0% | 100.0% |
 | transport | `src/transports/nanoclaw.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-pair-proof.ts` | 100.0% | 100.0% |
-| transport | `src/transports/scout-pair.ts` | 100.0% | 50.0% |
+| transport | `src/transports/scout-pair.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-protocol.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout-state.ts` | 100.0% | 100.0% |
 | transport | `src/transports/scout.ts` | 100.0% | 100.0% |

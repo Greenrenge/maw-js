@@ -628,4 +628,57 @@ describe("messages plugin coverage slice", () => {
     expect(body.total).toBe(2);
     expect(body.messages).toHaveLength(2);
   });
+
+  test("text output can stream through an invoke writer", async () => {
+    const event = buildMessageLifecycleFeedEvent({
+      id: "writer-row",
+      ts: "2026-05-16T04:00:00.000Z",
+      direction: "outbound",
+      state: "queued",
+      channel: "hey",
+      route: "local",
+      from: "writer/a",
+      to: "writer/b",
+      text: "writer path",
+      signed: true,
+    });
+
+    await onEvent(event);
+    const lines: string[] = [];
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["--from", "writer/a"],
+      writer: (line: string) => {
+        lines.push(line);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe("");
+    expect(lines.join("\n")).toContain("message ledger: 1 row");
+    expect(lines.join("\n")).toContain("writer/a → writer/b");
+  });
+
+  test("status uses MAW_PORT when no explicit engine URL is provided", async () => {
+    const engine = makeEngineStub({
+      registrations: [{
+        plugin: "messages",
+        prefix: "/api/message-ledger",
+        upstream: "http://127.0.0.1:4567",
+      }],
+    });
+    const enginePort = engine.port;
+    process.env.MAW_PORT = String(enginePort);
+    process.kill = mockKillStateful(["alive"]);
+    writeMessagesPid(4321);
+
+    const result = await messagesHandler({ source: "cli", args: ["status"] });
+
+    engine.stop(true);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain(`engine: http://127.0.0.1:${enginePort}`);
+    expect(result.output).toContain("maw messages serve: running (PID 4321)");
+    expect(result.output).toContain("registered: /api/message-ledger → http://127.0.0.1:4567");
+  });
+
 });

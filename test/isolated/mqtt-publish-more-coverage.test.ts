@@ -66,6 +66,7 @@ describe("mqttPublish", () => {
     });
     expect((connectCalls[0][1] as { clientId: string }).clientId).toMatch(/^maw-alpha-\d+$/);
     expect(onCalls).toEqual([["error", expect.any(Function)]]);
+    expect(() => (onCalls[0][1] as () => void)()).not.toThrow();
     expect(publishCalls).toEqual([
       ["maw/feed", JSON.stringify({ event: "one" }), { qos: 0 }],
       ["maw/feed", JSON.stringify({ event: "two" }), { qos: 0 }],
