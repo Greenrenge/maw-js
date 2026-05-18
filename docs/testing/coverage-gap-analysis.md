@@ -1,13 +1,13 @@
 # Coverage gap analysis
 
-Generated: 2026-05-18T00:36:11.793Z
+Generated: 2026-05-18T02:46:47.415Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 
-Overall line coverage: **61.1%** (31172/50980)
-Overall function coverage: **87.8%** (3221/3667)
+Overall line coverage: **61.0%** (31089/51005)
+Overall function coverage: **88.0%** (3225/3666)
 
 ## Module summary
 
@@ -15,20 +15,20 @@ Overall function coverage: **87.8%** (3221/3667)
 | --- | ---: | ---: | ---: | ---: | ---: |
 | cli/dispatch | 91 | 8 | 78.3% (6425/8202) | 90.5% (660/729) | n/a (0/0) |
 | config/runtime | 19 | 1 | 68.8% (943/1371) | 76.6% (82/107) | n/a (0/0) |
-| fleet | 17 | 0 | 76.3% (858/1125) | 90.4% (85/94) | n/a (0/0) |
+| fleet | 17 | 0 | 75.3% (855/1136) | 90.4% (85/94) | n/a (0/0) |
 | matcher | 2 | 0 | 61.2% (41/67) | 100.0% (8/8) | n/a (0/0) |
-| other | 180 | 46 | 70.7% (10233/14473) | 85.4% (1005/1177) | n/a (0/0) |
+| other | 180 | 47 | 70.1% (10153/14487) | 85.4% (1004/1176) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 80.7% (1077/1334) | 95.5% (85/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 83.2% (635/763) | 97.3% (71/73) | n/a (0/0) |
 | transport | 28 | 1 | 80.4% (2365/2942) | 95.7% (419/438) | n/a (0/0) |
-| vendor plugins | 245 | 167 | 41.5% (8595/20703) | 84.7% (806/952) | n/a (0/0) |
+| vendor plugins | 245 | 167 | 41.5% (8595/20703) | 85.2% (811/952) | n/a (0/0) |
 
 ## Top 20 uncovered files by executable/source line count
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
 | 1 | critical | transport | `src/core/transport/tmux-class.ts` | 166 | 54.5% | 96.3% | partial coverage |
-| 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 92.6% | partial coverage |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/dream/impl.ts` | 157 | 82.8% | 97.2% | partial coverage |
 | 3 | medium | other | `src/wasm/maw-plugin-sdk-assemblyscript/assembly/api.ts` | 143 | 0.0% | n/a | absent from LCOV |
 | 4 | critical | cli/dispatch | `src/commands/shared/comm-send.ts` | 140 | 78.4% | 94.4% | partial coverage |
 | 5 | low | vendor plugins | `src/vendor/mpr-plugins/team/team-lifecycle.ts` | 133 | 39.3% | 33.3% | partial coverage |
@@ -111,7 +111,7 @@ Overall function coverage: **87.8%** (3221/3667)
 | cli/dispatch | `src/commands/shared/workspace-query.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/workspace-store.ts` | 94.4% | 100.0% |
 | cli/dispatch | `src/commands/shared/workspace.ts` | 100.0% | 100.0% |
-| fleet | `src/core/fleet/claude-sessions.ts` | 100.0% | 94.4% |
+| fleet | `src/core/fleet/claude-sessions.ts` | 92.0% | 94.4% |
 | fleet | `src/core/fleet/leaf.ts` | 89.7% | 100.0% |
 | fleet | `src/core/fleet/nicknames.ts` | 94.6% | 100.0% |
 | fleet | `src/core/fleet/oracle-registry.ts` | 100.0% | 100.0% |
