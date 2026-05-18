@@ -147,4 +147,31 @@ describe("demo impl coverage", () => {
     expect(output).toContain("agent-1 spawned");
     expect(output).toContain("agent-2 spawned");
   });
+
+  test("cmdDemo default sleep path remains usable in fast mode", async () => {
+    process.env.TMUX = "/tmp/tmux-100/default,100,0";
+    process.env.TMUX_PANE = "%caller";
+
+    const calls: ExecCall[] = [];
+    const paneSnapshots = [
+      "%caller",
+      "%caller\n%agent1",
+      "%caller\n%agent1",
+      "%caller\n%agent1\n%agent2",
+    ];
+
+    await cmdDemo({
+      fast: true,
+      exec: async (cmd) => {
+        calls.push({ cmd });
+        if (cmd === "tmux list-panes -a -F #{pane_id}") {
+          return paneSnapshots.shift() ?? "%caller\n%agent1\n%agent2";
+        }
+        return "";
+      },
+    });
+
+    expect(calls.map((c) => c.cmd)).toContain("tmux kill-pane -t '%agent2'");
+    expect(output).toContain("✓ demo complete.");
+  });
 });

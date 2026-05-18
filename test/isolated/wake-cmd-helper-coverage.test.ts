@@ -162,6 +162,29 @@ describe("wake-cmd helper coverage", () => {
     })).rejects.toThrow("permission denied");
   });
 
+  test("retryFreshSessionTmuxStep handles non-Error lookup races and unreachable exhausted loops", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+
+    const result = await retryFreshSessionTmuxStep("88-maw", "launch", async () => {
+      calls++;
+      if (calls === 1) throw "tmux: can't find session: 88-maw";
+      return "ok";
+    }, {
+      attempts: 2,
+      delayMs: 7,
+      sleep: async (ms) => { waits.push(ms); },
+    });
+
+    expect(result).toBe("ok");
+    expect(waits).toEqual([7]);
+
+    await expect(retryFreshSessionTmuxStep("88-maw", "launch", async () => "never", {
+      attempts: 0,
+      sleep: async () => {},
+    })).rejects.toThrow("unreachable: fresh tmux session setup step 'launch' exhausted without throwing");
+  });
+
   test("plans rehydrate windows while avoiding live tile roles, existing canonical names, and duplicate collisions", () => {
     const planned = planRehydrateWorktreeWindows("maw", [
       { name: "1-alpha", path: "/repo.wt-1-alpha" },

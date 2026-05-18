@@ -41,4 +41,50 @@ describe("attach resolver channel-session filtering", () => {
 
     expect(result).toEqual({ tier: 1, sessionName: "24-discord-oracle" });
   });
+
+  test("returns tier 1 ambiguity details when multiple oracle sessions match", async () => {
+    const result = await resolveAttachTarget("calliope", {
+      listSessions: async () => [
+        { name: "63-calliope-oracle", windows: [{ name: "main" }] },
+        { name: "64-calliope-admin", windows: [{ name: "calliope-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({
+      tier: 1,
+      sessionName: "63-calliope-oracle",
+      ambiguousCandidates: ["63-calliope-oracle", "64-calliope-admin"],
+    });
+  });
+
+  test("falls back to a single sleeping fleet match when no session matches", async () => {
+    const result = await resolveAttachTarget("homekeeper", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "homekeeper-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toEqual({ tier: 2, fleetName: "homekeeper-oracle" });
+  });
+
+  test("returns tier 2 ambiguity details when multiple fleet entries match", async () => {
+    const result = await resolveAttachTarget("calliope", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "primary-calliope-oracle", windows: [{ name: "main" }] },
+        { name: "backup-calliope-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toEqual({
+      tier: 2,
+      fleetName: "primary-calliope-oracle",
+      ambiguousCandidates: [
+        "primary-calliope-oracle",
+        "backup-calliope-oracle",
+      ],
+    });
+  });
 });

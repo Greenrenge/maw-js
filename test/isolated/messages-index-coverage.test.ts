@@ -45,6 +45,8 @@ function makeEngineStub(options: {
   registrations?: Array<Record<string, unknown>>;
   onRegister?: (body: Record<string, unknown>) => void;
   onUnregister?: () => void;
+  registerStatus?: number;
+  registerText?: string;
 }) {
   let registrations = [...(options.registrations ?? [])];
   return Bun.serve({
@@ -56,6 +58,9 @@ function makeEngineStub(options: {
       }
       if (req.method === "POST" && url.pathname === "/api/_engine/register") {
         const body = await req.json().catch(() => ({} as Record<string, unknown>));
+        if (options.registerStatus && options.registerStatus >= 400) {
+          return new Response(options.registerText ?? "register rejected", { status: options.registerStatus });
+        }
         registrations = [body as Record<string, unknown>];
         options.onRegister?.(body as Record<string, unknown>);
         return Response.json({ ok: true, received: true });
@@ -371,6 +376,19 @@ describe("messages plugin coverage slice", () => {
     expect(exits).toEqual([0]);
   });
 
+  test("serve foreground reports engine registration failures and stops the server", async () => {
+    const engine = makeEngineStub({ registerStatus: 503, registerText: "engine unavailable" });
+
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["serve", "--engine", `http://127.0.0.1:${engine.port}`, "--port", "0"],
+    });
+
+    engine.stop(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("engine register failed 503: engine unavailable");
+  });
+
   test("serve --detach returns already-running message when pid + registration exist", async () => {
     const engine = makeEngineStub({
       registrations: [{ plugin: "messages", prefix: "/api/message-ledger", upstream: "unix:///running" }],
@@ -431,6 +449,20 @@ describe("messages plugin coverage slice", () => {
     expect(result.error).toContain("failed to spawn maw messages serve");
   });
 
+  test("serve --detach reports a child process without a pid", async () => {
+    spawnPid.value = null;
+    const engine = makeEngineStub({ registrations: [] });
+
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["serve", "--detach", "--engine", `http://127.0.0.1:${engine.port}`],
+    });
+
+    engine.stop(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("failed to spawn maw messages serve: no child PID");
+  });
+
   test("serve --detach waits for registration and succeeds", async () => {
     let registerBody: Record<string, unknown> | undefined;
     const engineWithRegister = makeEngineStub({
@@ -483,6 +515,22 @@ describe("messages plugin coverage slice", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("maw messages serve: running");
     expect(result.output).toContain("registered: /api/message-ledger → unix:///tmp/maw-messages.sock");
+  });
+
+  test("status reports stale pid files when the recorded pid is gone", async () => {
+    process.kill = mockKillStateful(["dead"]);
+    writeMessagesPid(98766);
+
+    const engine = makeEngineStub({ registrations: [] });
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["status", "--engine", `http://127.0.0.1:${engine.port}`],
+    });
+
+    engine.stop(true);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("maw messages serve: stopped (PID 98766)");
+    expect(result.output).toContain("note: stale pid file present");
   });
 
   test("stop sends SIGTERM, waits for exit, and removes pid file", async () => {

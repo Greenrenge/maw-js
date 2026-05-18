@@ -277,6 +277,31 @@ describe("vendored bg impl coverage", () => {
     expect(chunks).toEqual(["line 1\nline 2\n"]);
   });
 
+  test("bgTailFollow reprints rolled buffers and reports ended sessions", async () => {
+    sessions.set("roll-a111", { created: now, paneCommand: "node", tail: "first\n" });
+
+    const rolledChunks: string[] = [];
+    const rolledController = new AbortController();
+    await bgTailFollow("roll", {
+      writer: (chunk) => {
+        rolledChunks.push(chunk);
+        if (rolledChunks.length === 1) {
+          sessions.set("roll-a111", { created: now, paneCommand: "node", tail: "rolled\n" });
+        } else {
+          rolledController.abort();
+        }
+      },
+      signal: rolledController.signal,
+    });
+    expect(rolledChunks).toEqual(["first\n", "rolled\n"]);
+
+    sessions.set("done-b222", { created: now, paneCommand: "node", tail: "initial\n" });
+    const endedChunks: string[] = [];
+    dropSessionOnNextHasSession = true;
+    await bgTailFollow("done", { writer: (chunk) => endedChunks.push(chunk) });
+    expect(endedChunks).toEqual(["initial\n", "[bg: session done-b222 ended]\n"]);
+  });
+
   test("bgAttach chooses attach vs switch-client and maps spawn errors", async () => {
     sessions.set("build-a111", { created: now, paneCommand: "node" });
 
@@ -292,6 +317,11 @@ describe("vendored bg impl coverage", () => {
     error.code = "ENOENT";
     spawnError = error;
     await expect(bgAttach("build-a111")).rejects.toThrow(/tmux not found/);
+
+    const denied = new Error("spawn denied") as Error & { code: string };
+    denied.code = "EACCES";
+    spawnError = denied;
+    await expect(bgAttach("build-a111")).rejects.toThrow("spawn denied");
   });
 
   test("bgKill handles missing args, single targets, all targets, and tmux kill failures", () => {
