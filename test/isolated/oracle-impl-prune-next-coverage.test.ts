@@ -1,11 +1,13 @@
 /** Next-pass isolated coverage for src/commands/plugins/oracle/impl-prune.ts. */
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { PassThrough, Writable } from "stream";
 import { join } from "path";
 import type { OracleEntry } from "../../src/sdk";
 import type { StaleEntry } from "../../src/commands/plugins/oracle/impl-stale";
 
-const prune = await import("../../src/commands/plugins/oracle/impl-prune");
+const prune = await import("../../src/commands/plugins/oracle/impl-prune.ts?oracle-impl-prune-next-coverage");
 
 const originalLog = console.log;
 
@@ -91,6 +93,27 @@ async function runWithPrompt(answer: string, fn: () => Promise<unknown>): Promis
 }
 
 describe("oracle impl-prune next-pass coverage", () => {
+
+  test("exported registry writer and default awake helper cover default dependency branches", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-impl-prune-next-writer-"));
+    const file = join(dir, "oracles.json");
+    try {
+      prune.writeRawRegistry(file, { oracles: [entry({ name: "written" })] });
+      expect(existsSync(file)).toBe(true);
+      expect(JSON.parse(readFileSync(file, "utf-8")).oracles[0].name).toBe("written");
+
+      await expect(prune.listAwakeOracles(async () => [{
+        name: "maw",
+        windows: [{ name: "awake-oracle" }, { name: "plain" }, { name: "also-awake-oracle" }],
+      }])).resolves.toEqual(new Set(["awake", "also-awake"]));
+
+      await expect(prune.listAwakeOracles(async () => {
+        throw new Error("tmux unavailable");
+      })).resolves.toEqual(new Set());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   test("stale mode threads dependency hooks through runStale and maps only stale/dead tiers", async () => {
     const sourceEntries = [entry({ name: "from-read-entries" })];
     const now = new Date("2026-05-18T12:34:56.000Z");

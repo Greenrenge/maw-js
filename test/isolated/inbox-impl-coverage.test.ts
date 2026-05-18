@@ -6,7 +6,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, utimesSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -14,7 +14,8 @@ let rootDir: string;
 let originalConfigDir: string | undefined;
 
 const commSendCalls: Array<{ query: string; message: string }> = [];
-let psiPath = "";
+let psiPath: string | undefined = "";
+const originalCwd = process.cwd();
 
 function captureLogs() {
   const logs: string[] = [];
@@ -34,7 +35,7 @@ function captureLogs() {
 }
 
 mock.module("maw-js/config", () => ({
-  loadConfig: () => ({ psiPath, node: "m5", oracle: "node-oracle" }),
+  loadConfig: () => ({ ...(psiPath === undefined ? {} : { psiPath }), node: "m5", oracle: "node-oracle" }),
 }));
 
 mock.module("maw-js/commands/shared/comm-send", () => ({
@@ -55,8 +56,16 @@ beforeEach(() => {
 });
 
 describe("inbox impl utility surface", () => {
-  test("resolves inbox directory using psiPath when available", () => {
+  test("resolves inbox directory using psiPath, local ψ, and psi fallback", () => {
     expect(resolveInboxDir()).toBe(join(rootDir, "inbox"));
+
+    psiPath = undefined;
+    process.chdir(rootDir);
+    mkdirSync(join(rootDir, "ψ", "inbox"), { recursive: true });
+    expect(realpathSync(resolveInboxDir())).toBe(realpathSync(join(rootDir, "ψ", "inbox")));
+
+    rmSync(join(rootDir, "ψ"), { recursive: true, force: true });
+    expect(resolveInboxDir()).toBe(join(process.cwd(), "psi", "inbox"));
   });
 
   test("writes inbox files with parsed frontmatter and safe filename slug", () => {
@@ -101,11 +110,17 @@ describe("inbox impl utility surface", () => {
       "fallback from filename",
     ].join("\n"));
 
+    const undated = join(inbox, "undated.md");
+    writeFileSync(undated, "undated body");
+    const mtime = new Date("2026-01-03T00:02:00.000Z");
+    utimesSync(undated, mtime, mtime);
+
     const msgs = loadInboxMessages(inbox);
-    expect(msgs.map(m => m.filename)).toHaveLength(3);
-    expect(msgs[0].frontmatter.from).toBe("charlie");
-    expect(msgs[1].frontmatter.from).toBe("alice");
-    expect(msgs[2].frontmatter.from).toBe("unknown");
+    expect(msgs.map(m => m.filename)).toHaveLength(4);
+    expect(msgs[0].filename).toBe("undated.md");
+    expect(msgs[1].frontmatter.from).toBe("charlie");
+    expect(msgs[2].frontmatter.from).toBe("alice");
+    expect(msgs[3].frontmatter.from).toBe("unknown");
   });
 
   test("formats relative time buckets defensively", () => {
@@ -232,6 +247,14 @@ describe("inbox impl queue helpers", () => {
     expect(formatQueueDetail(p2)).toContain("message:");
   });
 
+  test("approve rejects non-pending queued messages", async () => {
+    const pending = savePending({ sender: "a", target: "b", message: "already approved" });
+    updatePending(pending.id, { status: "approved" });
+
+    await expect(cmdApprove(pending.id)).rejects.toThrow("already approved");
+    expect(commSendCalls).toEqual([]);
+  });
+
   test("approve sets pending to approved, calls send with bypass, then deletes", async () => {
     const pending = savePending({ sender: "a", target: "b", message: "send-now" });
     const approved = await cmdApprove(pending.id);
@@ -240,9 +263,14 @@ describe("inbox impl queue helpers", () => {
     expect(loadPendingById(approved.id)).toBeNull();
   });
 
-  test("reject marks as rejected and is idempotent", async () => {
+  test("reject marks pending messages rejected, deletes them, and is idempotent", async () => {
     const pending = savePending({ sender: "a", target: "b", message: "x" });
-    const preRejected = updatePending(pending.id, { status: "rejected" });
+    const rejected = cmdReject(pending.id);
+    expect(rejected.status).toBe("rejected");
+    expect(loadPendingById(pending.id)).toBeNull();
+
+    const pendingAgain = savePending({ sender: "a", target: "b", message: "x" });
+    const preRejected = updatePending(pendingAgain.id, { status: "rejected" });
     const one = cmdReject(preRejected.id);
     expect(one.status).toBe("rejected");
     expect(loadPendingById(preRejected.id)).toBeNull();
@@ -257,6 +285,7 @@ describe("inbox impl queue helpers", () => {
 });
 
 afterEach(() => {
+  process.chdir(originalCwd);
   if (originalConfigDir === undefined) {
     delete process.env.MAW_CONFIG_DIR;
   } else {

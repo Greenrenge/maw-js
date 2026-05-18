@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { OracleEntry } from "../../src/sdk";
 
+const TEST_FLEET_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-defaults-fleet-"));
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-defaults-"));
 const REGISTRY_FILE = join(TEST_CONFIG_DIR, "oracles.json");
 
@@ -17,6 +18,7 @@ const originalLog = console.log;
 
 mock.module(import.meta.resolve("../../src/sdk"), () => ({
   CONFIG_DIR: TEST_CONFIG_DIR,
+  FLEET_DIR: TEST_FLEET_DIR,
   listSessions: async () => {
     if (sessions instanceof Error) throw sessions;
     return sessions;
@@ -25,7 +27,7 @@ mock.module(import.meta.resolve("../../src/sdk"), () => ({
   scanAndCache: () => ({ oracles: [] }),
 }));
 
-const prune = await import("../../src/commands/plugins/oracle/impl-prune.ts?oracle-impl-prune-default-list-awake-coverage");
+const prune = await import("../../src/commands/plugins/oracle/impl-prune");
 
 function entry(patch: Partial<OracleEntry> = {}): OracleEntry {
   const name = patch.name ?? "ghost";
@@ -57,6 +59,7 @@ beforeEach(() => {
 afterAll(() => {
   console.log = originalLog;
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_FLEET_DIR, { recursive: true, force: true });
 });
 
 describe("oracle impl-prune default dependency coverage", () => {

@@ -98,8 +98,21 @@ function readRaw(file: string): Record<string, unknown> {
   return {};
 }
 
-function writeRaw(file: string, data: Record<string, unknown>): void {
+export function writeRawRegistry(file: string, data: Record<string, unknown>): void {
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
+}
+
+export async function listAwakeOracles(
+  listTmuxSessions: typeof listSessions = listSessions,
+): Promise<Set<string>> {
+  const sessions = await listTmuxSessions().catch(() => []);
+  const awake = new Set<string>();
+  for (const s of sessions) {
+    for (const w of s.windows) {
+      if (w.name.endsWith("-oracle")) awake.add(w.name.replace(/-oracle$/, ""));
+    }
+  }
+  return awake;
 }
 
 // ─── Driver ───────────────────────────────────────────────────────────────────
@@ -117,7 +130,7 @@ export async function runPrune(
   } = {},
 ): Promise<PruneCandidate[]> {
   const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRaw(CACHE_FILE, data));
+  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const rawCache = readRawCache();
   const entries: OracleEntry[] = (rawCache.oracles as OracleEntry[] | undefined) ?? [];
@@ -133,16 +146,7 @@ export async function runPrune(
     });
     candidates = buildStaleCandidates(staleEntries);
   } else {
-    const listAwake = deps.listAwake ?? (async () => {
-      const sessions = await listSessions().catch(() => []);
-      const awake = new Set<string>();
-      for (const s of sessions) {
-        for (const w of s.windows) {
-          if (w.name.endsWith("-oracle")) awake.add(w.name.replace(/-oracle$/, ""));
-        }
-      }
-      return awake;
-    });
+    const listAwake = deps.listAwake ?? listAwakeOracles;
     const awakeSet = await listAwake();
     candidates = buildPruneCandidates(entries, awakeSet);
   }
@@ -163,7 +167,7 @@ export async function cmdOraclePrune(
   } = {},
 ): Promise<void> {
   const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRaw(CACHE_FILE, data));
+  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const candidates = await runPrune(opts, deps);
 

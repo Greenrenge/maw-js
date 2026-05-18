@@ -6,6 +6,7 @@ import { join } from "path";
 import type { OracleEntry } from "../../src/sdk";
 import type { StaleEntry, StaleTier } from "../../src/commands/plugins/oracle/impl-stale";
 
+const TEST_FLEET_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-more-fleet-"));
 const TEST_CONFIG_DIR = mkdtempSync(join(tmpdir(), "maw-oracle-impl-prune-more-"));
 const REGISTRY_FILE = join(TEST_CONFIG_DIR, "oracles.json");
 
@@ -18,6 +19,7 @@ const originalLog = console.log;
 
 mock.module(import.meta.resolve("../../src/sdk"), () => ({
   CONFIG_DIR: TEST_CONFIG_DIR,
+  FLEET_DIR: TEST_FLEET_DIR,
   listSessions: async () => {
     if (sessions instanceof Error) throw sessions;
     return sessions;
@@ -94,6 +96,7 @@ afterEach(() => {
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
+  rmSync(TEST_FLEET_DIR, { recursive: true, force: true });
 });
 
 describe("oracle impl-prune focused isolated coverage", () => {

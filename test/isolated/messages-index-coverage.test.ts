@@ -39,7 +39,7 @@ mock.module("child_process", () => ({
   },
 }));
 
-const { default: messagesHandler, messagesEngineFetch, onEvent } = await import("../../src/vendor/mpr-plugins/messages/index");
+const { default: messagesHandler, installServeShutdown, messagesEngineFetch, onEvent } = await import("../../src/vendor/mpr-plugins/messages/index");
 
 function makeEngineStub(options: {
   registrations?: Array<Record<string, unknown>>;
@@ -246,6 +246,63 @@ describe("messages plugin coverage slice", () => {
     await expect(messagesHandler({ source: "cli", args: ["serve", "--port", "not-a-number"] })).rejects.toThrow("invalid --port");
   });
 
+  test("serve registers in foreground test mode and shutdown hook is idempotent", async () => {
+    let registerBody: Record<string, unknown> | undefined;
+    const engine = makeEngineStub({
+      onRegister(body) {
+        registerBody = body;
+      },
+    });
+    const engineUrl = `http://127.0.0.1:${engine.port}`;
+
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["serve", "--engine", engineUrl, "--port", "0"],
+    });
+
+    engine.stop(true);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("maw messages serve → http://127.0.0.1:");
+    expect(result.output).toContain(`registered /api/message-ledger on ${engineUrl}`);
+    expect(registerBody).toMatchObject({
+      plugin: "messages",
+      prefix: "/api/message-ledger",
+      eventPath: "/events",
+      health: "/health",
+    });
+
+    const callbacks: Record<string, () => void> = {};
+    const stopped: Array<boolean | undefined> = [];
+    const unregistered: string[] = [];
+    const exits: number[] = [];
+    const shutdown = installServeShutdown("http://engine.local", {
+      stop: (force?: boolean) => {
+        stopped.push(force);
+      },
+    }, {
+      once: ((event: string, callback: () => void) => {
+        callbacks[event] = callback;
+        return process;
+      }) as typeof process.once,
+      unregister: async (url: string) => {
+        unregistered.push(url);
+      },
+      exit: ((code?: number) => {
+        exits.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit,
+    });
+
+    expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
+    shutdown();
+    callbacks.SIGTERM();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(unregistered).toEqual(["http://engine.local"]);
+    expect(stopped).toEqual([true]);
+    expect(exits).toEqual([0]);
+  });
+
   test("serve --detach returns already-running message when pid + registration exist", async () => {
     const engine = makeEngineStub({
       registrations: [{ plugin: "messages", prefix: "/api/message-ledger", upstream: "unix:///running" }],
@@ -387,6 +444,36 @@ describe("messages plugin coverage slice", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("sent SIGTERM to PID 777");
     expect(result.output).toContain("stopped PID 777");
+    expect(existsSync(join(tmpHome, "engine-plugins", "messages.pid"))).toBe(false);
+  });
+
+  test("stop reports already-gone live pid when SIGTERM throws", async () => {
+    let checks = 0;
+    process.kill = ((pid: number, signal?: string | number) => {
+      expect(pid).toBe(778);
+      if (signal === "SIGTERM") throw new Error("already gone");
+      if (signal === 0 || signal === undefined) {
+        checks += 1;
+        if (checks === 1) return true;
+        const err: NodeJS.ErrnoException = new Error("gone") as NodeJS.ErrnoException;
+        err.code = "ESRCH";
+        throw err;
+      }
+      return true;
+    }) as typeof process.kill;
+
+    writeMessagesPid(778);
+    const engine = makeEngineStub({ registrations: [] });
+
+    const result = await messagesHandler({
+      source: "cli",
+      args: ["stop", "--engine", `http://127.0.0.1:${engine.port}`],
+    });
+
+    engine.stop(true);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("PID 778 was already gone (already gone)");
+    expect(result.output).toContain("stopped PID 778");
     expect(existsSync(join(tmpHome, "engine-plugins", "messages.pid"))).toBe(false);
   });
 

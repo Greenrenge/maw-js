@@ -11,6 +11,8 @@ const originalPeersFile = process.env.PEERS_FILE;
 const originalTtl = process.env.MAW_PEER_STALE_TTL_MS;
 const originalTestMode = process.env.MAW_TEST_MODE;
 const originalLog = console.log;
+const originalStdoutWrite = process.stdout.write;
+const originalBunSleep = Bun.sleep;
 
 let tempDir = "";
 let logs: string[] = [];
@@ -44,6 +46,8 @@ beforeEach(() => {
 
 afterEach(() => {
   console.log = originalLog;
+  process.stdout.write = originalStdoutWrite;
+  Bun.sleep = originalBunSleep;
   if (originalPeersFile === undefined) delete process.env.PEERS_FILE;
   else process.env.PEERS_FILE = originalPeersFile;
   if (originalTtl === undefined) delete process.env.MAW_PEER_STALE_TTL_MS;
@@ -126,6 +130,25 @@ describe("cmdFixStalePeers", () => {
     expect(logs.join("\n")).toContain("10d ago");
     expect(logs.join("\n")).toContain("removed old");
     expect(logs.join("\n")).toContain("peers:fix-stale: removed 2 stale peers");
+  });
+
+
+  test("runs the abort countdown outside test mode before removing stale peers", async () => {
+    process.env.MAW_PEER_STALE_TTL_MS = String(1 * DAY_MS);
+    delete process.env.MAW_TEST_MODE;
+    writePeers({ stale: { url: "http://stale.local", node: null, addedAt: isoDaysAgo(3), lastSeen: null } });
+    const writes: string[] = [];
+    Bun.sleep = (async () => {}) as typeof Bun.sleep;
+    process.stdout.write = ((chunk: any) => { writes.push(String(chunk)); return true; }) as typeof process.stdout.write;
+
+    await expect(cmdFixStalePeers()).resolves.toEqual({
+      ok: true,
+      checks: [{ name: "peers:fix-stale", ok: true, message: "removed 1 stale peer" }],
+    });
+
+    expect(writes.join("\n")).toContain("3...");
+    expect(writes.join("\n")).toContain("1...");
+    expect(readPeers()).toEqual({});
   });
 
   test("short-circuits with an ok check when there is nothing to remove", async () => {

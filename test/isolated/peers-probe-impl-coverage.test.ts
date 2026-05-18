@@ -49,6 +49,7 @@ describe("peers probe coverage slice", () => {
   test("classifies probe branches and hints", () => {
     expect(probeModule.classifyProbeError({ ok: false, status: 404 })).toBe("HTTP_4XX");
     expect(probeModule.classifyProbeError({ ok: false, status: 503 })).toBe("HTTP_5XX");
+    expect(probeModule.classifyProbeError({ ok: false, status: 302 })).toBe("UNKNOWN");
     expect(probeModule.classifyProbeError({ name: "AbortError" })).toBe("TIMEOUT");
     expect(probeModule.classifyProbeError({ code: "CERT_CHAIN_INVALID" })).toBe("TLS");
     expect(probeModule.classifyProbeError({ code: "ECONNREFUSED" })).toBe("REFUSED");
@@ -56,6 +57,8 @@ describe("peers probe coverage slice", () => {
 
     expect(probeModule.pickHint({ code: "DNS", message: "ENOTIMP", at: "x" })).toContain("avahi-daemon");
     expect(probeModule.pickHint({ code: "DNS", message: "EAI_FAIL", at: "x" })).toBe(probeModule.PROBE_HINTS.DNS);
+    expect(probeModule.isValidMawHandshake({ schema: "1" })).toBe(true);
+    expect(probeModule.isValidMawHandshake({ schema: "" })).toBe(false);
   });
 
   test("validates handshake and rejects malformed /info payload", async () => {
@@ -63,6 +66,18 @@ describe("peers probe coverage slice", () => {
     const result = await probeModule.probePeer(`http://127.0.0.1:${info.port}`);
     expect(result).toMatchObject({ node: null, error: { code: "BAD_BODY" } });
     info.stop();
+
+    const missingNode = serve("/info", 200, { maw: true, nickname: "nameless" });
+    const noNode = await probeModule.probePeer(`http://127.0.0.1:${missingNode.port}`);
+    expect(noNode).toMatchObject({ node: null, error: { code: "BAD_BODY", message: '/info response had neither "node" nor "name" string' } });
+    missingNode.stop();
+  });
+
+  test("reports HTTP failures from /info without parsing bodies", async () => {
+    const server = serve("/info", 404, "missing");
+    const result = await probeModule.probePeer(`http://127.0.0.1:${server.port}`);
+    expect(result).toMatchObject({ node: null, error: { code: "HTTP_4XX", message: `HTTP 404 from http://127.0.0.1:${server.port}/info` } });
+    server.stop();
   });
 
   test("returns DNS classification before fetch", async () => {
@@ -86,6 +101,23 @@ describe("peers probe coverage slice", () => {
       nickname: "nick",
       pubkey: "k",
       identity: { oracle: "mawjs", node: "peer-node" },
+    });
+    server.stop();
+  });
+
+  test("keeps /info success when identity endpoint returns malformed JSON", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/info") return Response.json({ maw: true, node: "peer-node" });
+        if (url.pathname === "/api/identity") return new Response("not-json");
+        return new Response("not found", { status: 404 });
+      },
+    });
+    await expect(probeModule.probePeer(`http://127.0.0.1:${server.port}`)).resolves.toEqual({
+      node: "peer-node",
+      nickname: null,
     });
     server.stop();
   });
@@ -121,6 +153,11 @@ describe("peers probe coverage slice", () => {
     expect(text).toContain("peer handshake failed");
     expect(text).toContain("alice");
     expect(text).toContain("retry: maw peers probe alice");
+    expect(probeModule.formatProbeError(
+      { code: "UNKNOWN", message: "bad url", at: "2026-05-18T00:00:00.000Z" },
+      "not a url",
+      "bad",
+    )).toContain("host: not a url");
   });
 });
 

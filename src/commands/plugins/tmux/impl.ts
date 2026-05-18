@@ -44,12 +44,19 @@ function listSessionNamesSync(): string[] {
 // (ES module namespace objects are frozen, bare `let` can't be reassigned).
 export const _tty = {
   isStdoutTTY: (): boolean => {
-    try {
-      const { isatty } = require("node:tty") as typeof import("node:tty");
-      return isatty(1);
-    } catch {
-      return !!process.stdout.isTTY;
-    }
+    const req = typeof require === "function" ? require : undefined;
+    const isatty = req?.("node:tty")?.isatty;
+    return typeof isatty === "function" ? isatty(1) : !!process.stdout.isTTY;
+  },
+  readChoice: (max: number): number | null => {
+    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+    process.stdout.write("  Select [1-" + max + "]: ");
+    const fd = openSync("/dev/tty", "r");
+    const buf = Buffer.alloc(8);
+    const n = readSync(fd, buf, 0, buf.length, null);
+    closeSync(fd);
+    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
+    return choice >= 1 && choice <= max ? choice : null;
   },
 };
 
@@ -136,12 +143,7 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
 }
 
 export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Promise<void> {
-  const hit = resolveTmuxTarget(target);
-  if (!hit) {
-    throw new Error(`cannot resolve target '${target}'`);
-  }
-
-  const { resolved, source } = hit;
+  const { resolved, source } = resolveTmuxTarget(target)!;
   const lines = opts.lines ?? 30;
   const scroll = opts.history ? "-S -" : `-S -${lines}`;
 
@@ -537,11 +539,7 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
     throw new Error(`pane lookup failed for '${resolved}' (from ${source}): ${e?.message || e}`);
   }
   if (isClaudeLikePane(paneCurrentCommand) && !opts.force) {
-    throw new Error(
-      `refusing to send: pane '${resolved}' is running '${paneCurrentCommand}' (claude-like).\n` +
-      `  injecting keys would collide with the AI's turn.\n` +
-      `  pass --force to override (you really want to type into a live claude pane)`
-    );
+    throw new Error(`refusing to send: pane '${resolved}' is running '${paneCurrentCommand}' (claude-like).\n  injecting keys would collide with the AI's turn.\n  pass --force to override (you really want to type into a live claude pane)`);
   }
 
   // Send
@@ -641,11 +639,7 @@ export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Prom
   } catch { /* no fleet dir */ }
 
   if (isFleetOrViewSession(session, fleetSessions) && !opts.force) {
-    throw new Error(
-      `refusing to kill: session '${session}' is fleet or view.\n` +
-      `  killing would terminate a live oracle (or its mirror).\n` +
-      `  pass --force to override (you really want to kill a fleet session)`
-    );
+    throw new Error(`refusing to kill: session '${session}' is fleet or view.\n  killing would terminate a live oracle (or its mirror).\n  pass --force to override (you really want to kill a fleet session)`);
   }
 
   const tmuxCmd = opts.session
@@ -805,23 +799,16 @@ function suggestRecovery(target: string, session: string, source: string): void 
   }
   console.log("");
 
-  try {
-    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
-    process.stdout.write("  Select [1-" + candidates.length + "]: ");
-    const fd = openSync("/dev/tty", "r");
-    const buf = Buffer.alloc(8);
-    const n = readSync(fd, buf, 0, buf.length, null);
-    closeSync(fd);
-    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
-    if (choice >= 1 && choice <= candidates.length) {
-      const picked = candidates[choice - 1];
-      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
-      const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
-        stdio: ["inherit", "inherit", "inherit"],
-      });
-      process.exit(result.exitCode ?? 0);
-    }
-  } catch { /* non-interactive — ignore */ }
+  let choice: number | null = null;
+  try { choice = _tty.readChoice(candidates.length); } catch { /* non-interactive — ignore */ }
+  if (choice !== null) {
+    const picked = candidates[choice - 1];
+    console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+    const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
 
   process.exit(1);
 }

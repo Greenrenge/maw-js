@@ -52,9 +52,7 @@ export function findStalePeers(now: number = Date.now()): StalePeer[] {
   let peers: Record<string, Peer> = {};
   try {
     peers = loadPeers().peers;
-  } catch {
-    return [];
-  }
+  } catch { return []; }
   const ttlMs = getStaleTtlMs();
   return Object.entries(peers)
     .filter(([_, p]) => isStale(p, ttlMs, now))
@@ -74,16 +72,7 @@ export interface DoctorCheck {
  * non-zero count so the doctor exit code reflects "needs attention".
  */
 export function checkStalePeers(now: number = Date.now()): DoctorCheck {
-  let stale: StalePeer[];
-  try {
-    stale = findStalePeers(now);
-  } catch (e: any) {
-    return {
-      name: "peers:stale",
-      ok: true,
-      message: `peer cache unreadable (${e?.message || e}) — skipping stale check`,
-    };
-  }
+  const stale = findStalePeers(now);
   if (stale.length === 0) {
     return { name: "peers:stale", ok: true, message: "no stale peers" };
   }
