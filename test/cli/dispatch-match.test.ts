@@ -463,7 +463,7 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.snapshots).toContain("recovery snapshots");
   });
 
-  test("`bring neo` defaults to v1 split-and-attach mode", () => {
+  test("`bring neo` defaults to wake --split mode", () => {
     const parsed = parseBringArgs(["neo"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
   });
@@ -480,14 +480,14 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     expect(ALIAS_DESCRIPTIONS.b).toContain("short form of `bring`");
   });
 
-  test("`bring neo --split` remains an explicit alias of split mode", () => {
+  test("`bring neo --split` remains split mode", () => {
     const parsed = parseBringArgs(["neo", "--split", "-e", "codex"]);
     expect(parsed).toEqual({ oracle: "neo", opts: { split: true, engine: "codex" } });
   });
 
-  test("`bring neo --tab` opts into non-destructive background-tab mode", () => {
+  test("`bring neo --tab` still stays equivalent to wake --split", () => {
     const parsed = parseBringArgs(["neo", "--tab"]);
-    expect(parsed).toEqual({ oracle: "neo", opts: { bring: true, tab: true } });
+    expect(parsed).toEqual({ oracle: "neo", opts: { split: true } });
   });
 
   test("`audit` → null (does NOT shadow CORE_ROUTES)", () => {

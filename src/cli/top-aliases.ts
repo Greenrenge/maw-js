@@ -45,7 +45,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
-  bring: "Bring an oracle HERE — split current pane and attach",
+  bring: "Bring an oracle HERE — thin alias for `wake --split`",
   b: "Bring an oracle HERE (short form of `bring`)",
   ls: "List sessions (compact default, -v detail, -r recent, -a roster)",
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
@@ -120,11 +120,9 @@ export function parseBringArgs(
   oracle: string;
   opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
 } {
-  // v1 default (#1398, locked by #1430): `maw bring <oracle>` splits the
-  // current pane and attaches there. `--split` is kept as a no-op alias for
-  // muscle memory, while `--tab` preserves the background tmux-window path.
-  // The top-right respawn experiment (#1422) is deliberately not wired to
-  // `--tab`: tab must be non-destructive.
+  // #1799: `maw bring <oracle>` is a thin `maw wake <oracle> --split`
+  // alias. Keep this tiny parser for legacy unit tests and usage validation;
+  // runtime dispatch goes through the wake parser so all wake flags work.
   const flags = parseFlags(argv, {
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
@@ -135,20 +133,16 @@ export function parseBringArgs(
     printBringUsage(writeUsage);
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
-    ? { bring: true, tab: true }
-    : { split: true };
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
 }
 
 function printBringUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
-  write("       maw b <oracle> [--split|--tab] [-e|--engine <name>]");
-  write("  Default: split the current pane and attach (v1).");
-  write("  --split is accepted as an explicit alias of the default.");
-  write("  Use --tab for a non-destructive background tmux window.");
-  write("  Symmetric with `maw a` (attach goes there, bring comes here).");
+  write("usage: maw bring <oracle> [wake flags...]");
+  write("       maw b <oracle> [wake flags...]");
+  write("  Thin alias: maw bring <oracle> ≡ maw wake <oracle> --split");
+  write("  Supports the same flags as `maw wake`, including --task, --wt, --dry-run, and -e/--engine.");
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
@@ -364,14 +358,12 @@ export async function invokeDirectHandler(
   }
 
   if (exportName === "cmdBring") {
-    // `maw bring <oracle>` defaults to the v1 current-pane split path.
-    // `--tab` opts into the non-destructive background tmux-window path.
+    // #1799 — keep bring as a thin wake alias so every wake flag works.
     if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
       printBringUsage(log);
       return;
     }
-    const { oracle, opts } = parseBringArgs(argv, error);
-    await directCmdWake(oracle, opts);
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", [...argv, "--split"], deps);
     return;
   }
 

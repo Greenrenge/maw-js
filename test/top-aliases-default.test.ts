@@ -136,10 +136,10 @@ describe("top alias option parsers", () => {
     });
   });
 
-  test("bring opts default to split, let tab win, and reject missing oracle", () => {
+  test("bring opts default to split and reject missing oracle", () => {
     expect(parseBringArgs(["neo", "--tab", "--split", "-e", "codex"])).toEqual({
       oracle: "neo",
-      opts: { bring: true, tab: true, engine: "codex" },
+      opts: { split: true, engine: "codex" },
     });
     expect(parseBringArgs(["neo"])).toEqual({ oracle: "neo", opts: { split: true } });
 
@@ -253,8 +253,8 @@ describe("direct handler invocation", () => {
     expect(calls.logs.join("\n")).toContain("usage: maw bring");
 
     calls.logs = [];
-    await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--tab", "-e", "codex"], deps);
-    expect(calls.wake).toEqual([["neo", { bring: true, tab: true, engine: "codex" }]]);
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--dry-run", "--main", "--task", "fix", "-e", "codex"], deps);
+    expect(calls.wake).toEqual([["neo", { task: "fix", dryRun: true, noRehydrate: true, split: true, engine: "codex" }]]);
   });
 
   test("new and preflight handlers dispatch to their static imports", async () => {
