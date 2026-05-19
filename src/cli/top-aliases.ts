@@ -22,7 +22,7 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
-import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
+import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
@@ -78,6 +78,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   //   maw ls -c   → explicit compact alias
   //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
   //   maw ls -r   → compact sessions sorted newest-first by tmux creation time
+  //   maw ls --active [30m|1h] → compact sessions touched within the threshold
   ls: { kind: "direct", handler: "cmdLs" },
   scaffold: ["bud", "--scaffold-only"],
 
@@ -171,7 +172,8 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  *
  * For `ls`, compact summary is the default; `-v` returns full per-pane detail,
  * `-c` is an explicit compact alias, `-a` preserves the legacy
- * compact+roster behavior, and `-r/--recent [N]` sorts newest-first.
+ * compact+roster behavior, `-r/--recent [N]` sorts newest-first, and
+ * `--active [duration]` filters by tmux session_activity (default 30m).
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
 export function parseLsAliasOpts(argv: string[]) {
@@ -182,6 +184,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--fix": Boolean,
     "--json": Boolean,
     "--recent": Boolean, "-r": "--recent",
+    "--active": Boolean,
     "--node": String,
     "--channels": Boolean,
   }, 0);
@@ -200,6 +203,8 @@ export function parseLsAliasOpts(argv: string[]) {
     json: boolean;
     recent?: boolean;
     recentLimit?: number;
+    active?: boolean;
+    activeThresholdSec?: number;
     filter?: string;
     channels?: boolean;
   } = {
@@ -211,8 +216,12 @@ export function parseLsAliasOpts(argv: string[]) {
   };
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
   const positionals = flags._ as string[];
+  const activeArg = activeDurationArg(argv);
+  const filterPositionals = activeArg
+    ? positionals.filter((arg) => arg !== activeArg)
+    : positionals;
   const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
-  const positionalFilter = positionals.find((arg) => !/^\d+$/.test(arg))?.trim() ?? "";
+  const positionalFilter = filterPositionals.find((arg) => !/^\d+$/.test(arg) && !(flags["--active"] && parseActiveDurationSeconds(arg)))?.trim() ?? "";
   if (nodeFilter || positionalFilter) opts.filter = nodeFilter || positionalFilter;
 
   if (flags["--recent"]) {
@@ -222,6 +231,10 @@ export function parseLsAliasOpts(argv: string[]) {
       const limit = Number(limitRaw);
       if (Number.isSafeInteger(limit) && limit > 0) opts.recentLimit = limit;
     }
+  }
+  if (flags["--active"]) {
+    opts.active = true;
+    opts.activeThresholdSec = parseActiveDurationSeconds(activeArg) ?? undefined;
   }
   return opts;
 }

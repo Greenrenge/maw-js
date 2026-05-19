@@ -34,6 +34,31 @@ mock.module(tileImplPath, () => ({
 
 let cmdListCalls: Array<Record<string, unknown> | undefined> = [];
 let cmdListBehavior: "ok" | "log-then-throw" | "throw" = "ok";
+let tmuxLsCalls: Array<Record<string, unknown>> = [];
+
+mock.module("maw-js/commands/plugins/tmux/impl", () => {
+  const parseActiveDurationSeconds = (raw?: string): number | undefined => {
+    if (!raw) return undefined;
+    const match = /^(\d+)([smhd])?$/.exec(raw.trim().toLowerCase());
+    if (!match) return undefined;
+    const value = Number(match[1]);
+    if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+    const unit = match[2] ?? "m";
+    return value * (unit === "s" ? 1 : unit === "m" ? 60 : unit === "h" ? 3600 : 86400);
+  };
+  return {
+    activeDurationArg: (argv: string[]) => {
+      const index = argv.indexOf("--active");
+      const next = index >= 0 ? argv[index + 1] : undefined;
+      return next && !next.startsWith("-") && parseActiveDurationSeconds(next) ? next : undefined;
+    },
+    cmdTmuxLs: async (opts: Record<string, unknown>) => {
+      tmuxLsCalls.push(opts);
+      console.log(`tmux ls ${opts.activeThresholdSec ?? "default"}`);
+    },
+    parseActiveDurationSeconds,
+  };
+});
 
 mock.module("maw-js/commands/shared/comm", () => ({
   cmdList: async (opts?: Record<string, unknown>) => {
@@ -79,6 +104,7 @@ beforeEach(() => {
 
   cmdListCalls = [];
   cmdListBehavior = "ok";
+  tmuxLsCalls = [];
   lsPeerCalls = [];
   lsAllPeersCalls = [];
   peerThrow = null;
@@ -207,6 +233,23 @@ describe("ls plugin index coverage", () => {
     expect(lsPeerCalls).toEqual([{ peer: "clinic", opts: { json: true } }]);
     expect(lsAllPeersCalls).toEqual([{ json: false }]);
     expect(cmdListCalls).toEqual([{ fix: true }]);
+  });
+
+  test("routes --active to local tmux activity filtering before peer positional handling", async () => {
+    const result = await lsHandler({ source: "cli", args: ["--active", "1h", "mawjs", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("tmux ls 3600");
+    expect(tmuxLsCalls).toEqual([{
+      all: true,
+      compact: true,
+      json: true,
+      active: true,
+      activeThresholdSec: 3600,
+      filter: "mawjs",
+    }]);
+    expect(lsPeerCalls).toEqual([]);
+    expect(cmdListCalls).toEqual([]);
   });
 
   test("returns captured stderr as catch error/output when local listing logs before throwing", async () => {

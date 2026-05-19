@@ -1,6 +1,6 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
-import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, resolveTmuxTarget } from "./impl";
+import { activeDurationArg, cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, parseActiveDurationSeconds, resolveTmuxTarget } from "./impl";
 import { hostExec } from "../../../sdk";
 
 export const command = {
@@ -92,37 +92,47 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         "--roster": Boolean,
         "--recent": Boolean,
         "-r": "--recent",
+        "--active": Boolean,
         "--node": String,
         "--channels": Boolean,
         "--help": Boolean,
         "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux ls [filter|--node NODE] [--all|-a] [--channels] [--compact|-c] [-v|--verbose] [--recent|-r [N]] [--roster] [--json]");
+        console.log("usage: maw tmux ls [filter|--node NODE] [--all|-a] [--channels] [--compact|-c] [-v|--verbose] [--recent|-r [N]] [--active [30m|1h]] [--roster] [--json]");
         console.log("  default:    panes in current session only");
         console.log("  --all:      panes across every session");
         console.log("  --compact:  one line per session (`maw ls` / `maw ls -c` top-level)");
         console.log("  -v:         full per-pane detail");
         console.log("  --roster:   include sleeping oracles from ghq");
         console.log("  --recent:   sort sessions newest-first by tmux creation time; optional N limits sessions");
+        console.log("  --active:   filter to sessions active within threshold (default 30m)");
         console.log("  --node:     filter sessions by node/session text");
         console.log("  --channels: include infrastructure channel sessions such as *-discord");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const positionals = flags._ as string[];
+      const activeArg = activeDurationArg(args.slice(1));
+      const filterPositionals = activeArg
+        ? positionals.filter((arg) => arg !== activeArg)
+        : positionals;
       const recentLimitRaw = positionals.find((arg) => /^\d+$/.test(arg));
       const recentLimit = recentLimitRaw ? Number(recentLimitRaw) : undefined;
       const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
-      const positionalFilter = positionals.find((arg) => !/^\d+$/.test(arg))?.trim() ?? "";
+      const positionalFilter = filterPositionals.find((arg) => !/^\d+$/.test(arg) && !(flags["--active"] && parseActiveDurationSeconds(arg)))?.trim() ?? "";
       const lsOpts = {
-        all: !!flags["--all"] || !!flags["--recent"],
+        all: !!flags["--all"] || !!flags["--recent"] || !!flags["--active"],
         json: !!flags["--json"],
-        compact: !!flags["--compact"] || !!flags["--recent"],
+        compact: !!flags["--compact"] || !!flags["--recent"] || !!flags["--active"],
         verbose: !!flags["--verbose"],
         roster: !!flags["--roster"],
         recent: !!flags["--recent"],
         recentLimit: Number.isSafeInteger(recentLimit) && recentLimit! > 0 ? recentLimit : undefined,
       } as Parameters<typeof deps.cmdTmuxLs>[0];
+      if (flags["--active"]) {
+        lsOpts.active = true;
+        lsOpts.activeThresholdSec = parseActiveDurationSeconds(activeArg);
+      }
       const filter = nodeFilter || positionalFilter;
       if (filter) lsOpts.filter = filter;
       if (flags["--channels"] || flags["--all"]) lsOpts.channels = true;

@@ -17,9 +17,26 @@ let errors: string[] = [];
 const originalLog = console.log;
 const originalError = console.error;
 
-mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
-  cmdTmuxLs: async (opts: unknown) => { tmuxLsCalls.push(opts); },
-}));
+mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => {
+  const parseActiveDurationSeconds = (raw: string | undefined): number | undefined => {
+    if (!raw) return undefined;
+    const match = /^(\d+)([smhd])?$/.exec(raw.trim().toLowerCase());
+    if (!match) return undefined;
+    const value = Number(match[1]);
+    if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+    const unit = match[2] ?? "m";
+    return value * (unit === "s" ? 1 : unit === "m" ? 60 : unit === "h" ? 3600 : 86400);
+  };
+  return {
+    activeDurationArg: (argv: string[]) => {
+      const index = argv.indexOf("--active");
+      const next = index >= 0 ? argv[index + 1] : undefined;
+      return next && !next.startsWith("-") && parseActiveDurationSeconds(next) ? next : undefined;
+    },
+    cmdTmuxLs: async (opts: unknown) => { tmuxLsCalls.push(opts); },
+    parseActiveDurationSeconds,
+  };
+});
 
 mock.module(import.meta.resolve("../../src/commands/shared/wake-cmd"), () => ({
   cmdWake: async (...args: unknown[]) => { wakeCalls.push(args); },
@@ -117,6 +134,16 @@ describe("top alias option parsers", () => {
       json: false,
       recent: true,
     });
+    expect(parseLsAliasOpts(["--active", "1h", "alpha"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      filter: "alpha",
+      active: true,
+      activeThresholdSec: 3600,
+    });
   });
 
   test("ls opts parse node filters, positional filters, and channel opt-in", () => {
@@ -137,7 +164,7 @@ describe("top alias option parsers", () => {
 
 describe("direct handler invocation", () => {
   test("cmdLs dispatches parsed ls options to tmux ls", async () => {
-    await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "-v"]);
+    await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "--active", "45m", "-v"]);
     expect(tmuxLsCalls).toEqual([{
       all: true,
       compact: false,
@@ -146,6 +173,8 @@ describe("direct handler invocation", () => {
       json: true,
       recent: true,
       recentLimit: 5,
+      active: true,
+      activeThresholdSec: 2700,
     }]);
   });
 

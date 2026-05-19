@@ -127,6 +127,15 @@ describe("top alias option parsers", () => {
       json: false,
       recent: true,
     });
+    expect(parseLsAliasOpts(["--active", "1h"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      active: true,
+      activeThresholdSec: 3600,
+    });
     expect(parseLsAliasOpts(["-v"])).toEqual({
       all: true,
       compact: false,
@@ -153,7 +162,7 @@ describe("direct handler invocation", () => {
   test("cmdLs dispatches parsed options to tmux ls", async () => {
     const { calls, deps } = makeDeps();
 
-    await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "-v"], deps);
+    await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "--active", "1h", "-v"], deps);
 
     expect(calls.tmuxLs).toEqual([{
       all: true,
@@ -163,6 +172,8 @@ describe("direct handler invocation", () => {
       json: true,
       recent: true,
       recentLimit: 5,
+      active: true,
+      activeThresholdSec: 3600,
     }]);
   });
 

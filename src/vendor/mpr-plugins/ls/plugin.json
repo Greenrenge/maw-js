@@ -10,13 +10,14 @@
     "aliases": [
       "list"
     ],
-    "help": "maw ls [<peer>] [--all] [--json] [--fix] [--recent|-r [N]] — list live sessions; see maw fleet ls for registered fleet config",
+    "help": "maw ls [<peer>] [--all] [--json] [--fix] [--recent|-r [N]] [--active [30m|1h]] \u2014 list live sessions; see maw fleet ls for registered fleet config",
     "flags": {
       "--all": "boolean",
       "--json": "boolean",
       "--fix": "boolean",
       "--recent": "boolean",
-      "-r": "boolean"
+      "-r": "boolean",
+      "--active": "boolean"
     }
   },
   "weight": 0,

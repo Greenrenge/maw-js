@@ -173,6 +173,10 @@ export interface TmuxLsOpts {
   recent?: boolean;
   /** Limit recent mode to the N newest sessions. */
   recentLimit?: number;
+  /** Filter sessions to those touched within activeThresholdSec. */
+  active?: boolean;
+  /** Activity threshold in seconds. Defaults to 30 minutes. */
+  activeThresholdSec?: number;
   /** Filter rendered sessions/panes by node/session/query text. */
   filter?: string;
   /** Include infrastructure channel sessions such as *-discord. */
@@ -191,6 +195,7 @@ interface AnnotatedPane {
   status: PaneStatus;
   lastActivitySec: number;
   sessionCreated?: number;
+  sessionActivity?: number;
   source?: string;
 }
 
@@ -206,6 +211,14 @@ async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
 }
 
 export function parseSessionCreatedList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+export function parseSessionActivityList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+function parseSessionEpochList(raw: string): Map<string, number> {
   const out = new Map<string, number>();
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
@@ -214,6 +227,38 @@ export function parseSessionCreatedList(raw: string): Map<string, number> {
     if (name && Number.isFinite(created) && created > 0) out.set(name, created);
   }
   return out;
+}
+
+export const DEFAULT_ACTIVE_THRESHOLD_SEC = 30 * 60;
+
+export function parseActiveDurationSeconds(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  const match = /^(\d+)([smhd])?$/.exec(trimmed);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+  const unit = match[2] ?? "m";
+  const multiplier = unit === "s" ? 1
+    : unit === "m" ? 60
+    : unit === "h" ? 60 * 60
+    : 24 * 60 * 60;
+  return value * multiplier;
+}
+
+export function activeDurationArg(argv: string[], flag = "--active"): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === flag) {
+      const next = argv[i + 1];
+      return next && !next.startsWith("-") && parseActiveDurationSeconds(next) ? next : undefined;
+    }
+    if (arg.startsWith(`${flag}=`)) {
+      const value = arg.slice(flag.length + 1);
+      return parseActiveDurationSeconds(value) ? value : undefined;
+    }
+  }
+  return undefined;
 }
 
 export function formatSessionCreated(epochSeconds?: number): string {
@@ -231,6 +276,11 @@ function sessionNameFromPaneTarget(target: string): string {
 async function sessionCreatedTimes(): Promise<Map<string, number>> {
   const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
   return parseSessionCreatedList(raw);
+}
+
+async function sessionActivityTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_activity}'`).catch(() => "");
+  return parseSessionActivityList(raw);
 }
 
 /**
@@ -269,7 +319,10 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
   }
 
-  const createdBySession = opts.recent ? await sessionCreatedTimes() : new Map<string, number>();
+  const [createdBySession, activityBySession] = await Promise.all([
+    opts.recent ? sessionCreatedTimes() : Promise.resolve(new Map<string, number>()),
+    opts.active ? sessionActivityTimes() : Promise.resolve(new Map<string, number>()),
+  ]);
   const nowEpoch = Math.floor(Date.now() / 1000);
   const annotated: AnnotatedPane[] = allPanes.map(p => {
     const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
@@ -285,6 +338,7 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       status,
       lastActivitySec: ageSec < 0 ? 0 : ageSec,
       sessionCreated: createdBySession.get(session),
+      sessionActivity: activityBySession.get(session),
       source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
     };
   });
@@ -301,6 +355,15 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   if (filter) {
     scope = scope.filter(p => [p.session, p.target, p.annotation, p.source]
       .some(value => String(value ?? "").toLowerCase().includes(filter)));
+  }
+
+  const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;
+  if (opts.active) {
+    scope = scope.filter(p => {
+      const activity = p.sessionActivity;
+      if (!activity || !Number.isFinite(activity)) return false;
+      return nowEpoch - activity <= activeThresholdSec;
+    });
   }
 
   const recentSessionOrder = (items: AnnotatedPane[]): string[] => {
@@ -330,7 +393,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   }
 
   if (!scope.length && !(opts.compact && opts.roster)) {
-    console.log(opts.all
+    console.log(opts.active
+      ? `\x1b[90mNo sessions active in the last ${formatDuration(activeThresholdSec)}.\x1b[0m`
+      : opts.all
       ? "\x1b[90mNo panes found.\x1b[0m"
       : `\x1b[90mNo panes in current session '${currentSession || "(none)"}'. Use --all for every session.\x1b[0m`);
     return;
@@ -389,13 +454,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
       const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
+      const activeTag = opts.active && panes[0]?.sessionActivity
+        ? `  \x1b[90mlast ${formatAge(Math.max(0, nowEpoch - panes[0].sessionActivity))}\x1b[0m`
+        : "";
       if (opts.recent) {
         const sessionWidth = Math.max(18, ...sessionRows.map(([name]) => name.length));
         const created = formatSessionCreated(panes[0]?.sessionCreated);
         const afterName = " ".repeat(Math.max(1, sessionWidth - sess.length + 1));
-        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}`);
+        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}${activeTag}`);
       } else {
-        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${activeTag}`);
       }
       for (const p of panes.filter(p => p.status === "frozen")) {
         console.log(`    \x1b[33m⚠\x1b[0m \x1b[90m${p.target} context-limit — /compact needed\x1b[0m`);
@@ -454,6 +522,13 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${created}${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
 }
 
 function pad(s: string, n: number): string {

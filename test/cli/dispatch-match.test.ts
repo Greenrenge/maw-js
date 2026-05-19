@@ -388,6 +388,17 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
       recent: true,
       recentLimit: 5,
     });
+    expect(parseLsAliasOpts(["--recent", "5", "--active", "1h"])).toEqual({
+      all: true,
+      compact: true,
+      verbose: false,
+      roster: false,
+      json: false,
+      recent: true,
+      recentLimit: 5,
+      active: true,
+      activeThresholdSec: 3600,
+    });
   });
 
   test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {

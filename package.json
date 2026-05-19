@@ -114,6 +114,7 @@
     "./commands/shared/wake-cmd": "./src/commands/shared/wake-cmd.ts",
     "./commands/shared/wake-resolve": "./src/commands/shared/wake-resolve.ts",
     "./commands/shared/wake-target": "./src/commands/shared/wake-target.ts",
+    "./commands/plugins/tmux/impl": "./src/commands/plugins/tmux/impl.ts",
     "./commands/shared/workspace": "./src/commands/shared/workspace.ts"
   }
 }

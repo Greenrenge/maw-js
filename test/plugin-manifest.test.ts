@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { parseManifest, loadManifestFromDir } from "../src/plugin/manifest";
 import { discoverPackages, invokePlugin } from "../src/plugin/registry";
+import type { LoadedPlugin, InvokeContext } from "../src/plugin/types";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -27,6 +28,13 @@ const MINIMAL_WASM = new Uint8Array([
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "maw-manifest-test-"));
+}
+
+function invokeManifestPlugin(plugin: LoadedPlugin, ctx: InvokeContext) {
+  return invokePlugin(plugin, ctx, {
+    preCacheBridge: async () => {},
+    setTimeout,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +346,7 @@ describe("invokePlugin", () => {
     const dir = makeTempDir();
     try {
       writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
-      const result = await invokePlugin(
+      const result = await invokeManifestPlugin(
         {
           manifest: { name: "test-invoke", version: "1.0.0", wasm: "plugin.wasm", sdk: "*" },
           dir,
@@ -360,7 +368,7 @@ describe("invokePlugin", () => {
       wasmPath: uniquePath,
       kind: "wasm" as const,
     };
-    const result = await invokePlugin(plugin, { source: "api", args: {} });
+    const result = await invokeManifestPlugin(plugin, { source: "api", args: {} });
     // In combined suite, bun may resolve a stale invokePlugin without kind support.
     // Guard: if kind wasn't respected and it somehow returned ok:true, skip gracefully.
     if (result.ok) return;
@@ -372,7 +380,7 @@ describe("invokePlugin", () => {
     const dir = makeTempDir();
     try {
       writeFileSync(join(dir, "plugin.wasm"), MINIMAL_WASM);
-      const result = await invokePlugin(
+      const result = await invokeManifestPlugin(
         {
           manifest: { name: "api-invoke", version: "1.0.0", wasm: "plugin.wasm", sdk: "*" },
           dir,

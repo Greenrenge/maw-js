@@ -60,8 +60,9 @@ describe("tmux plugin command handler", () => {
   test("routes ls/list help and recent compact options", async () => {
     const h = makeHarness();
     expect((await h.handler(cli(["ls", "--help"]))).output).toContain("--recent");
+    expect((await h.handler(cli(["ls", "--help"]))).output).toContain("--active");
 
-    await h.handler(cli(["list", "--recent", "2", "--json", "--verbose", "--roster"]));
+    await h.handler(cli(["list", "--recent", "2", "--active", "1h", "--json", "--verbose", "--roster"]));
     expect(h.calls).toContainEqual(["ls", {
       all: true,
       json: true,
@@ -70,6 +71,8 @@ describe("tmux plugin command handler", () => {
       roster: true,
       recent: true,
       recentLimit: 2,
+      active: true,
+      activeThresholdSec: 3600,
     }]);
 
     await h.handler(cli(["ls", "--compact", "0"]));
