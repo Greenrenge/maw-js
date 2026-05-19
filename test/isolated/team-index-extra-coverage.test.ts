@@ -64,6 +64,7 @@ let homeDir = mkdtempSync(join(tmpdir(), "maw-team-index-extra-home-"));
 let teamsDir = mkdtempSync(join(tmpdir(), "maw-team-index-extra-teams-"));
 let loadTeamResult: Team | undefined;
 let hostExecQueue: Array<string | Error> = [];
+let childExecResult: string | Error = "";
 let throwOnResume = false;
 let listViaError = false;
 let unreadMessages: InboxMessage[] = [];
@@ -235,6 +236,7 @@ beforeEach(() => {
   mkdirSync(teamsDir, { recursive: true });
   loadTeamResult = undefined;
   hostExecQueue = [];
+  childExecResult = "";
   throwOnResume = false;
   listViaError = false;
   unreadMessages = [];
@@ -311,6 +313,44 @@ describe("team index extra isolated coverage", () => {
     const result = await teamHandler({ source: "cli", args: ["tasks"] });
     expect(result.ok).toBe(true);
     expect(calls.cmdTeamTaskList).toEqual([["single-team"]]);
+  });
+
+  test("resolves team context from the active tmux session when its config exists", async () => {
+    process.env.TMUX = "socket,123,0";
+    childExecResult = "12-active-team\n";
+    writeHomeTeamConfig("active-team");
+    const childProcess = require("child_process");
+    const originalExecFileSync = childProcess.execFileSync;
+    childProcess.execFileSync = () => {
+      if (childExecResult instanceof Error) throw childExecResult;
+      return childExecResult;
+    };
+    try {
+      const result = await teamHandler({ source: "cli", args: ["tasks"] });
+      expect(result.ok).toBe(true);
+      expect(calls.cmdTeamTaskList).toEqual([["active-team"]]);
+    } finally {
+      childProcess.execFileSync = originalExecFileSync;
+    }
+  });
+
+
+  test("falls back when active tmux session probing fails", async () => {
+    process.env.TMUX = "socket,123,0";
+    childExecResult = new Error("tmux failed");
+    const childProcess = require("child_process");
+    const originalExecFileSync = childProcess.execFileSync;
+    childProcess.execFileSync = () => {
+      if (childExecResult instanceof Error) throw childExecResult;
+      return childExecResult;
+    };
+    try {
+      const result = await teamHandler({ source: "cli", args: ["tasks"] });
+      expect(result.ok).toBe(true);
+      expect(calls.cmdTeamTaskList).toEqual([["default"]]);
+    } finally {
+      childProcess.execFileSync = originalExecFileSync;
+    }
   });
 
   test("captures stderr output from command helpers", async () => {
@@ -412,6 +452,12 @@ describe("team index extra isolated coverage", () => {
     expect(result.ok).toBe(true);
     expect(calls.hostExec).toEqual([["tmux send-keys -t '%1' Enter"]]);
     expect(result.output).toContain("enter sent to alice@room");
+  });
+
+  test("enter reports a missing context team before member lookup", async () => {
+    const result = await teamHandler({ source: "cli", args: ["enter", "alice"] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("team not found");
   });
 
   test("layout applies both tiled and main-vertical tmux layouts", async () => {

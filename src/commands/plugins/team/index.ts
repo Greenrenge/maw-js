@@ -29,10 +29,14 @@ function resolveTeamFromContext(): string {
   if (envTeam) return envTeam;
 
   // #1020 — detect team from tmux session name (strip NN- prefix)
-  if (process.env.TMUX) {
+  if (process.env.TMUX?.includes(",")) {
     try {
-      const { execSync } = require("child_process");
-      const sessionName = execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+      const { execFileSync } = require("child_process");
+      const sessionName = execFileSync("tmux", ["display-message", "-p", "#{session_name}"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 1000,
+      }).trim();
       const teamName = sessionName.replace(/^\d+-/, "");
       const teamsDir = join(homedir(), ".claude/teams");
       if (teamName && existsSync(join(teamsDir, teamName, "config.json"))) {

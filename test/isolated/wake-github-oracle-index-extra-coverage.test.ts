@@ -393,6 +393,7 @@ describe("oracle search implementation", () => {
   test("prints matching rows sorted by exactness, awake state, then name", async () => {
     enrichedEntries = [
       makeEntry("zeta", { entry: { nickname: "Neo Twin" } }),
+      makeEntry("alpha", { entry: { nickname: "Neo Helper" } }),
       makeEntry("neo"),
       makeEntry("morpheus", { awake: true, entry: { budded_from: "neo" } }),
       makeEntry("unmatched", { entry: { repo: "boring" } }),
@@ -400,11 +401,12 @@ describe("oracle search implementation", () => {
 
     const output = await captureConsoleLog(() => cmdOracleSearch("NEO"));
 
-    expect(output).toContain('3 oracles matching "NEO"');
+    expect(output).toContain('4 oracles matching "NEO"');
     expect(output).toContain("row:neo:false");
     expect(output).toContain("row:morpheus:false");
+    expect(output).toContain("row:alpha:false");
     expect(output).toContain("row:zeta:false");
-    expect(formattedRows.map((row) => row.name)).toEqual(["neo", "morpheus", "zeta"]);
+    expect(formattedRows.map((row) => row.name)).toEqual(["neo", "morpheus", "alpha", "zeta"]);
     expect(formattedRows.every((row) => row.opts.showPath === false)).toBe(true);
   });
 
