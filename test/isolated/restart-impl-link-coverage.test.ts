@@ -9,6 +9,7 @@ let sleepCalls = 0;
 let wakeCalls = 0;
 let logs: string[] = [];
 let homeDir = "";
+let failCheckoutLink = false;
 const originalHome = process.env.HOME;
 
 class MockTmux {
@@ -28,6 +29,7 @@ mock.module("maw-js/commands/shared/fleet", () => ({
 mock.module("child_process", () => ({
   execSync: (cmd: string) => {
     execCalls.push(cmd);
+    if (failCheckoutLink && cmd === "cd /tmp/maw-js-checkout && bun link") throw new Error("link failed");
     if (cmd === "maw --version") return "v9.9.9-linked\n";
     return "";
   },
@@ -46,6 +48,7 @@ beforeEach(() => {
   logs = [];
   homeDir = mkdtempSync(join(tmpdir(), "restart-link-home-"));
   process.env.HOME = homeDir;
+  failCheckoutLink = false;
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
 });
 
@@ -66,6 +69,17 @@ describe("restart impl SDK link branch", () => {
     ]);
     expect(execCalls[3]).toMatch(/^cd .*\/.oracle && bun link maw$/);
     expect(logs.join("\n")).toContain("SDK linked");
+    expect(sleepCalls).toBe(1);
+    expect(wakeCalls).toBe(1);
+  });
+
+  test("continues restart when local SDK relink fails", async () => {
+    failCheckoutLink = true;
+
+    await cmdRestart({ ref: "alpha" });
+
+    expect(execCalls).toContain("cd /tmp/maw-js-checkout && bun link");
+    expect(logs.join("\n")).not.toContain("SDK linked");
     expect(sleepCalls).toBe(1);
     expect(wakeCalls).toBe(1);
   });

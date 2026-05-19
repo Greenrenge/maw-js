@@ -158,6 +158,35 @@ describe("cmdDoneAll", () => {
     expect(worktreeLookups).toEqual([]);
   });
 
+  test("falls back to the only session when tmux cannot identify one", async () => {
+    tmuxRunFails = true;
+    sessions = [{
+      name: "solo",
+      windows: [
+        { index: 0, name: "lead", active: true },
+        { index: 2, name: "worker", active: false },
+      ],
+    }];
+
+    const summary = await cmdDoneAll({ force: true });
+
+    expect(summary).toEqual({ sessionName: "solo", processed: ["worker"], skipped: [] });
+    expect(tmuxCommands).toContain("kill solo:worker");
+    expect(worktreeLookups).toEqual(["config:worker", "ghq:worker"]);
+  });
+
+  test("reports no sessions without attempting cleanup", async () => {
+    tmuxRunFails = true;
+    sessions = [];
+
+    const summary = await cmdDoneAll({ force: true });
+
+    expect(summary).toEqual({ sessionName: null, processed: [], skipped: [] });
+    expect(tmuxCommands).toEqual(["run display-message -p #{session_name}"]);
+    expect(worktreeLookups).toEqual([]);
+    expect(snapshots).toEqual([]);
+  });
+
 
 
   test("reports a stale current session and an empty current session without processing", async () => {
@@ -180,6 +209,19 @@ describe("cmdDoneAll", () => {
     const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
     await cmdDone("missing-window", { dryRun: true });
     expect(autoSaveCalls.map(c => c.windowName)).not.toContain("missing-window");
+  });
+
+  test("cmdDone signals, autosaves, kills, scans cleanup, and snapshots a running window", async () => {
+    const { cmdDone } = await import("../../src/vendor/mpr-plugins/done/impl");
+
+    await cmdDone("alpha");
+
+    expect(inboxSignals).toEqual([{ windowName: "alpha", sessionName: "work" }]);
+    expect(autoSaveCalls).toEqual([{ windowName: "alpha", sessionName: "work", dryRun: undefined }]);
+    expect(tmuxCommands).toContain("kill work:alpha");
+    expect(worktreeLookups).toEqual(["config:alpha", "ghq:alpha"]);
+    expect(removedFleetEntries).toEqual(["alpha"]);
+    expect(snapshots).toEqual(["done"]);
   });
 
   test("cmdDoneAll records skipped windows when the single-window lifecycle throws", async () => {

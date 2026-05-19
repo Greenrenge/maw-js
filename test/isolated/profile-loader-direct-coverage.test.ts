@@ -51,6 +51,7 @@ describe("profile-loader direct coverage", () => {
 
   test("loadProfile seeds all, normalizes missing names, and skips invalid/corrupt profiles", () => {
     expect(loadProfile("BadName")).toBeNull();
+    expect(loadProfile("missing")).toBeNull();
     const all = loadProfile("all");
     expect(all?.name).toBe("all");
     expect(existsSync(profilePath("all"))).toBe(true);
@@ -91,6 +92,10 @@ describe("profile-loader direct coverage", () => {
     expect(getActiveProfile()).toBe("all");
     writeFileSync(activeProfilePath(), "BadName\n", "utf-8");
     expect(getActiveProfile()).toBe("all");
+    rmSync(activeProfilePath(), { force: true });
+    mkdirSync(activeProfilePath(), { recursive: true });
+    expect(getActiveProfile()).toBe("all");
+    rmSync(activeProfilePath(), { recursive: true, force: true });
 
     expect(() => setActiveProfile("BadName")).toThrow("invalid profile name");
     setActiveProfile("daily");
@@ -115,6 +120,15 @@ describe("profile-loader direct coverage", () => {
     expect([...changed!]).toEqual(["alpha", "gamma"]);
 
     setActiveProfile("missing");
+    expect(resolveActiveProfileFilter(plugins)).toBeNull();
+
+    mkdirSync(profilesDir(), { recursive: true });
+    writeFileSync(profilePath("empty"), JSON.stringify({ name: "empty" }), "utf-8");
+    setActiveProfile("empty");
+    expect(resolveActiveProfileFilter(plugins)).toBeNull();
+
+    writeFileSync(profilePath("corrupt"), "{bad-json", "utf-8");
+    setActiveProfile("corrupt");
     expect(resolveActiveProfileFilter(plugins)).toBeNull();
   });
 });

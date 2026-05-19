@@ -62,6 +62,7 @@ function sourceLineNumbers(file: string): Set<number> {
     // exercise with tests, so keep badge/gap accounting focused on source lines
     // that can plausibly execute.
     if (/^[{}\]\)(;,:]*$/.test(trimmed)) return;
+    if (/^import\s+type\s+/.test(trimmed)) return;
     if (/^(export\s+)?(interface|type)\s+/.test(trimmed)) return;
     if (/^(public\s+|private\s+|protected\s+|readonly\s+)*[A-Za-z_$][\w$]*\??:\s*[^=]+[,;]?$/.test(trimmed)) return;
     if (/^[A-Za-z_$][\w$]*\??\([^)]*\):\s*[^=]+;?$/.test(trimmed)) return;

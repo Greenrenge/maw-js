@@ -81,9 +81,7 @@ export function validateSchema(parsed: unknown): { ok: true; lock: Lock } | { ok
   if (schema !== LOCK_SCHEMA) {
     return {
       ok: false,
-      error:
-        `plugins.lock: unknown schema ${schema} (this build supports ${LOCK_SCHEMA}).\n` +
-        `  migration: upgrade maw-js or regenerate the lockfile with 'maw plugin pin' on each entry.`,
+      error: `plugins.lock: unknown schema ${schema} (this build supports ${LOCK_SCHEMA}).\n  migration: upgrade maw-js or regenerate the lockfile with 'maw plugin pin' on each entry.`,
     };
   }
   const plugins = obj.plugins;
@@ -211,8 +209,6 @@ function hashTarballArtifact(tarballPath: string): { ok: true; hash: string; ver
       relPath = manifest.entry!;
     } else if (manifest.artifact) {
       relPath = manifest.artifact.path;
-    } else if (hasEntry) {
-      relPath = manifest.entry!;
     } else {
       return { ok: false, error: "tarball manifest has no 'artifact' or 'entry' field — rebuild with 'maw plugin build' or declare an entry path" };
     }

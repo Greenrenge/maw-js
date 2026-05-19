@@ -113,6 +113,18 @@ describe("lsPeer", () => {
     });
   });
 
+
+  test("renders an empty peer session listing", async () => {
+    writePeers({ empty: { url: "http://empty.local:3456" } });
+    curlFetchHandler = () => ({ ok: true, status: 200, data: [] });
+
+    const result = await lsPeer("empty", { json: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("0 sessions");
+    expect(result.output).toContain("(no sessions)");
+  });
+
   test("returns a deterministic no-peer error without calling fetch", async () => {
     writePeers({ other: { url: "http://other.local:3456" } });
 
@@ -122,11 +134,23 @@ describe("lsPeer", () => {
     expect(curlFetchCalls).toHaveLength(0);
   });
 
+
+  test("treats a malformed peer store as no matching peer", async () => {
+    writeFileSync(join(tempDir, "peers.json"), "{not-json", "utf-8");
+    process.env.PEERS_FILE = join(tempDir, "peers.json");
+
+    const result = await lsPeer("broken", { json: false });
+
+    expect(result).toEqual({ ok: false, error: "unknown peer alias: broken (see: maw peers list)" });
+    expect(curlFetchCalls).toHaveLength(0);
+  });
+
   test("maps HTTP errors to user-facing messages", async () => {
-    writePeers({ old: { url: "http://old.local" }, locked: { url: "http://locked.local" }, down: { url: "http://down.local" } });
+    writePeers({ old: { url: "http://old.local" }, locked: { url: "http://locked.local" }, down: { url: "http://down.local" }, silent: { url: "http://silent.local" } });
     curlFetchHandler = (url) => {
       if (url.startsWith("http://old.local")) return { ok: false, status: 404, data: {} };
       if (url.startsWith("http://locked.local")) return { ok: false, status: 403, data: {} };
+      if (url.startsWith("http://silent.local")) return { ok: false };
       return { ok: false, status: 502, data: { error: "bad gateway" } };
     };
 
@@ -141,6 +165,10 @@ describe("lsPeer", () => {
     await expect(lsPeer("down", { json: false })).resolves.toEqual({
       ok: false,
       error: "peer ls failed (down http://down.local): bad gateway",
+    });
+    await expect(lsPeer("silent", { json: false })).resolves.toEqual({
+      ok: false,
+      error: "peer ls failed (silent http://silent.local): no response",
     });
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -102,6 +102,21 @@ describe("doctor vendor peers store coverage", () => {
     expect(staleAgeMs({ url: "u", node: null, addedAt: "bad", lastSeen: null }, now)).toBeNull();
     expect(isStale({ url: "u", node: null, addedAt: "bad", lastSeen: null }, 1000, now)).toBe(true);
     expect(isStale({ url: "u", node: null, addedAt: "2026-05-18T11:59:59.000Z", lastSeen: null }, 1000, now)).toBe(false);
+  });
+
+  test("read errors and unlocked parse errors recover as empty stores", () => {
+    rmSync(file, { recursive: true, force: true });
+    mkdirSync(file, { recursive: true });
+    expect(loadPeers()).toEqual({ version: 1, peers: {} });
+
+    rmSync(file, { recursive: true, force: true });
+    writeFileSync(file, "{not-json");
+    const recovered = mutatePeers((data) => {
+      data.peers.recovered = { url: "http://recovered", node: null, addedAt: "bad", lastSeen: null };
+    });
+
+    expect(Object.keys(recovered.peers)).toEqual(["recovered"]);
+    expect(loadPeers().peers.recovered.url).toBe("http://recovered");
   });
 
   test("clearStaleTmp is best effort", () => {

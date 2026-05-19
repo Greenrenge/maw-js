@@ -1,60 +1,65 @@
-/** Isolated coverage for src/vendor/mpr-plugins/doctor/internal/duplicate-detect.ts. */
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import {
+  findDuplicateIdentities,
+  formatDuplicate,
+  warnDuplicatesAtBoot,
+} from "../../src/vendor/mpr-plugins/doctor/internal/duplicate-detect";
+import type { Peer } from "../../src/vendor/mpr-plugins/doctor/internal/peers-store";
 
-const { findDuplicateIdentities, formatDuplicate, warnDuplicatesAtBoot } = await import(
-  "../../src/vendor/mpr-plugins/doctor/internal/duplicate-detect.ts?doctor-duplicate-detect-coverage"
-);
+function peer(url: string, oracle?: string, node?: string): Peer {
+  return {
+    url,
+    node: node ?? null,
+    addedAt: "2026-05-18T00:00:00.000Z",
+    lastSeen: null,
+    identity: oracle && node ? { oracle, node } : undefined,
+  };
+}
 
-const originalWarn = console.warn;
+describe("doctor duplicate identity detection coverage", () => {
+  test("includes local identity, skips legacy/incomplete peers, and formats URL-less claimants", () => {
+    const peers: Record<string, Peer> = {
+      localCopy: peer("http://copy", "mawjs", "m5"),
+      otherA: peer("http://a", "pulse", "white"),
+      otherB: peer("http://b", "pulse", "white"),
+      legacy: peer("http://legacy"),
+      missingOracle: { ...peer("http://missing"), identity: { oracle: "", node: "node" } },
+    };
 
-afterEach(() => {
-  console.warn = originalWarn;
-});
+    const dups = findDuplicateIdentities(peers, { oracle: "mawjs", node: "m5" });
 
-describe("doctor duplicate identity detection", () => {
-  test("skips legacy identities, groups duplicates, includes local claims, and sorts by key", () => {
-    const duplicates = findDuplicateIdentities({
-      legacy: { url: "http://legacy", node: null, addedAt: "x", lastSeen: null },
-      missingOracle: { url: "http://missing-oracle", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "", node: "m5" } },
-      missingNode: { url: "http://missing-node", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "mawjs", node: "" } },
-      zTwo: { url: "http://z-2", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "zed", node: "node" } },
-      aTwo: { url: "http://a-2", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "alpha", node: "node" } },
-      zThree: { url: "http://z-3", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "zed", node: "node" } },
-    }, { oracle: "alpha", node: "node" });
-
-    expect(duplicates).toEqual([
-      {
-        key: "alpha:node",
-        claimants: [
-          { alias: "<local>" },
-          { alias: "aTwo", url: "http://a-2" },
-        ],
-      },
-      {
-        key: "zed:node",
-        claimants: [
-          { alias: "zTwo", url: "http://z-2" },
-          { alias: "zThree", url: "http://z-3" },
-        ],
-      },
+    expect(dups.map(d => d.key)).toEqual(["mawjs:m5", "pulse:white"]);
+    expect(dups[0]?.claimants).toEqual([
+      { alias: "<local>" },
+      { alias: "localCopy", url: "http://copy" },
     ]);
-    expect(formatDuplicate(duplicates[0]!)).toBe('duplicate <oracle>:<node> claim "alpha:node" — <local>, aTwo (http://a-2)');
+    expect(formatDuplicate(dups[0]!)).toBe('duplicate <oracle>:<node> claim "mawjs:m5" — <local>, localCopy (http://copy)');
   });
 
-  test("warnDuplicatesAtBoot uses console.warn by default and returns duplicate list", () => {
+  test("warnDuplicatesAtBoot defaults to console.warn and returns an empty list when clean", () => {
+    const originalWarn = console.warn;
     const warnings: string[] = [];
-    console.warn = (msg?: unknown) => { warnings.push(String(msg)); };
+    console.warn = (msg?: unknown) => warnings.push(String(msg));
+    try {
+      expect(warnDuplicatesAtBoot({ peers: { solo: peer("http://solo", "solo", "node") } })).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).toEqual([]);
+  });
 
-    const duplicates = warnDuplicatesAtBoot({
+  test("warnDuplicatesAtBoot logs both warning lines for collisions", () => {
+    const logs: string[] = [];
+    const dups = warnDuplicatesAtBoot({
       peers: {
-        self: { url: "http://self", node: null, addedAt: "x", lastSeen: null, identity: { oracle: "mawjs", node: "m5" } },
+        a: peer("http://a", "pulse", "white"),
+        b: peer("http://b", "pulse", "white"),
       },
-      local: { oracle: "mawjs", node: "m5" },
+      log: (msg) => logs.push(msg),
     });
 
-    expect(duplicates).toHaveLength(1);
-    expect(warnings).toHaveLength(2);
-    expect(warnings[0]).toContain("duplicate <oracle>:<node> claim");
-    expect(warnings[1]).toContain("maw peers remove <alias>");
+    expect(dups).toHaveLength(1);
+    expect(logs[0]).toContain("duplicate <oracle>:<node> claim");
+    expect(logs[1]).toContain("investigate with `maw peers list`");
   });
 });

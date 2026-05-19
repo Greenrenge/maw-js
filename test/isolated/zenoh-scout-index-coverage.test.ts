@@ -314,6 +314,39 @@ describe("zenoh-scout plugin index", () => {
     expect(runZenohCalls).toEqual([]);
   });
 
+  test("emits combined json for transport=both when zenoh is forced", async () => {
+    readConfigReturn = baseScoutConfig({ enabled: false, locator: "ws://base:10000" });
+    runZenohResult = {
+      ok: true,
+      enabled: true,
+      locator: "ws://base:10000",
+      keyPrefix: "maw/discovery/v1",
+      total: 1,
+      peers: [{ zid: "zenoh:1" }],
+    };
+    discoveredResult = {
+      ok: false,
+      error: "scout_down",
+      total: 0,
+      shown: 0,
+      filtered: false,
+      peers: [],
+    };
+    const writes: string[] = [];
+
+    const result = await handler({
+      source: "api",
+      args: { transport: "both", force: "true", json: "true" },
+      writer: (...args: unknown[]) => writes.push(args.map(String).join(" ")),
+    } as any);
+
+    const expected = { ok: true, zenoh: runZenohResult, scout: discoveredResult };
+    expect(writes).toEqual([JSON.stringify(expected, null, 2)]);
+    expect(result).toEqual({ ok: true, error: undefined, output: undefined });
+    expect(formatZenohCalls).toEqual([]);
+    expect(formatDiscoveriesCalls).toEqual([]);
+  });
+
   test("surfaces thrown errors as command failures", async () => {
     runZenohError = new Error("zenoh exploded");
 

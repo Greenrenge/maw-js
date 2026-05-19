@@ -96,6 +96,63 @@ describe("Claude Code session discovery", () => {
     expect(Date.parse(sessions[0].lastActivityAt)).not.toBeNaN();
   });
 
+
+  test("listClaudeSessions correlates an active tmux-launched process and reuses the short-lived cache", async () => {
+    const home = tempDir();
+    const projectsRoot = join(home, ".claude", "projects");
+    process.env.MAW_CLAUDE_PROJECTS_DIR = projectsRoot;
+    process.env.MAW_CLAUDE_SKIP_PID_SCAN = "0";
+
+    const projectPath = join(home, "projects", "activerepo");
+    mkdirSync(projectPath, { recursive: true });
+    const encoded = encodeProjectPath(projectPath);
+    const claudeProjectDir = join(projectsRoot, encoded);
+    mkdirSync(claudeProjectDir, { recursive: true });
+
+    const sessionFile = join(claudeProjectDir, "active.jsonl");
+    writeFileSync(sessionFile, [
+      JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "array user" }] } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "array assistant" }] } }),
+    ].join("\n"));
+
+    const { listClaudeSessions, __resetClaudeSessionCachesForTests } = await freshModule();
+    __resetClaudeSessionCachesForTests();
+    const commands: string[] = [];
+    const execSync = (command: string) => {
+      commands.push(command);
+      if (command.startsWith("ps -eo")) return `123 45 claude --dangerously-skip-permissions`;
+      if (command.startsWith("readlink /proc/123/cwd")) return `${projectPath}\n`;
+      if (command.startsWith("lsof -p 123")) return `n${projectPath}\n`;
+      if (command.startsWith("ps -o comm=,ppid= -p 45")) return "tmux 1\n";
+      if (command.startsWith("tail ")) return readFileSync(sessionFile, "utf-8");
+      if (command.startsWith("awk ")) return "2\n";
+      if (command.includes("remote get-url") || command.includes("worktree list")) throw new Error("not a git repo");
+      throw new Error(`unexpected execSync call: ${command}`);
+    };
+
+    const first = await listClaudeSessions({ execSync });
+    const second = await listClaudeSessions({ execSync });
+
+    expect(second).toBe(first);
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({
+      sessionId: "active",
+      projectPath,
+      pid: 123,
+      ppid: 45,
+      parentChain: ["tmux"],
+      triggeredFrom: "tmux",
+      status: "active",
+      lastUserMessage: "array user",
+      lastAssistantMessage: "array assistant",
+      messageCount: 2,
+      repo: null,
+      worktree: null,
+    });
+    expect(first[0].tmuxTarget).toContain("activerepo");
+    expect(commands.filter(c => c.startsWith("ps -eo")).length).toBe(1);
+  });
+
   test("listClaudeSessions returns [] when the Claude projects directory is absent", async () => {
     const home = tempDir();
     process.env.MAW_CLAUDE_PROJECTS_DIR = join(home, ".claude", "projects");

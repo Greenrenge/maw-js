@@ -7,6 +7,8 @@ import {
   parseDiscoveryKey,
   readZenohScoutConfig,
   runZenohScout,
+  formatZenohScoutResult,
+  keyexprFromReply,
   type ZenohApi,
 } from "../../src/vendor/mpr-plugins/zenoh-scout/impl";
 import { ZenohScoutTransport } from "../../src/transports/zenoh-scout";
@@ -88,6 +90,54 @@ describe("zenoh-scout plugin (#1455)", () => {
     expect(row?.zid).toStartWith("zenoh:");
   });
 
+  test("formats disabled, unavailable, empty, and populated results", () => {
+    const base = {
+      locator: "ws://router:10000",
+      keyPrefix: "maw/test/v1",
+      total: 0,
+      peers: [],
+    };
+
+    expect(formatZenohScoutResult({ ...base, ok: true, enabled: false })).toContain("zenoh-scout disabled");
+    expect(formatZenohScoutResult({ ...base, ok: false, enabled: true })).toContain("error: unknown");
+    expect(formatZenohScoutResult({ ...base, ok: true, enabled: true })).toContain("no zenoh discoveries");
+    expect(formatZenohScoutResult({
+      ...base,
+      ok: true,
+      enabled: true,
+      total: 1,
+      peers: [{
+        zid: "zenoh:1234567890abcdef",
+        node: "white",
+        oracle: "pulse",
+        host: "not-a-url",
+        locators: ["not-a-url"],
+        capabilities: [],
+        oracles: ["pulse"],
+        firstSeen: "2026-05-15T00:00:00.000Z",
+        lastSeen: "2026-05-15T00:00:00.000Z",
+        seenRel: "now",
+        paired: false,
+        transport: "zenoh",
+      }],
+    })).toContain("12345678…");
+  });
+
+  test("parses string keyexpr replies and raw non-URL discovery hosts", () => {
+    const key = [
+      "maw/test/v1",
+      Buffer.from("node", "utf8").toString("base64url"),
+      Buffer.from("oracle", "utf8").toString("base64url"),
+      Buffer.from("not-a-url", "utf8").toString("base64url"),
+      Buffer.from("", "utf8").toString("base64url"),
+      "alive",
+    ].join("/");
+
+    expect(keyexprFromReply({ keyexpr: () => key })).toBe(key);
+    expect(keyexprFromReply({ keyexpr: () => Object.create(null) })).toBeNull();
+    expect(parseDiscoveryKey(key, "maw/test/v1")?.host).toBe("not-a-url");
+  });
+
   test("queries zenoh liveliness via injectable zenoh-ts API and skips self", async () => {
     const local = readZenohScoutConfig({ node: "m5", oracle: "mawjs", port: 3456, zenoh: { scout: { enabled: true } } });
     const remote = readZenohScoutConfig({ node: "white", oracle: "pulse", port: 4567, zenoh: { scout: { enabled: true } } });
@@ -150,6 +200,60 @@ describe("zenoh-scout plugin (#1455)", () => {
     ]);
   });
 
+  test("supports open() fallback, disabled advertising, and empty liveliness receivers", async () => {
+    const cfg = readZenohScoutConfig({
+      node: "m5",
+      oracle: "mawjs",
+      zenoh: { locator: "ws://router:10000", scout: { enabled: true, timeoutMs: 0, keyPrefix: "maw/test/v1///" } },
+    });
+    const calls: string[] = [];
+
+    expect(cfg).toMatchObject({
+      locator: "ws://router:10000",
+      timeoutMs: 1,
+      keyPrefix: "maw/test/v1",
+      apiUrl: "http://m5:3456",
+    });
+
+    class FakeConfig {
+      constructor(public locator: string, public timeoutMs?: number) {}
+    }
+    class FakeKeyExpr {
+      constructor(public key: string) {}
+      toString() { return this.key; }
+    }
+
+    const fakeSession = {
+      liveliness() {
+        return {
+          async declareToken() {
+            calls.push("declare");
+            return { async undeclare() { calls.push("undeclare"); } };
+          },
+          async get(key: FakeKeyExpr) {
+            calls.push(`get:${key}`);
+            return undefined;
+          },
+        };
+      },
+      async close() { calls.push("close"); },
+    };
+
+    const fakeZenoh: ZenohApi = {
+      Config: FakeConfig,
+      KeyExpr: FakeKeyExpr,
+      open: async () => {
+        calls.push("open");
+        return fakeSession;
+      },
+    };
+
+    const result = await runZenohScout({ ...cfg, advertise: false }, { importZenoh: async () => fakeZenoh });
+
+    expect(result).toMatchObject({ ok: true, total: 0, peers: [] });
+    expect(calls).toEqual(["open", "get:maw/test/v1/**", "close"]);
+  });
+
   test("missing zenoh bridge is reported as actionable unavailability", async () => {
     const cfg = readZenohScoutConfig({ node: "m5", oracle: "mawjs", zenoh: { scout: { enabled: true } } });
     const result = await runZenohScout(cfg, {
@@ -174,6 +278,19 @@ describe("zenoh-scout plugin (#1455)", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("zenoh_runtime_unsupported");
     expect(result.hint).toContain("zenoh-ts failed to initialize in this runtime");
+  });
+
+  test("missing zenoh-ts module failures get install guidance", async () => {
+    const cfg = readZenohScoutConfig({ node: "m5", oracle: "mawjs", zenoh: { scout: { enabled: true } } });
+    const result = await runZenohScout(cfg, {
+      importZenoh: async () => {
+        throw new Error("Cannot find module '@eclipse-zenoh/zenoh-ts'");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("zenoh_unavailable");
+    expect(result.hint).toContain("install @eclipse-zenoh/zenoh-ts");
   });
 
   test("ZenohScoutTransport feeds router-style discovered peers without sending or pairing", async () => {

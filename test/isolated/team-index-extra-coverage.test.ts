@@ -470,6 +470,21 @@ describe("team index extra isolated coverage", () => {
     ]);
   });
 
+  test("prep --tiled applies the tiled layout after pane creation", async () => {
+    process.env.TMUX = "/tmp/tmux";
+    process.env.MAW_TEAM = "prep-tiled";
+    process.env.TMUX_PANE = "%leader";
+    writeCommandTeamConfig("prep-tiled", []);
+    hostExecQueue = ["%tile\n"];
+
+    const result = await teamHandler({ source: "cli", args: ["prep", "1", "--tiled"] });
+
+    expect(result.ok).toBe(true);
+    expect(calls.applyTiledLayout).toEqual([["win:1"]]);
+    expect(calls.applyTeamLayout).toEqual([]);
+    expect(result.output).toContain("tiled");
+  });
+
   test("recover reports missing snapshots and restores alive panes from a snapshot", async () => {
     process.env.MAW_TEAM = "room";
 

@@ -123,6 +123,7 @@ describe("shared scaffold and CLI helper low-hanging branches", () => {
     const { checkCapacity } = await import("../../src/commands/shared/wake-concurrency.ts?coverage-100b-cap");
 
     expect(() => checkCapacity(2, 2, "new-agent")).toThrow("or sleep an idle agent first");
+    expect(() => checkCapacity(1, Number.NaN, "new-agent")).not.toThrow();
   });
 });
 
@@ -191,9 +192,25 @@ describe("workspace store error branches", () => {
     const store = await import("../../src/commands/shared/workspace-store.ts?coverage-100b-workspace-list");
     mkdirSync(join(configDir, "workspaces"), { recursive: true });
     writeFileSync(join(configDir, "workspaces", "bad.json"), "{ nope", "utf-8");
-    writeFileSync(join(configDir, "workspaces", "good.json"), JSON.stringify({ id: "good", name: "Good" }), "utf-8");
+    writeFileSync(join(configDir, "workspaces", "good.json"), JSON.stringify({
+      id: "good",
+      name: "Good",
+      hubUrl: "http://hub",
+      joinCode: "JOIN",
+      sharedAgents: ["one", 7, "two"],
+      joinedAt: "now",
+      lastStatus: "connected",
+    }), "utf-8");
 
-    expect(store.loadAllWorkspaces().map(ws => ws.id)).toEqual(["good"]);
+    expect(store.loadAllWorkspaces()).toEqual([{
+      id: "good",
+      name: "Good",
+      hubUrl: "http://hub",
+      joinCode: "JOIN",
+      sharedAgents: ["one", "two"],
+      joinedAt: "now",
+      lastStatus: "connected",
+    }]);
 
     const blockedConfigDir = tmp("maw-workspaces-blocked-");
     process.env.MAW_CONFIG_DIR = blockedConfigDir;
