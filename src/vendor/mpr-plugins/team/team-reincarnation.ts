@@ -1,13 +1,41 @@
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
-import { resolvePsi } from "./team-helpers";
+import { claimOrphanedTeamLead, resolvePsi, type TeamLeadClaim } from "./team-helpers";
 import { cmdTeamSpawn } from "./team-lifecycle";
 
 // ─── maw team resume <name> ───
 
+function shortSession(id?: string): string {
+  if (!id) return "(none)";
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+function printClaimedTeam(name: string, claim: TeamLeadClaim): void {
+  console.log(`\x1b[32m✓\x1b[0m claimed orphaned team '${name}'`);
+  console.log(`  old lead: ${shortSession(claim.oldLeadSessionId)} (dead)`);
+  console.log(`  new lead: ${shortSession(claim.newLeadSessionId)} (this session)`);
+  console.log(`  teammates: ${claim.teammates.length}${claim.teammates.length ? ` (${claim.teammates.join(", ")})` : ""}`);
+}
+
 export function cmdTeamResume(name: string, opts: { model?: string } = {}) {
   const PSI = resolvePsi();
   const manifestPath = join(PSI, "memory", "mailbox", "teams", name, "manifest.json");
+  const claim = claimOrphanedTeamLead(name);
+
+  if (claim.claimed) {
+    printClaimedTeam(name, claim);
+    if (!existsSync(manifestPath)) return;
+    console.log();
+  } else if (
+    claim.found
+    && !existsSync(manifestPath)
+    && claim.oldLeadSessionId
+    && claim.oldLeadSessionId === claim.newLeadSessionId
+  ) {
+    console.log(`\x1b[32m✓\x1b[0m team '${name}' already claimed by this lead session`);
+    console.log(`  teammates: ${claim.teammates.length}${claim.teammates.length ? ` (${claim.teammates.join(", ")})` : ""}`);
+    return;
+  }
 
   if (!existsSync(manifestPath)) {
     throw new Error(`no archived team '${name}' found — looked in: ${manifestPath}`);

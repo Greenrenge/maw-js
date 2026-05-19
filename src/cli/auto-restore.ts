@@ -27,10 +27,11 @@ export async function maybeAutoRestore(cmd: string | undefined): Promise<void> {
     console.log(`\x1b[36m📸\x1b[0m Last snapshot: ${snap.sessions.length} sessions (${ageStr})`);
     for (const s of snap.sessions) console.log(`   ${s.name}`);
     process.stdout.write(`\nRestore all? [y/N] `);
+    const fs = await import("fs");
     const buf = new Uint8Array(64);
-    const fd = require("fs").openSync("/dev/tty", "r");
-    const n = require("fs").readSync(fd, buf);
-    require("fs").closeSync(fd);
+    const fd = fs.openSync("/dev/tty", "r");
+    const n = fs.readSync(fd, buf);
+    fs.closeSync(fd);
     const answer = new TextDecoder().decode(buf.subarray(0, n)).trim().toLowerCase();
     if (answer !== "y" && answer !== "yes") return;
 

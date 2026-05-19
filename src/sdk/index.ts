@@ -49,6 +49,13 @@ export {
 } from "../core/transport/peers";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
+export { resolveOracle, pickOracle } from "../core/resolve";
+export type {
+  OracleRef,
+  ResolveOracleOptions,
+  ResolveResult as OracleResolveResult,
+  PickOracleOptions,
+} from "../core/resolve";
 export { findWindow } from "../core/runtime/find-window";
 export type { Session, Window } from "../core/runtime/find-window";
 

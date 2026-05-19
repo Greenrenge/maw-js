@@ -5,10 +5,17 @@ let hostExecCalls: string[] = [];
 let listPanesResponse = "3\n";
 let tileMarkerResponse = "";
 let paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
+let refreshClientThrows = false;
+let paneCommandResponse = "zsh";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
+    if (cmd.includes("pane_current_command")) return paneCommandResponse;
+    if (cmd.includes("refresh-client")) {
+      if (refreshClientThrows) throw new Error("refresh unsupported");
+      return "";
+    }
     if (cmd.includes("show-options") && cmd.includes("@maw_tile")) return tileMarkerResponse;
     if (cmd.includes("list-panes") && cmd.includes("#{pane_id}|#{pane_top}|#{pane_left}|#{@maw_tile}")) {
       return paneGeometryResponse;
@@ -23,14 +30,18 @@ const { findTopRightPane, maybeOpenWindow, maybeSplit } = await import("../../sr
 describe("wake maybeSplit", () => {
   const originalTmux = process.env.TMUX;
   const originalPane = process.env.TMUX_PANE;
+  const originalAllowClaudeSplit = process.env.MAW_ALLOW_CLAUDE_SPLIT;
 
   beforeEach(() => {
     hostExecCalls = [];
     listPanesResponse = "3\n";
     tileMarkerResponse = "";
     paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
+    refreshClientThrows = false;
+    paneCommandResponse = "zsh";
     process.env.TMUX = "/tmp/tmux-501/default,123,0";
     process.env.TMUX_PANE = "%42";
+    delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
   });
 
   test("does nothing when split is not requested", async () => {
@@ -41,15 +52,31 @@ describe("wake maybeSplit", () => {
   test("splits current pane and attaches target without importing removed split plugin", async () => {
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(4);
-    expect(hostExecCalls[0]).toContain("tmux split-window");
-    expect(hostExecCalls[0]).toContain("-t '%42'");
-    expect(hostExecCalls[0]).toContain("-h -l 50%");
-    expect(hostExecCalls[0]).toContain("TMUX= tmux attach-session -t");
-    expect(hostExecCalls[0]).toContain("20-homekeeper:homekeeper-oracle");
-    expect(hostExecCalls[1]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
-    expect(hostExecCalls[2]).toContain("tmux list-panes -t '%42'");
-    expect(hostExecCalls[3]).toContain("tmux select-layout -t '%42' main-vertical");
+    expect(hostExecCalls).toHaveLength(6);
+    expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
+    expect(hostExecCalls[1]).toContain("-t '%42'");
+    expect(hostExecCalls[1]).toContain("-h -l 50%");
+    expect(hostExecCalls[1]).toContain("TMUX= tmux attach-session -t");
+    expect(hostExecCalls[1]).toContain("20-homekeeper:homekeeper-oracle");
+    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[3]).toContain("tmux list-panes -t '%42'");
+    expect(hostExecCalls[4]).toContain("tmux select-layout -t '%42' main-vertical");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
+  });
+
+  test("does not reset layout when split leaves only two panes", async () => {
+    listPanesResponse = "2\n";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls).toHaveLength(5);
+    expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
+    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[3]).toContain("tmux list-panes -t '%42'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux select-layout"))).toBe(false);
   });
 
   test("preserves horizontal split when splitting from a maw tile pane", async () => {
@@ -57,12 +84,36 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(2);
-    expect(hostExecCalls[0]).toContain("tmux split-window");
-    expect(hostExecCalls[0]).toContain("-t '%42'");
-    expect(hostExecCalls[0]).toContain("-h -l 50%");
-    expect(hostExecCalls[1]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls).toHaveLength(4);
+    expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
+    expect(hostExecCalls[1]).toContain("-t '%42'");
+    expect(hostExecCalls[1]).toContain("-h -l 50%");
+    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[3]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux select-layout"))).toBe(false);
+  });
+
+
+  test("warns but continues split from Claude-like caller panes when explicitly requested (#1562)", async () => {
+    paneCommandResponse = "claude";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls[0]).toContain("pane_current_command");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
+    expect(hostExecCalls[1]).toContain("-t '%42'");
+  });
+
+
+  test("can force split from Claude-like caller panes with MAW_ALLOW_CLAUDE_SPLIT", async () => {
+    paneCommandResponse = "claude";
+    process.env.MAW_ALLOW_CLAUDE_SPLIT = "1";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls[0]).toContain("tmux split-window");
+    expect(hostExecCalls.some(cmd => cmd.includes("pane_current_command"))).toBe(false);
   });
 
   test("can split without TMUX_PANE by omitting anchor", async () => {
@@ -70,11 +121,12 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(3);
+    expect(hostExecCalls).toHaveLength(4);
     expect(hostExecCalls[0]).not.toContain("-t '%");
     expect(hostExecCalls[0]).toContain("tmux split-window -h -l 50%");
     expect(hostExecCalls[1]).toContain("tmux list-panes ");
     expect(hostExecCalls[2]).toContain("tmux select-layout main-vertical");
+    expect(hostExecCalls[3]).toBe("tmux refresh-client -S");
   });
 
   test("uses tiled layout after split when pane count is high", async () => {
@@ -82,7 +134,16 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[3]).toContain("tmux select-layout -t '%42' tiled");
+    expect(hostExecCalls[4]).toContain("tmux select-layout -t '%42' tiled");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
+  });
+
+  test("redraw nudge failure does not fail the split", async () => {
+    refreshClientThrows = true;
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls.at(-1)).toBe("tmux refresh-client -S");
   });
 
   test("finds the top-right tile pane, excluding the caller", async () => {
@@ -129,5 +190,7 @@ describe("wake maybeSplit", () => {
     else process.env.TMUX = originalTmux;
     if (originalPane === undefined) delete process.env.TMUX_PANE;
     else process.env.TMUX_PANE = originalPane;
+    if (originalAllowClaudeSplit === undefined) delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
+    else process.env.MAW_ALLOW_CLAUDE_SPLIT = originalAllowClaudeSplit;
   });
 });

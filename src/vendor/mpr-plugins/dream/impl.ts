@@ -1079,3 +1079,13 @@ function printHelp(): void {
   console.log("Falls back to git-only scan if offline.\n");
   console.log("Output: ψ/writing/dreams/ + ψ/memory/morpheus/");
 }
+
+export const __dreamImplCoverageHooks = {
+  findConnections,
+  generateInsights,
+  printHelp,
+  renderDream,
+  saveDream,
+  speculateFromExisting,
+  writeSpeculations,
+};

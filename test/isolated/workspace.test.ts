@@ -401,6 +401,30 @@ describe("cmdWorkspaceLeave", () => {
     expect(existsSync(join(WS_DIR, "w-stuck.json"))).toBe(false);
     expect(existsSync(join(WS_DIR, "w-stuck.left.json"))).toBe(true);
   });
+
+  test("rename failure falls back to deleting the local workspace config", async () => {
+    writeWsFile("w-unlink", { id: "w-unlink", name: "unlinkme", hubUrl: "https://h.example", sharedAgents: [], joinedAt: "t" });
+    curlStubs = [{ match: /leave/, response: { ok: true, data: null } }];
+
+    const fs = require("fs");
+    const realRenameSync = fs.renameSync;
+    const realUnlinkSync = fs.unlinkSync;
+    const unlinked: string[] = [];
+    fs.renameSync = () => { throw new Error("rename denied"); };
+    fs.unlinkSync = (path: string) => { unlinked.push(path); return realUnlinkSync(path); };
+    try {
+      await run(() => cmdWorkspaceLeave("w-unlink"));
+    } finally {
+      fs.renameSync = realRenameSync;
+      fs.unlinkSync = realUnlinkSync;
+    }
+
+    expect(exitCode).toBeUndefined();
+    expect(unlinked).toEqual([join(WS_DIR, "w-unlink.json")]);
+    expect(existsSync(join(WS_DIR, "w-unlink.json"))).toBe(false);
+    expect(existsSync(join(WS_DIR, "w-unlink.left.json"))).toBe(false);
+    expect(outs.join("\n")).toContain("left workspace");
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

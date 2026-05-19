@@ -1,4 +1,5 @@
 import { hostExec } from "../../sdk";
+import { isClaudeLikePane } from "../plugins/tmux/safety";
 
 function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -21,11 +22,32 @@ async function restoreSplitLayout(anchor?: string): Promise<void> {
     const targetFlag = windowTarget ? `-t ${shellArg(windowTarget)} ` : "";
     const raw = await hostExec(`tmux list-panes ${targetFlag}| wc -l`);
     const total = Number.parseInt(String(raw).trim(), 10);
-    const layout = Number.isFinite(total) && total > 4 ? "tiled" : "main-vertical";
+    if (!Number.isFinite(total) || total <= 2) return;
+    const layout = total > 4 ? "tiled" : "main-vertical";
     await hostExec(`tmux select-layout ${targetFlag}${layout}`);
   } catch {
     // Best-effort polish only: split succeeded, so never fail delivery because
     // the caller's tmux cannot reflow the current window.
+  }
+}
+
+async function refreshSplitClient(): Promise<void> {
+  try {
+    await hostExec("tmux refresh-client -S");
+  } catch {
+    // Best-effort redraw nudge only (#1562): if tmux rejects refresh-client
+    // in a headless or old-server environment, keep the successful split.
+  }
+}
+
+async function isClaudeLikeCallerPane(anchor?: string): Promise<boolean> {
+  if (!anchor) return false;
+  if (process.env.MAW_ALLOW_CLAUDE_SPLIT === "1") return false;
+  try {
+    const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{pane_current_command}'`);
+    return isClaudeLikePane(String(raw).trim());
+  } catch {
+    return false;
   }
 }
 
@@ -82,12 +104,16 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
   if (process.env.TMUX) {
     try {
       const anchor = process.env.TMUX_PANE;
+      if (await isClaudeLikeCallerPane(anchor)) {
+        console.log(`  \x1b[33m⚠\x1b[0m --split requested from a Claude Code pane; continuing despite possible redraw smear (#1562).`);
+      }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
       await hostExec(`tmux split-window ${targetFlag}-h -l 50% ${shellArg(innerCmd)}`);
       if (!(await isMawTilePane(anchor))) {
         await restoreSplitLayout(anchor);
       }
+      await refreshSplitClient();
       console.log(`  \x1b[32m✓\x1b[0m split beside — ${target} (50%)`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);

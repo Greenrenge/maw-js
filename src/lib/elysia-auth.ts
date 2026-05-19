@@ -30,6 +30,8 @@ const PROTECTED = new Set([
   "/transport/send",
   "/triggers/fire",
   "/worktrees/cleanup",
+  "/_engine/register",
+  "/_engine/unregister",
 ]);
 
 /** POST-only protected (GET is public for UI, POST needs auth) */
@@ -65,6 +67,63 @@ let _bunServer: Server | null = null;
  *  Called once from server.ts after Bun.serve(). */
 export function setBunServer(server: Server): void {
   _bunServer = server;
+}
+
+const rawBodyBytes = new WeakMap<Request, Uint8Array>();
+const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const textDecoder = new TextDecoder();
+
+function jsonLike(contentType: string): boolean {
+  return contentType === "application/json" || contentType.endsWith("+json");
+}
+
+function parseCapturedBody(bytes: Uint8Array, contentType: string): unknown {
+  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  if (jsonLike(normalized)) {
+    const text = textDecoder.decode(bytes);
+    return text.trim() ? JSON.parse(text) : null;
+  }
+  if (normalized === "text/plain") {
+    return textDecoder.decode(bytes);
+  }
+  if (normalized === "application/x-www-form-urlencoded") {
+    return Object.fromEntries(new URLSearchParams(textDecoder.decode(bytes)));
+  }
+  if (normalized === "application/octet-stream") {
+    return bytes;
+  }
+  return undefined;
+}
+
+async function captureBodyForAuth(request: Request, contentType: string): Promise<unknown> {
+  const config = loadConfig();
+  if (!config.federationToken) return undefined;
+  if (!BODY_METHODS.has(request.method.toUpperCase())) return undefined;
+  if (!request.headers.get("x-maw-from")) return undefined;
+
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/^\/api/, "");
+  if (!isProtected(path, request.method)) return undefined;
+
+  const parsed = parseCapturedBody(new Uint8Array(), contentType);
+  if (parsed === undefined) return undefined;
+
+  const clientIp = _bunServer?.requestIP?.(request)?.address;
+  if (isLoopback(clientIp)) return undefined;
+
+  const body = new Uint8Array(await request.arrayBuffer());
+  rawBodyBytes.set(request, body);
+  return parseCapturedBody(body, contentType);
+}
+
+async function readBodyBytesForAuth(request: Request): Promise<Uint8Array> {
+  const cached = rawBodyBytes.get(request);
+  if (cached) {
+    rawBodyBytes.delete(request);
+    return cached;
+  }
+  const clone = request.clone();
+  return new Uint8Array(await clone.arrayBuffer());
 }
 
 // --- #804 Step 4 — per-peer "from:" verification (O6 enforcement) ---
@@ -107,6 +166,7 @@ export function lookupCachedPubkey(from: string): string | undefined {
 
 /** Federation auth — from: + signature plugin (#804 Step 4). */
 export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
+  .onParse({ as: "global" }, ({ request }, contentType) => captureBodyForAuth(request, contentType))
   .onBeforeHandle(async ({ request, set }) => {
     const config = loadConfig();
     // Backwards compat: no fleet token configured → single-node, no peer
@@ -124,8 +184,7 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
     // Read body once (clone). We need the bytes for the body-hash binding.
     let body: Uint8Array | undefined;
     try {
-      const clone = request.clone();
-      body = new Uint8Array(await clone.arrayBuffer());
+      body = await readBodyBytesForAuth(request);
     } catch (err) {
       console.warn(`[from-auth] body read failed for ${request.method} ${path}: ${err instanceof Error ? err.message : String(err)}`);
       set.status = 401;

@@ -53,6 +53,24 @@ describe("resolveTarget", () => {
     expect(r).toEqual({ type: "local", target: "13-mother:1" });
   });
 
+  test("session:window.pane tmux address stays local before node:agent routing (#1450)", () => {
+    const sessions: Session[] = [
+      ...SESSIONS,
+      { name: "47-mawjs", windows: [{ index: 1, name: "mawjs-oracle", active: true }] },
+    ];
+    const r = resolveTarget("47-mawjs:1.0", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "47-mawjs:1.0" });
+  });
+
+  test("session:window-name.pane from maw ls stays local before node:agent routing (#1572)", () => {
+    const sessions: Session[] = [
+      ...SESSIONS,
+      { name: "20-homekeeper", windows: [{ index: 2, name: "homekeeper-oracle", active: true }] },
+    ];
+    const r = resolveTarget("20-homekeeper:homekeeper-oracle.0", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "local", target: "20-homekeeper:2.0" });
+  });
+
   // #3: NODE:AGENT → REMOTE PEER
   test("node:agent resolves to remote peer", () => {
     const r = resolveTarget("mba:homekeeper", BASE_CONFIG, SESSIONS);
@@ -71,9 +89,18 @@ describe("resolveTarget", () => {
     expect(r).toMatchObject({ type: "error", reason: "self_not_running" });
   });
 
-  test("local: prefix is a self-node alias and resolves locally", () => {
+  test("local: prefix is a self-node alias and resolves locally (#1450)", () => {
     const r = resolveTarget("local:mawjs", BASE_CONFIG, SESSIONS);
     expect(r).toEqual({ type: "self-node", target: "08-mawjs:1" });
+  });
+
+  test("local:<name>-oracle exact session wins over stale same-name window (#1752)", () => {
+    const sessions: Session[] = [
+      { name: "38-odin", windows: [{ index: 1, name: "odin-oracle", active: false }] },
+      { name: "61-odin-oracle", windows: [{ index: 1, name: "odin-oracle", active: true }] },
+    ];
+    const r = resolveTarget("local:odin-oracle", BASE_CONFIG, sessions);
+    expect(r).toEqual({ type: "self-node", target: "61-odin-oracle:1" });
   });
 
   test("local: prefix miss is local/self miss, not unknown peer", () => {

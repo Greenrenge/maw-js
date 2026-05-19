@@ -1,20 +1,23 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { cmdList } from "maw-js/commands/shared/comm";
+import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "maw-js/commands/plugins/tmux/impl";
 import { parseFlags } from "maw-js/cli/parse-args";
 
-export const command = { name: "ls", description: "List all agents and their status." };
+export const command = { name: "ls", description: "List live sessions and agents; use maw fleet ls for registered fleet config." };
 
 const HELP = [
-  "maw ls — list sessions (local or cross-node)",
+  "maw ls — list live sessions (local or cross-node)",
   "",
   "Usage:",
-  "  maw ls                  list local sessions (default)",
+  "  maw ls                  list live local sessions (default)",
   "  maw ls <peer>           list sessions on a federation peer",
   "  maw ls --all            aggregate sessions from all known peers",
   "  maw ls --json           emit JSON (combine with <peer> or --all)",
+  "  maw ls --active [30m]   local sessions touched within a recent threshold",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
   "Peer aliases are resolved from ~/.maw/peers.json (see: maw peers list).",
+  "For registered fleet config, use maw fleet ls.",
 ].join("\n");
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -47,6 +50,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const flags = parseFlags(args, {
       "--all": Boolean,
       "--json": Boolean,
+      "--active": Boolean,
       "--fix": Boolean,
       "--help": Boolean,
       "-h": "--help",
@@ -56,8 +60,24 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: true, output: HELP };
     }
 
-    const positional = flags._[0];
+    const activeArg = activeDurationArg(args);
+    const positionals = flags._ as string[];
+    const localFilter = positionals.find((arg) => arg !== activeArg);
+    const positional = positionals[0];
     const json = Boolean(flags["--json"]);
+
+    if (flags["--active"]) {
+      const lsOpts: Parameters<typeof cmdTmuxLs>[0] = {
+        all: true,
+        compact: true,
+        json,
+        active: true,
+        activeThresholdSec: parseActiveDurationSeconds(activeArg),
+      };
+      if (localFilter) lsOpts.filter = localFilter;
+      await cmdTmuxLs(lsOpts);
+      return { ok: true, output: logs.join("\n") || undefined };
+    }
 
     // Cross-node: explicit peer alias. Resolves via ~/.maw/peers.json — if
     // the positional doesn't match a known peer, surface a clear "unknown

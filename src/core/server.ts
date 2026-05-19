@@ -15,16 +15,25 @@ import { listSessions } from "./transport/ssh";
 import { Tmux } from "./transport/tmux";
 import { handlePtyMessage, handlePtyClose } from "./transport/pty";
 import { setBunServer } from "../lib/elysia-auth";
+import { runServeLifecycleHooks } from "../plugin/lifecycle";
+import {
+  dispatchEnginePluginEvent,
+  findEnginePluginRegistration,
+  hasEnginePluginEventSink,
+  proxyEnginePluginRequest,
+  startEnginePluginHealthPolling,
+} from "./engine-plugin-registry";
 
 // --- Version info (computed once at startup) ---
 
 function getVersionString(): string {
   try {
-    const pkg = require("../package.json");
-    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch {}
+    const rootDir = join(import.meta.dir, "..", "..");
+    const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf-8"));
+    let hash = ""; try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: rootDir }).toString().trim(); } catch {}
     let buildDate = "";
     try {
-      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir }).toString().trim();
+      const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: rootDir }).toString().trim();
       const d = new Date(raw);
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
@@ -41,39 +50,46 @@ import { resolveBindHost } from "./bind-host";
 
 // --- Views + static (Hono keeps these) ---
 
-const views = new Hono();
+export function createViews(
+  mawUiDir = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist"),
+  doorHtmlPath = join(import.meta.dir, "static", "door.html"),
+) {
+  const views = new Hono();
 
-// Fleet topology visualization
-views.get("/topology", async (c) => {
-  const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
-  try {
-    const html = require("fs").readFileSync(path, "utf-8");
-    return c.html(html);
-  } catch { return c.text("fleet-topology.html not found", 404); }
-});
+  // Fleet topology visualization
+  views.get("/topology", async (c) => {
+    const path = require("path").resolve(process.cwd(), "ψ/outbox/fleet-topology.html");
+    try {
+      const html = require("fs").readFileSync(path, "utf-8");
+      return c.html(html);
+    } catch { return c.text("fleet-topology.html not found", 404); }
+  });
 
-mountViews(views);
+  mountViews(views);
 
-// Serve packed maw-ui dist (Shape A — single port, single process)
-const MAW_UI_DIR = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist");
-if (existsSync(MAW_UI_DIR)) {
-  views.use("/*", serveStatic({ root: MAW_UI_DIR }));
-} else {
-  // The Door — minimal landing page when no packed maw-ui is installed.
-  // Lets users connect to any federation by pasting an address.
-  let doorHtml: string;
-  try {
-    doorHtml = readFileSync(join(import.meta.dir, "static", "door.html"), "utf-8");
-  } catch {
-    // door.html missing (e.g. fresh clone without assets) — serve inline stub
-    process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
-    doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+  // Serve packed maw-ui dist (Shape A — single port, single process)
+  if (existsSync(mawUiDir)) {
+    views.use("/*", serveStatic({ root: mawUiDir }));
+  } else {
+    // The Door — minimal landing page when no packed maw-ui is installed.
+    // Lets users connect to any federation by pasting an address.
+    let doorHtml: string;
+    try {
+      doorHtml = readFileSync(doorHtmlPath, "utf-8");
+    } catch {
+      // door.html missing (e.g. fresh clone without assets) — serve inline stub
+      process.stderr.write("→ maw-ui not found. Run `maw ui build` or install maw-ui.\n");
+      doorHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>maw</title></head><body style="font-family:monospace;background:#0d0d0d;color:#ccc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="text-align:center"><h1 style="color:#fff">maw</h1><p>maw-ui not installed. Run <code style="color:#7dd3fc">maw ui build</code> or install maw-ui.</p></div></body></html>`;
+    }
+    views.get("/", (c) => c.html(doorHtml));
   }
-  views.get("/", (c) => c.html(doorHtml));
+
+  views.onError((err, c) => c.json({ error: err.message }, 500));
+
+  return views;
 }
 
-views.onError((err, c) => c.json({ error: err.message }, 500));
-
+const views = createViews();
 export { views };
 
 // --- Server ---
@@ -111,13 +127,21 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
+  feedListeners.add((event) => {
+    dispatchEnginePluginEvent(event).catch((err) => {
+      console.warn(`[engine-plugin] event dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  });
 
   // Plugin system — built-in + user plugins
   try {
-    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins } = require("../plugins/index");
+    const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
     const { homedir } = require("os");
     const { join, resolve, dirname } = require("path");
-    const plugins = new PluginSystem();
+    const plugins = new PluginSystem({
+      shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
+        hasEnginePluginEventSink(pluginName, eventName),
+    });
 
     // Built-in plugins (ship with maw-js)
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
@@ -126,6 +150,10 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     // User plugins (file-drop: ~/.oracle/plugins/)
     const userPluginsDir = join(homedir(), ".oracle", "plugins");
     await loadPlugins(plugins, userPluginsDir, "user");
+
+    // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins
+    // subscribe to feed events without direct core imports (#1566).
+    await registerManifestHooks(plugins);
 
     // Hot-reload: watch the user plugins dir and re-import on .ts/.js/.wasm
     // change. Builtin plugins are not touched. Opt out with MAW_HOT_RELOAD=0.
@@ -192,6 +220,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     }
     // Elysia handles all /api/* routes (has its own CORS)
     if (url.pathname.startsWith("/api")) {
+      const enginePlugin = findEnginePluginRegistration(url.pathname);
+      if (enginePlugin) return proxyEnginePluginRequest(req, enginePlugin);
       return api.handle(req);
     }
     // Hono handles views + static — clone response with CORS headers
@@ -242,8 +272,21 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
 
   const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
   setBunServer(server);
+  startEnginePluginHealthPolling();
   const bindNote = reason ? ` (${reason})` : "";
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL}) [${hostname}]${bindNote}`);
+
+  try {
+    await runServeLifecycleHooks({
+      port,
+      httpUrl: HTTP_URL,
+      wsUrl: WS_URL,
+      hostname,
+    });
+  } catch (err) {
+    try { server.stop(true); } catch { /* best effort */ }
+    throw err;
+  }
 
   // HTTPS server (if TLS configured)
   const tlsCfg = loadConfig().tls;

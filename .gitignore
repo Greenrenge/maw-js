@@ -43,3 +43,6 @@ psi/
 
 # Local Codex/OMX runtime state
 .omx/
+
+# Test coverage artifacts
+coverage/

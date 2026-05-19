@@ -1,14 +1,33 @@
 import { readdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { hostExec, tmux } from "../../../sdk";
-import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
+import { hostExec, tmux, tmuxCmd } from "../../../sdk";
+import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
 import { ghqList, ghqListSync } from "../../../core/ghq";
 import { scanWorktrees } from "../../../core/fleet/worktrees-scan";
 import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
+import { checkPaneContextLimit, isLikelyAgentPaneCommand } from "../../shared/context-limit";
+import { isInfrastructureChannelSessionName } from "../../../core/matcher/channel-session";
+export {
+  PANE_TARGET_FORMAT,
+  paneTargetCandidatesFromListPanesOutput,
+  resolvePaneTargetFromCandidates,
+  resolvePaneTargetFromListPanesOutput,
+} from "../../shared/pane-target-resolver";
+import {
+  PANE_TARGET_FORMAT,
+  resolvePaneTargetFromListPanesOutput,
+  type PaneTargetResolution,
+} from "../../shared/pane-target-resolver";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
+
+async function resolvePaneTargetForKill(target: string): Promise<PaneTargetResolution> {
+  const raw = await hostExec(`${tmuxCmd()} list-panes -a -F '${PANE_TARGET_FORMAT}'`).catch(() => "");
+  if (!raw.trim()) return { kind: "none" };
+  return resolvePaneTargetFromListPanesOutput(target, raw);
+}
 
 function listSessionNamesSync(): string[] {
   try {
@@ -25,12 +44,19 @@ function listSessionNamesSync(): string[] {
 // (ES module namespace objects are frozen, bare `let` can't be reassigned).
 export const _tty = {
   isStdoutTTY: (): boolean => {
-    try {
-      const { isatty } = require("node:tty") as typeof import("node:tty");
-      return isatty(1);
-    } catch {
-      return !!process.stdout.isTTY;
-    }
+    const req = typeof require === "function" ? require : undefined;
+    const isatty = req?.("node:tty")?.isatty;
+    return typeof isatty === "function" ? isatty(1) : !!process.stdout.isTTY;
+  },
+  readChoice: (max: number): number | null => {
+    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
+    process.stdout.write("  Select [1-" + max + "]: ");
+    const fd = openSync("/dev/tty", "r");
+    const buf = Buffer.alloc(8);
+    const n = readSync(fd, buf, 0, buf.length, null);
+    closeSync(fd);
+    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
+    return choice >= 1 && choice <= max ? choice : null;
   },
 };
 
@@ -79,10 +105,23 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
   // 3.5 — Fleet session by bare stem (#394 Bug I). e.g. "mawjs-no2" → "114-mawjs-no2".
   // Suffix-preferred via the canonical resolveSessionTarget so "mawjs" → "101-mawjs".
   try {
-    const sessions = loadFleetEntries().map(e => ({ name: e.file.replace(/\.json$/, "") }));
+    const entries = loadFleetEntries();
+    const sessions = entries.map(e => ({ name: e.file.replace(/\.json$/, ""), windows: e.session.windows }));
+    const exact = sessions.find(s => s.name.toLowerCase() === target.trim().toLowerCase());
+    if (exact) {
+      return { resolved: exact.name, source: `fleet-stem (${exact.name})` };
+    }
+    const windowAlias = resolveFleetWindowSessionTarget(target, sessions);
+    if (windowAlias.kind === "fuzzy") {
+      return { resolved: windowAlias.match.name, source: `fleet-window (${windowAlias.match.name})` };
+    }
     const r = resolveSessionTarget(target, sessions);
-    if (r.kind === "exact" || r.kind === "fuzzy") {
+    if (r.kind === "fuzzy") {
       return { resolved: r.match.name, source: `fleet-stem (${r.match.name})` };
+    }
+    const prefix = resolveNumericFleetStemPrefix(target, sessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `fleet-stem (${prefix.match.name})` };
     }
   } catch { /* no fleet dir — fall through */ }
 
@@ -93,6 +132,10 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
     if (r.kind === "exact" || r.kind === "fuzzy") {
       return { resolved: r.match.name, source: `live-session (${r.match.name})` };
     }
+    const prefix = resolveNumericFleetStemPrefix(target, liveSessions);
+    if (prefix.kind === "fuzzy") {
+      return { resolved: prefix.match.name, source: `live-session (${prefix.match.name})` };
+    }
   }
 
   // 4. Bare session name — let tmux resolve to current/first pane
@@ -100,12 +143,7 @@ export function resolveTmuxTarget(target: string): { resolved: string; source: s
 }
 
 export async function cmdTmuxPeek(target: string, opts: TmuxPeekOpts = {}): Promise<void> {
-  const hit = resolveTmuxTarget(target);
-  if (!hit) {
-    throw new Error(`cannot resolve target '${target}'`);
-  }
-
-  const { resolved, source } = hit;
+  const { resolved, source } = resolveTmuxTarget(target)!;
   const lines = opts.lines ?? 30;
   const scroll = opts.history ? "-S -" : `-S -${lines}`;
 
@@ -125,24 +163,124 @@ export interface TmuxLsOpts {
   all?: boolean;
   /** JSON output for scripting. */
   json?: boolean;
-  /** Compact: one line per session. Default for `maw ls`. Use -v for full detail. */
+  /** Compact: one line per session. Top-level `maw ls` and `maw ls -c` use this mode. */
   compact?: boolean;
-  /** Verbose: full per-pane detail. Overrides --compact. */
+  /** Verbose: full per-pane detail. Top-level `maw ls -v` opts into this mode. */
   verbose?: boolean;
   /** Roster: include sleeping oracles from ghq (compact mode only). */
   roster?: boolean;
+  /** Sort sessions newest-first using tmux #{session_created}. */
+  recent?: boolean;
+  /** Limit recent mode to the N newest sessions. */
+  recentLimit?: number;
+  /** Filter sessions to those touched within activeThresholdSec. */
+  active?: boolean;
+  /** Activity threshold in seconds. Defaults to 30 minutes. */
+  activeThresholdSec?: number;
+  /** Filter rendered sessions/panes by node/session/query text. */
+  filter?: string;
+  /** Include infrastructure channel sessions such as *-discord. */
+  channels?: boolean;
 }
 
-export type PaneStatus = "active" | "idle" | "stale" | "unknown";
+export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
 
 interface AnnotatedPane {
   id: string;
   target: string;
+  session: string;
   command: string | undefined;
   title: string | undefined;
   annotation: string; // "fleet: X" | "team: agent @ team-name" | "orphan" | ""
   status: PaneStatus;
   lastActivitySec: number;
+  sessionCreated?: number;
+  sessionActivity?: number;
+  source?: string;
+}
+
+async function markContextLimitedPanes(panes: AnnotatedPane[]): Promise<void> {
+  await Promise.all(panes.map(async (pane) => {
+    if (!isLikelyAgentPaneCommand(pane.command)) return;
+    if (!await checkPaneContextLimit(pane.target)) return;
+    pane.status = "frozen";
+    pane.annotation = pane.annotation
+      ? `${pane.annotation}; context-limit`
+      : "context-limit";
+  }));
+}
+
+export function parseSessionCreatedList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+export function parseSessionActivityList(raw: string): Map<string, number> {
+  return parseSessionEpochList(raw);
+}
+
+function parseSessionEpochList(raw: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const [name, createdRaw] = line.split("\t");
+    const created = Number(createdRaw);
+    if (name && Number.isFinite(created) && created > 0) out.set(name, created);
+  }
+  return out;
+}
+
+export const DEFAULT_ACTIVE_THRESHOLD_SEC = 30 * 60;
+
+export function parseActiveDurationSeconds(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  const match = /^(\d+)([smhd])?$/.exec(trimmed);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+  const unit = match[2] ?? "m";
+  const multiplier = unit === "s" ? 1
+    : unit === "m" ? 60
+    : unit === "h" ? 60 * 60
+    : 24 * 60 * 60;
+  return value * multiplier;
+}
+
+export function activeDurationArg(argv: string[], flag = "--active"): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === flag) {
+      const next = argv[i + 1];
+      return next && !next.startsWith("-") && parseActiveDurationSeconds(next) ? next : undefined;
+    }
+    if (arg.startsWith(`${flag}=`)) {
+      const value = arg.slice(flag.length + 1);
+      return parseActiveDurationSeconds(value) ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
+export function formatSessionCreated(epochSeconds?: number): string {
+  if (!epochSeconds || !Number.isFinite(epochSeconds)) return "—";
+  const d = new Date(epochSeconds * 1000);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function sessionNameFromPaneTarget(target: string): string {
+  return target.split(":")[0] || target;
+}
+
+async function sessionCreatedTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
+  return parseSessionCreatedList(raw);
+}
+
+async function sessionActivityTimes(): Promise<Map<string, number>> {
+  const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_activity}'`).catch(() => "");
+  return parseSessionActivityList(raw);
 }
 
 /**
@@ -181,24 +319,73 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
   }
 
+  const [createdBySession, activityBySession] = await Promise.all([
+    opts.recent ? sessionCreatedTimes() : Promise.resolve(new Map<string, number>()),
+    opts.active ? sessionActivityTimes() : Promise.resolve(new Map<string, number>()),
+  ]);
   const nowEpoch = Math.floor(Date.now() / 1000);
   const annotated: AnnotatedPane[] = allPanes.map(p => {
     const ageSec = p.lastActivity ? nowEpoch - p.lastActivity : -1;
     const status: PaneStatus = ageSec < 0 ? "unknown" : ageSec < 30 ? "active" : ageSec < 300 ? "idle" : "stale";
+    const session = sessionNameFromPaneTarget(p.target);
     return {
       id: p.id,
       target: p.target,
+      session,
       command: p.command,
       title: p.title,
       annotation: annotatePane(p, fleetSessions, teamByPane),
       status,
       lastActivitySec: ageSec < 0 ? 0 : ageSec,
+      sessionCreated: createdBySession.get(session),
+      sessionActivity: activityBySession.get(session),
+      source: (p as { source?: string; node?: string }).source ?? (p as { node?: string }).node,
     };
   });
 
-  const scope = opts.all
+  const visible = opts.channels
     ? annotated
-    : annotated.filter(p => p.target.startsWith(`${currentSession}:`));
+    : annotated.filter(p => !isInfrastructureChannelSessionName(p.session, opts.filter ?? ""));
+
+  let scope = opts.all
+    ? visible
+    : visible.filter(p => p.target.startsWith(`${currentSession}:`));
+
+  const filter = opts.filter?.trim().toLowerCase();
+  if (filter) {
+    scope = scope.filter(p => [p.session, p.target, p.annotation, p.source]
+      .some(value => String(value ?? "").toLowerCase().includes(filter)));
+  }
+
+  const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;
+  if (opts.active) {
+    scope = scope.filter(p => {
+      const activity = p.sessionActivity;
+      if (!activity || !Number.isFinite(activity)) return false;
+      return nowEpoch - activity <= activeThresholdSec;
+    });
+  }
+
+  const recentSessionOrder = (items: AnnotatedPane[]): string[] => {
+    const byName = new Map<string, number | undefined>();
+    for (const p of items) {
+      if (!byName.has(p.session)) byName.set(p.session, p.sessionCreated);
+    }
+    return [...byName.entries()]
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0) || a[0].localeCompare(b[0]))
+      .map(([name]) => name);
+  };
+
+  if (opts.recent) {
+    const ordered = recentSessionOrder(scope);
+    const limited = opts.recentLimit ? ordered.slice(0, opts.recentLimit) : ordered;
+    const order = new Map(limited.map((name, index) => [name, index]));
+    scope = scope
+      .filter(p => order.has(p.session))
+      .sort((a, b) => (order.get(a.session)! - order.get(b.session)!) || a.target.localeCompare(b.target));
+  }
+
+  await markContextLimitedPanes(scope);
 
   if (opts.json) {
     console.log(JSON.stringify(scope, null, 2));
@@ -206,13 +393,16 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   }
 
   if (!scope.length && !(opts.compact && opts.roster)) {
-    console.log(opts.all
+    console.log(opts.active
+      ? `\x1b[90mNo sessions active in the last ${formatDuration(activeThresholdSec)}.\x1b[0m`
+      : opts.all
       ? "\x1b[90mNo panes found.\x1b[0m"
       : `\x1b[90mNo panes in current session '${currentSession || "(none)"}'. Use --all for every session.\x1b[0m`);
     return;
   }
 
   const STATUS_DOT: Record<PaneStatus, string> = {
+    frozen: "\x1b[33m⚠\x1b[0m",
     active: "\x1b[32m●\x1b[0m",
     idle: "\x1b[33m◐\x1b[0m",
     stale: "\x1b[31m◌\x1b[0m",
@@ -229,11 +419,12 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   if (opts.compact && !opts.verbose) {
     const bySession = new Map<string, AnnotatedPane[]>();
     for (const p of scope) {
-      const sess = p.target.split(":")[0]!;
+      const sess = p.session;
       if (!bySession.has(sess)) bySession.set(sess, []);
       bySession.get(sess)!.push(p);
     }
     const bestStatus = (panes: AnnotatedPane[]): PaneStatus => {
+      if (panes.some(p => p.status === "frozen")) return "frozen";
       if (panes.some(p => p.status === "active")) return "active";
       if (panes.some(p => p.status === "idle")) return "idle";
       if (panes.some(p => p.status === "stale")) return "stale";
@@ -250,13 +441,33 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
 
     console.log();
     const awakeNames = new Set<string>();
-    for (const [sess, panes] of bySession) {
+    const sessionRows = [...bySession.entries()];
+    if (opts.recent) {
+      sessionRows.sort((a, b) => (b[1][0]?.sessionCreated ?? 0) - (a[1][0]?.sessionCreated ?? 0) || a[0].localeCompare(b[0]));
+      if (opts.recentLimit) sessionRows.splice(opts.recentLimit);
+      const sessionWidth = Math.max(18, ...sessionRows.map(([sess]) => sess.length));
+      console.log(`  ${pad("#", 3)} ${pad("SESSION", sessionWidth)} ${pad("CREATED", 19)} ${pad("STATUS", 6)} ${pad("PANES", 8)} AGENTS`);
+    }
+    for (const [index, [sess, panes]] of sessionRows.entries()) {
       awakeNames.add(sess);
       const dot = STATUS_DOT[bestStatus(panes)];
       const count = `${panes.length} pane${panes.length !== 1 ? "s" : ""}`;
       const agents = panes.filter(p => /claude|node/i.test(p.command || "")).length;
       const agentTag = agents > 0 ? `  \x1b[34m${agents} agent${agents !== 1 ? "s" : ""}\x1b[0m` : "";
-      console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}`);
+      const activeTag = opts.active && panes[0]?.sessionActivity
+        ? `  \x1b[90mlast ${formatAge(Math.max(0, nowEpoch - panes[0].sessionActivity))}\x1b[0m`
+        : "";
+      if (opts.recent) {
+        const sessionWidth = Math.max(18, ...sessionRows.map(([name]) => name.length));
+        const created = formatSessionCreated(panes[0]?.sessionCreated);
+        const afterName = " ".repeat(Math.max(1, sessionWidth - sess.length + 1));
+        console.log(`  ${pad(String(index + 1), 3)} \x1b[36m${sess}\x1b[0m${afterName} ${created} ${pad(dot, 6)} ${pad(count, 8)}${agentTag}${activeTag}`);
+      } else {
+        console.log(`  ${dot} \x1b[36m${sess}\x1b[0m  \x1b[90m${count}\x1b[0m${agentTag}${activeTag}`);
+      }
+      for (const p of panes.filter(p => p.status === "frozen")) {
+        console.log(`    \x1b[33m⚠\x1b[0m \x1b[90m${p.target} context-limit — /compact needed\x1b[0m`);
+      }
       const wts = wtBySession.get(sess) || [];
       for (const wt of wts) {
         const wtDot = wt.status === "active" ? "\x1b[32m├─\x1b[0m" : "\x1b[90m├─\x1b[0m";
@@ -285,13 +496,18 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
     }
 
     console.log();
-    console.log(`\x1b[90m  → maw ls -v     full detail\x1b[0m`);
+    console.log(`\x1b[90m  → maw ls -v    full detail\x1b[0m`);
     console.log();
     return;
   }
 
+  const targetWidth = Math.max(28, ...scope.map(p => p.target.length));
+
+  const createdWidth = opts.recent ? 20 : 0;
   console.log();
-  console.log(`  \x1b[36;1m  ${pad("TARGET", 28)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
+  console.log(opts.recent
+    ? `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("CREATED", createdWidth)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`
+    : `  \x1b[36;1m  ${pad("TARGET", targetWidth)} ${pad("CMD", 10)} ${pad("AGE", 6)} ${pad("ANNOTATION", 30)} TITLE\x1b[0m`);
   for (const p of scope) {
     const dot = STATUS_DOT[p.status];
     const age = formatAge(p.lastActivitySec);
@@ -302,9 +518,17 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       : "";
     const annPad = pad(p.annotation, 30);
     const annRendered = annColored ? annColored + annPad.slice(p.annotation.length) : annPad;
-    console.log(`  ${dot} ${pad(p.target, 28)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
+    const created = opts.recent ? `${pad(formatSessionCreated(p.sessionCreated), createdWidth)} ` : "";
+    console.log(`  ${dot} ${pad(p.target, targetWidth)} ${pad(p.command || "", 10)} ${pad(age, 6)} ${created}${annRendered} \x1b[90m${(p.title || "").slice(0, 50)}\x1b[0m`);
   }
   console.log();
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
 }
 
 function pad(s: string, n: number): string {
@@ -390,11 +614,7 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
     throw new Error(`pane lookup failed for '${resolved}' (from ${source}): ${e?.message || e}`);
   }
   if (isClaudeLikePane(paneCurrentCommand) && !opts.force) {
-    throw new Error(
-      `refusing to send: pane '${resolved}' is running '${paneCurrentCommand}' (claude-like).\n` +
-      `  injecting keys would collide with the AI's turn.\n` +
-      `  pass --force to override (you really want to type into a live claude pane)`
-    );
+    throw new Error(`refusing to send: pane '${resolved}' is running '${paneCurrentCommand}' (claude-like).\n  injecting keys would collide with the AI's turn.\n  pass --force to override (you really want to type into a live claude pane)`);
   }
 
   // Send
@@ -463,7 +683,26 @@ export interface TmuxKillOpts {
 export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Promise<void> {
   const hit = resolveTmuxTarget(target);
   if (!hit) throw new Error(`cannot resolve target '${target}'`);
-  const { resolved, source } = hit;
+  let { resolved, source } = hit;
+
+  // #1502 — top-level `maw kill` routes here (`maw tmux kill`). Unknown
+  // natural names used to fall through as a bare tmux session target and
+  // fail with "can't find pane" even when `maw ls -v` showed an orphan pane
+  // by title/worktree role. Preserve exact/session handling above, but when
+  // the resolver only reached the final session-name fallback, consult pane
+  // titles, @maw_tile_role, and worktree dirname aliases before killing.
+  if (!opts.session && source === "session-name" && resolved === target) {
+    const paneHit = await resolvePaneTargetForKill(target);
+    if (paneHit.kind === "match") {
+      resolved = paneHit.candidate.resolved;
+      source = `${paneHit.candidate.source} (${paneHit.candidate.name})`;
+    } else if (paneHit.kind === "ambiguous") {
+      const lines = paneHit.candidates
+        .map(c => `    • ${c.name} → ${c.resolved}${c.target ? ` (${c.target})` : ""} [${c.source}]`)
+        .join("\n");
+      throw new Error(`'${target}' is ambiguous — matches ${paneHit.candidates.length} panes:\n${lines}\n  use the pane id or full session:window.pane target`);
+    }
+  }
 
   // Fleet/view safety — extract session from resolved target
   const session = resolved.split(":")[0] ?? "";
@@ -475,11 +714,7 @@ export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Prom
   } catch { /* no fleet dir */ }
 
   if (isFleetOrViewSession(session, fleetSessions) && !opts.force) {
-    throw new Error(
-      `refusing to kill: session '${session}' is fleet or view.\n` +
-      `  killing would terminate a live oracle (or its mirror).\n` +
-      `  pass --force to override (you really want to kill a fleet session)`
-    );
+    throw new Error(`refusing to kill: session '${session}' is fleet or view.\n  killing would terminate a live oracle (or its mirror).\n  pass --force to override (you really want to kill a fleet session)`);
   }
 
   const tmuxCmd = opts.session
@@ -584,7 +819,7 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
 function suggestRecovery(target: string, session: string, source: string): void {
   const candidates: Array<{ oracle: string; label: string }> = [];
 
-  if (source.startsWith("fleet-stem") || source.startsWith("live-session")) {
+  if (source.startsWith("fleet-stem") || source.startsWith("fleet-window") || source.startsWith("live-session")) {
     console.log(`\x1b[33m⚠\x1b[0m  ${session} matched but not running.`);
     try {
       const entries = loadFleetEntries();
@@ -602,9 +837,9 @@ function suggestRecovery(target: string, session: string, source: string): void 
   }
 
   for (const s of findSimilarOracles(target).slice(0, 5)) {
-    const name = s.replace(/-oracle$/, "");
-    if (!candidates.some(c => c.oracle === name)) {
-      candidates.push({ oracle: name, label: s });
+    const wakeArg = wakeArgForSimilarOracle(s);
+    if (!candidates.some(c => c.oracle === wakeArg)) {
+      candidates.push({ oracle: wakeArg, label: s });
     }
   }
 
@@ -639,23 +874,16 @@ function suggestRecovery(target: string, session: string, source: string): void 
   }
   console.log("");
 
-  try {
-    const { openSync, readSync, closeSync } = require("fs") as typeof import("fs");
-    process.stdout.write("  Select [1-" + candidates.length + "]: ");
-    const fd = openSync("/dev/tty", "r");
-    const buf = Buffer.alloc(8);
-    const n = readSync(fd, buf, 0, buf.length, null);
-    closeSync(fd);
-    const choice = parseInt(buf.slice(0, n).toString().trim(), 10);
-    if (choice >= 1 && choice <= candidates.length) {
-      const picked = candidates[choice - 1];
-      console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
-      const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
-        stdio: ["inherit", "inherit", "inherit"],
-      });
-      process.exit(result.exitCode ?? 0);
-    }
-  } catch { /* non-interactive — ignore */ }
+  let choice: number | null = null;
+  try { choice = _tty.readChoice(candidates.length); } catch { /* non-interactive — ignore */ }
+  if (choice !== null) {
+    const picked = candidates[choice - 1];
+    console.log(`\n  \x1b[36m→\x1b[0m maw wake ${picked.oracle} -a\n`);
+    const result = Bun.spawnSync(["maw", "wake", picked.oracle, "-a"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 0);
+  }
 
   process.exit(1);
 }
@@ -667,14 +895,38 @@ function ghqFindOracleSync(slug: string): string | null {
   } catch { return null; }
 }
 
+function repoNameFromPath(path: string): string {
+  return path.split("/").pop() ?? "";
+}
+
+function repoSlugFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join("/") : repoNameFromPath(path);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+export function similarOracleCandidatesFromRepos(target: string, repos: string[]): string[] {
+  const lc = target.toLowerCase();
+  return uniqueStrings(
+    repos
+      .filter(r => {
+        const name = repoNameFromPath(r);
+        return name.endsWith("-oracle") && name.toLowerCase().includes(lc);
+      })
+      .map(repoSlugFromPath),
+  );
+}
+
+function wakeArgForSimilarOracle(candidate: string): string {
+  return candidate.includes("/") ? candidate : candidate.replace(/-oracle$/, "");
+}
+
 function findSimilarOracles(target: string): string[] {
   try {
-    const lc = target.toLowerCase();
-    const repos = ghqListSync();
-    return repos
-      .map(r => r.split("/").pop() ?? "")
-      .filter(name => name.endsWith("-oracle") && name.toLowerCase().includes(lc))
-      .filter((v, i, a) => a.indexOf(v) === i);
+    return similarOracleCandidatesFromRepos(target, ghqListSync());
   } catch { return []; }
 }
 

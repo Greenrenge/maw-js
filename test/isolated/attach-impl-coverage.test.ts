@@ -1,0 +1,201 @@
+/**
+ * Targeted isolated coverage for src/vendor/mpr-plugins/attach/impl.ts.
+ *
+ * `cmdAttach` shells out through Bun.spawn and imports process-global mocks, so
+ * this file runs only under scripts/test-isolated.sh and keeps all dependencies
+ * mocked at the module boundary.
+ */
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { join } from "path";
+
+const attachRoot = join(import.meta.dir, "../../src/vendor/mpr-plugins/attach");
+
+type ResolveResult =
+  | { tier: 1; sessionName: string; ambiguousCandidates?: string[] }
+  | { tier: 2; fleetName: string; ambiguousCandidates?: string[] }
+  | null;
+
+type ResolveCall = {
+  target: string;
+  opts: { fuzzy?: boolean };
+  depsUseMockedListSessions: boolean;
+  depsUseMockedLoadFleet: boolean;
+};
+
+let sessions: Array<{ name: string; windows: Array<{ name: string }> }> = [];
+let fleet: Array<{ name: string; windows: Array<{ name: string }> }> = [];
+let resolveQueue: ResolveResult[] = [];
+let resolveCalls: ResolveCall[] = [];
+let spawnCalls: string[][] = [];
+let spawnExitCode = 0;
+let logs: string[] = [];
+let errors: string[] = [];
+
+const original = {
+  log: console.log,
+  error: console.error,
+  spawn: Bun.spawn,
+  stdinIsTTY: process.stdin.isTTY,
+};
+
+const listSessions = async () => sessions;
+const loadFleet = () => fleet;
+
+mock.module("maw-js/sdk", () => ({
+  listSessions,
+}));
+
+mock.module("maw-js/commands/shared/fleet-load", () => ({
+  loadFleet,
+}));
+
+mock.module(join(attachRoot, "resolve-attach-target"), () => ({
+  resolveAttachTarget: async (
+    target: string,
+    deps: { listSessions: typeof listSessions; loadFleet: typeof loadFleet },
+    opts: { fuzzy?: boolean } = {},
+  ) => {
+    resolveCalls.push({
+      target,
+      opts,
+      depsUseMockedListSessions: deps.listSessions === listSessions,
+      depsUseMockedLoadFleet: deps.loadFleet === loadFleet,
+    });
+    return resolveQueue.shift() ?? null;
+  },
+}));
+
+const { cmdAttach } = await import("../../src/vendor/mpr-plugins/attach/impl.ts?attach-impl-coverage");
+
+beforeEach(() => {
+  sessions = [];
+  fleet = [];
+  resolveQueue = [];
+  resolveCalls = [];
+  spawnCalls = [];
+  spawnExitCode = 0;
+  logs = [];
+  errors = [];
+
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+  Bun.spawn = ((cmd: string[], opts?: { stdin?: string; stdout?: string; stderr?: string }) => {
+    spawnCalls.push([...cmd]);
+    expect(opts).toMatchObject({ stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    return { exited: Promise.resolve(spawnExitCode) } as ReturnType<typeof Bun.spawn>;
+  }) as typeof Bun.spawn;
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: false });
+});
+
+afterEach(() => {
+  console.log = original.log;
+  console.error = original.error;
+  Bun.spawn = original.spawn;
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: original.stdinIsTTY });
+});
+
+describe("attach impl command routing", () => {
+  test("requires a target name before resolving or spawning", async () => {
+    await expect(cmdAttach("")).rejects.toThrow("name required");
+
+    expect(errors.join("\n")).toContain("usage: maw attach <name>");
+    expect(resolveCalls).toEqual([]);
+    expect(spawnCalls).toEqual([]);
+  });
+
+  test("dry-runs a missing local target without spawning wake", async () => {
+    resolveQueue = [null];
+
+    await cmdAttach("ghost", { dryRun: true });
+
+    expect(logs.join("\n")).toContain("[dry-run] 'ghost' not local");
+    expect(spawnCalls).toEqual([]);
+    expect(resolveCalls).toEqual([
+      {
+        target: "ghost",
+        opts: {},
+        depsUseMockedListSessions: true,
+        depsUseMockedLoadFleet: true,
+      },
+    ]);
+  });
+
+  test("delegates a miss to wake, fuzzy re-resolves, then attaches to the live session", async () => {
+    resolveQueue = [null, { tier: 1, sessionName: "01-Somwind" }];
+
+    await cmdAttach("wind");
+
+    expect(spawnCalls).toEqual([
+      ["maw", "wake", "wind"],
+      ["maw", "tmux", "attach", "01-Somwind"],
+    ]);
+    expect(resolveCalls.map((call) => ({ target: call.target, opts: call.opts }))).toEqual([
+      { target: "wind", opts: {} },
+      { target: "wind", opts: { fuzzy: true } },
+    ]);
+    expect(logs.join("\n")).toContain("'wind' not local");
+    expect(logs.join("\n")).toContain("attaching to 01-Somwind");
+  });
+
+  test("reports a wake miss when fuzzy re-resolve still finds no live session", async () => {
+    resolveQueue = [null, null];
+
+    await expect(cmdAttach("ghost")).rejects.toThrow("wake did not create a session for 'ghost'");
+
+    expect(spawnCalls).toEqual([["maw", "wake", "ghost"]]);
+    expect(errors.join("\n")).toContain("'ghost' still not running after wake");
+    expect(resolveCalls[1].opts).toEqual({ fuzzy: true });
+  });
+
+  test("prints ambiguity candidates and refuses side effects", async () => {
+    resolveQueue = [{ tier: 1, sessionName: "01-alpha", ambiguousCandidates: ["01-alpha", "02-alpha"] }];
+
+    await expect(cmdAttach("alpha")).rejects.toThrow("ambiguous: alpha");
+
+    const output = errors.join("\n");
+    expect(output).toContain("'alpha' is ambiguous");
+    expect(output).toContain("01-alpha");
+    expect(output).toContain("02-alpha");
+    expect(spawnCalls).toEqual([]);
+  });
+
+  test("handles Tier 1 dry-run, live attach, and spawn failure paths", async () => {
+    resolveQueue = [{ tier: 1, sessionName: "01-live" }];
+    await cmdAttach("live", { dryRun: true });
+    expect(logs.join("\n")).toContain("[dry-run] Tier 1 (live) — would attach to 01-live");
+    expect(spawnCalls).toEqual([]);
+
+    logs = [];
+    resolveQueue = [{ tier: 1, sessionName: "01-live" }];
+    await cmdAttach("live");
+    expect(spawnCalls).toEqual([["maw", "tmux", "attach", "01-live"]]);
+    expect(logs.join("\n")).toContain("attaching to 01-live");
+
+    spawnCalls = [];
+    spawnExitCode = 7;
+    resolveQueue = [{ tier: 1, sessionName: "01-broken" }];
+    await expect(cmdAttach("broken")).rejects.toThrow("maw tmux attach 01-broken exited 7");
+    expect(spawnCalls).toEqual([["maw", "tmux", "attach", "01-broken"]]);
+  });
+
+  test("handles Tier 2 dry-run and non-interactive yes wake plus attach", async () => {
+    resolveQueue = [{ tier: 2, fleetName: "sleepy" }];
+    await cmdAttach("sleepy", { dryRun: true });
+    expect(logs.join("\n")).toContain("[dry-run] Tier 2 (sleeping) — would wake sleepy, then attach");
+    expect(spawnCalls).toEqual([]);
+
+    logs = [];
+    resolveQueue = [{ tier: 2, fleetName: "sleepy" }];
+    await cmdAttach("sleepy", { yes: true });
+    expect(spawnCalls).toEqual([
+      ["maw", "wake", "sleepy"],
+      ["maw", "tmux", "attach", "sleepy"],
+    ]);
+    expect(logs.join("\n")).toContain("waking sleepy");
+    expect(logs.join("\n")).toContain("attaching to sleepy");
+  });
+});

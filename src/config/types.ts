@@ -143,8 +143,20 @@ export interface MawConfig {
   psiPath?: string;
   /** TLS cert/key paths */
   tls?: { cert: string; key: string };
-  /** Zenoh transport — pub/sub via zenohd remote-api */
-  zenoh?: { locator: string };
+  /** Zenoh transport — pub/sub/discovery via zenohd remote-api */
+  zenoh?: {
+    locator?: string;
+    scout?: {
+      enabled?: boolean;
+      locator?: string;
+      timeoutMs?: number;
+      keyPrefix?: string;
+    };
+  };
+  /** Discovery provider selection for peer presence candidates. */
+  discovery?: {
+    transport?: "scout" | "zenoh" | "both" | "off";
+  };
   /** Polling intervals (ms) */
   intervals?: MawIntervals;
   /** HTTP/operation timeouts (ms) */
@@ -159,6 +171,8 @@ export interface MawConfig {
   pluginSources?: string[];
   /** Plugin names to disable (skip during scanning and execution) */
   disabledPlugins?: string[];
+  /** One-shot config migrations already applied. */
+  migrations?: Record<string, boolean>;
 }
 
 /** Typed defaults for intervals, timeouts, limits (#172) */

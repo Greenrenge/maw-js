@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 
 export const command = {
   name: "fleet",
-  description: "Fleet management — init, sync, health, doctor, snapshots.",
+  description: "Manage the persistent fleet registry; use maw ls for currently live sessions.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -36,6 +36,14 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "renumber") {
       const { cmdFleetRenumber } = await import("../../shared/fleet");
       await cmdFleetRenumber();
+    } else if (sub === "rename") {
+      const oldName = args[1];
+      const newName = args[2];
+      if (!oldName || !newName) {
+        return { ok: false, error: "usage: maw fleet rename <old-name> <new-name> [--dry-run] [--force]" };
+      }
+      const { cmdFleetRename } = await import("../../shared/fleet");
+      await cmdFleetRename({ oldName, newName, dryRun: args.includes("--dry-run"), force: args.includes("--force") });
     } else if (sub === "validate") {
       const { cmdFleetValidate } = await import("../../shared/fleet");
       await cmdFleetValidate();
@@ -55,17 +63,46 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const { cmdFleetSync } = await import("../../shared/fleet");
       await cmdFleetSync();
     } else if (sub === "snapshots" || sub === "snapshot-ls") {
-      const { listSnapshots } = await import("../../../core/fleet/snapshot");
-      const snaps = listSnapshots();
-      if (snaps.length === 0) {
-        console.log("no snapshots yet");
-        return { ok: true, output: logs.join("\n") || "no snapshots yet" };
-      }
-      console.log(`\x1b[36m📸 ${snaps.length} snapshots\x1b[0m\n`);
-      for (const s of snaps) {
-        const d = new Date(s.timestamp);
-        const local = d.toLocaleString("en-GB", { timeZone: "Asia/Bangkok", hour12: false });
-        console.log(`  ${s.file.replace(".json", "")}  ${local}  \x1b[90m${s.trigger}\x1b[0m  ${s.sessionCount} sessions, ${s.windowCount} windows`);
+      const { listSnapshots, loadSnapshot, latestSnapshot } = await import("../../../core/fleet/snapshot");
+      const action = sub === "snapshot-ls" ? "list" : (args[1] || "list");
+      const json = args.includes("--json");
+      if (action === "list" || action === "ls") {
+        const snaps = listSnapshots();
+        if (json) {
+          console.log(JSON.stringify({ snapshots: snaps }, null, 2));
+        } else if (snaps.length === 0) {
+          console.log("no snapshots yet");
+          return { ok: true, output: logs.join("\n") || "no snapshots yet" };
+        } else {
+          console.log(`\x1b[36m📸 ${snaps.length} snapshots\x1b[0m\n`);
+          for (const s of snaps) {
+            const d = new Date(s.timestamp);
+            const local = d.toLocaleString("en-GB", { timeZone: "Asia/Bangkok", hour12: false });
+            console.log(`  ${s.file.replace(".json", "")}  ${local}  \x1b[90m${s.trigger}\x1b[0m  ${s.sessionCount} sessions, ${s.windowCount} windows`);
+          }
+        }
+      } else if (action === "show" || action === "view") {
+        const id = args[2];
+        const snap = id && id !== "latest" ? loadSnapshot(id) : latestSnapshot();
+        if (!snap) {
+          return { ok: false, error: "no snapshot found" };
+        }
+        if (json) {
+          console.log(JSON.stringify(snap, null, 2));
+        } else {
+          const d = new Date(snap.timestamp);
+          const local = d.toLocaleString("en-GB", { timeZone: "Asia/Bangkok", hour12: false });
+          console.log(`\x1b[36m📸 Snapshot: ${local} (${snap.trigger})\x1b[0m\n`);
+          for (const s of snap.sessions) {
+            console.log(`\x1b[33m${s.name}\x1b[0m (${s.windows.length} windows)`);
+            for (const w of s.windows) console.log(`  ${w.name}`);
+          }
+        }
+      } else {
+        return {
+          ok: false,
+          error: "usage: maw snapshots [list|show <id>|show latest] [--json]",
+        };
       }
     } else if (sub === "restore") {
       const { loadSnapshot, latestSnapshot } = await import("../../../core/fleet/snapshot");
@@ -107,7 +144,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>`,
+        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|rename|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet ls shows registered fleet config; maw ls shows live sessions`,
       };
     }
 

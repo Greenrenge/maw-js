@@ -14,6 +14,7 @@ export function _setDirs(teams: string, tasks: string) {
 
 export interface TeamMember {
   name: string;
+  role?: string;
   agentId?: string;
   agentType?: string;
   tmuxPaneId?: string;
@@ -27,6 +28,16 @@ export interface TeamConfig {
   description?: string;
   members: TeamMember[];
   createdAt?: number;
+  leadSessionId?: string;
+  leadClaimedAt?: number;
+}
+
+export interface TeamLeadClaim {
+  found: boolean;
+  claimed: boolean;
+  oldLeadSessionId?: string;
+  newLeadSessionId?: string;
+  teammates: string[];
 }
 
 export function loadTeam(name: string): TeamConfig | null {
@@ -34,6 +45,52 @@ export function loadTeam(name: string): TeamConfig | null {
   if (!existsSync(configPath)) return null;
   try { return JSON.parse(readFileSync(configPath, "utf-8")); }
   catch { return null; }
+}
+
+export function currentLeadSessionId(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.CLAUDE_SESSION_ID
+    || env.CODEX_THREAD_ID
+    || env.OMX_SESSION_ID
+    || env.ATUIN_SESSION
+    || undefined;
+}
+
+export function teamTeammateNames(team: TeamConfig): string[] {
+  return (team.members || [])
+    .filter(m => m.agentType !== "team-lead" && m.role !== "lead" && m.name !== "team-lead")
+    .map(m => m.name)
+    .filter(Boolean);
+}
+
+export function isTeamLeadOrphaned(team: TeamConfig, currentSessionId = currentLeadSessionId()): boolean {
+  return Boolean(team.leadSessionId && currentSessionId && team.leadSessionId !== currentSessionId);
+}
+
+export function claimOrphanedTeamLead(name: string, currentSessionId = currentLeadSessionId()): TeamLeadClaim {
+  const configPath = join(TEAMS_DIR, name, "config.json");
+  if (!existsSync(configPath)) return { found: false, claimed: false, teammates: [] };
+  const team = loadTeam(name);
+  if (!team) return { found: false, claimed: false, teammates: [] };
+
+  const oldLeadSessionId = team.leadSessionId;
+  const teammates = teamTeammateNames(team);
+  if (!oldLeadSessionId || !currentSessionId || oldLeadSessionId === currentSessionId) {
+    return { found: true, claimed: false, oldLeadSessionId, newLeadSessionId: currentSessionId, teammates };
+  }
+
+  const updated: TeamConfig = {
+    ...team,
+    leadSessionId: currentSessionId,
+    leadClaimedAt: Date.now(),
+  };
+  writeFileSync(configPath, JSON.stringify(updated, null, 2));
+  return {
+    found: true,
+    claimed: true,
+    oldLeadSessionId,
+    newLeadSessionId: currentSessionId,
+    teammates,
+  };
 }
 
 /**

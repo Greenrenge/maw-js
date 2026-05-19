@@ -4,14 +4,15 @@ import { join } from "path";
 import { homedir } from "os";
 import {
   cmdTeamShutdown, cmdTeamList, cmdTeamCreate, cmdTeamSpawn,
-  cmdTeamSend, cmdTeamResume, cmdTeamLives,
+  cmdTeamSend, cmdTeamBroadcast, cmdTeamBring, cmdTeamResume, cmdTeamLives,
 } from "./impl";
+import { resolveTeamSendMode, teamMessageTargets } from "./team-comms";
 import { parseFlags } from "maw-js/cli/parse-args";
 import { hostExec } from "maw-js/sdk";
 
 export const command = {
   name: "team",
-  description: "Agent reincarnation engine — create, spawn, send, shutdown, resume, lives.",
+  description: "Agent reincarnation engine — create, bring, send, shutdown, resume, lives.",
 };
 
 /**
@@ -77,6 +78,46 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const descIdx = args.indexOf("--description");
       const description = descIdx !== -1 ? args.slice(descIdx + 1).join(" ") : undefined;
       cmdTeamCreate(args[1], { description });
+    } else if (sub === "plan") {
+      if (!args[1]) {
+        logs.push("usage: maw team plan <team.yaml|team.json>");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, planTeamCharter, formatTeamCharterPlan } = await import("./team-charter");
+      logs.push(formatTeamCharterPlan(planTeamCharter(readTeamCharter(args[1]))));
+    } else if (sub === "preflight" || sub === "check") {
+      if (!args[1]) {
+        logs.push("usage: maw team preflight <team.yaml|team.json>");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, preflightTeamCharter, formatTeamCharterPreflight } = await import("./team-charter");
+      const result = preflightTeamCharter(readTeamCharter(args[1]));
+      logs.push(formatTeamCharterPreflight(result));
+      if (result.errors.length > 0) {
+        return { ok: false, error: "preflight failed", output: logs.join("\n") };
+      }
+    } else if (sub === "load") {
+      if (!args[1]) {
+        logs.push("usage: maw team load <team.yaml|team.json> --no-spawn");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      if (!args.includes("--no-spawn")) {
+        logs.push("usage: maw team load <team.yaml|team.json> --no-spawn");
+        logs.push("Phase 1 only supports materializing charter files; spawning remains a separate future step.");
+        return { ok: false, error: "--no-spawn required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, loadTeamCharter, formatTeamCharterLoad } = await import("./team-charter");
+      logs.push(formatTeamCharterLoad(loadTeamCharter(readTeamCharter(args[1]), { noSpawn: true })));
+    } else if (sub === "spawn-from") {
+      if (!args[1]) {
+        logs.push("usage: maw team spawn-from <team.yaml|team.json> [--approve] [--exec]");
+        return { ok: false, error: "charter path required", output: logs.join("\n") };
+      }
+      const { readTeamCharter, spawnFromTeamCharter, formatTeamCharterSpawn } = await import("./team-charter");
+      const approve = args.includes("--approve");
+      const exec = args.includes("--exec");
+      const result = await spawnFromTeamCharter(readTeamCharter(args[1]), { approve, exec });
+      logs.push(formatTeamCharterSpawn(result));
     } else if (sub === "spawn") {
       if (!args[1] || !args[2]) {
         logs.push("usage: maw team spawn <team> <role> [--model <model>] [--cwd <path>] [--worktree <path>] [--prompt <text>] [--exec]");
@@ -107,11 +148,35 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
       await cmdTeamSpawn(args[1], args[2], { model, prompt, exec, cwd });
     } else if (sub === "send" || sub === "msg") {
-      if (!args[1] || !args[2] || !args[3]) {
-        logs.push("usage: maw team send <team> <agent> <message>");
-        return { ok: false, error: "team, agent, and message required", output: logs.join("\n") };
+      if (!args[1] || !args[2]) {
+        logs.push("usage: maw team send <team> <message>");
+        logs.push("       maw team send <team> <agent> <message>  # legacy single-agent inbox send");
+        return { ok: false, error: "team and message required", output: logs.join("\n") };
       }
-      cmdTeamSend(args[1], args[2], args.slice(3).join(" "));
+      const sendMode = resolveTeamSendMode(args.slice(2), teamMessageTargets(args[1]));
+      if (sendMode.mode === "single") {
+        cmdTeamSend(args[1], sendMode.agent, sendMode.message);
+      } else {
+        await cmdTeamBroadcast(args[1], sendMode.message);
+      }
+    } else if (sub === "bring") {
+      const flags = parseFlags(args, {
+        "--session": String,
+        "--engine": String, "-e": "--engine",
+        "--dry-run": Boolean,
+        "--split": Boolean,
+      }, 1);
+      const team = flags._[0];
+      if (!team) {
+        logs.push("usage: maw team bring <team> [--session <session>] [-e|--engine <name>] [--split] [--dry-run]");
+        return { ok: false, error: "team required", output: logs.join("\n") };
+      }
+      await cmdTeamBring(team, {
+        session: flags["--session"] as string | undefined,
+        engine: flags["--engine"] as string | undefined,
+        dryRun: !!flags["--dry-run"],
+        split: !!flags["--split"],
+      });
     } else if (sub === "resume") {
       if (!args[1]) {
         logs.push("usage: maw team resume <name> [--model <model>]");
@@ -278,7 +343,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
+      logs.push("usage: maw team <create|plan|preflight|load|spawn-from|spawn|bring|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete|invite|oracle-invite|oracle-remove|members|enter>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

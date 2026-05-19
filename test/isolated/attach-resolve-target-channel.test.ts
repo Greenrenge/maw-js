@@ -1,0 +1,124 @@
+import { describe, expect, test } from "bun:test";
+
+const { resolveAttachTarget } = await import("../../src/vendor/mpr-plugins/attach/resolve-attach-target.ts?channel-regression");
+
+describe("attach resolver channel-session filtering", () => {
+  test("filters discord channel helper sessions so the oracle admin session wins", async () => {
+    const result = await resolveAttachTarget("discord", {
+      listSessions: async () => [
+        { name: "01-mawjs-discord", windows: [{ name: "mawjs-oracle-discord" }] },
+        { name: "02-homekeeper-discord", windows: [{ name: "homekeeper-oracle-discord" }] },
+        { name: "03-random-oracle-discord", windows: [{ name: "random" }] },
+        { name: "23-discord-admin", windows: [{ name: "discord-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "23-discord-admin" });
+  });
+
+  test("does not treat channel helpers as ambiguous matches when no oracle session exists", async () => {
+    const result = await resolveAttachTarget("discord", {
+      listSessions: async () => [
+        { name: "01-mawjs-discord", windows: [{ name: "mawjs-oracle-discord" }] },
+        { name: "02-homekeeper-discord", windows: [{ name: "homekeeper-oracle-discord" }] },
+        { name: "14-random-oracle-discord", windows: [{ name: "random" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("keeps the oracle own numbered discord-oracle session visible", async () => {
+    const result = await resolveAttachTarget("discord", {
+      listSessions: async () => [
+        { name: "01-mawjs-discord", windows: [{ name: "mawjs-oracle-discord" }] },
+        { name: "24-discord-oracle", windows: [{ name: "discord-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "24-discord-oracle" });
+  });
+
+  test("returns tier 1 ambiguity details when multiple oracle sessions match", async () => {
+    const result = await resolveAttachTarget("calliope", {
+      listSessions: async () => [
+        { name: "63-calliope-oracle", windows: [{ name: "main" }] },
+        { name: "64-calliope-admin", windows: [{ name: "calliope-oracle" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({
+      tier: 1,
+      sessionName: "63-calliope-oracle",
+      ambiguousCandidates: ["63-calliope-oracle", "64-calliope-admin"],
+    });
+  });
+
+  test("falls back to a single sleeping fleet match when no session matches", async () => {
+    const result = await resolveAttachTarget("homekeeper", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "homekeeper-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toEqual({ tier: 2, fleetName: "homekeeper-oracle" });
+  });
+
+  test("returns tier 2 ambiguity details when multiple fleet entries match", async () => {
+    const result = await resolveAttachTarget("calliope", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "primary-calliope-oracle", windows: [{ name: "main" }] },
+        { name: "backup-calliope-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toEqual({
+      tier: 2,
+      fleetName: "primary-calliope-oracle",
+      ambiguousCandidates: [
+        "primary-calliope-oracle",
+        "backup-calliope-oracle",
+      ],
+    });
+  });
+
+  test("fuzzy mode resolves freshly woken live sessions by substring", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [
+        { name: "01-Somwind", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    }, { fuzzy: true });
+
+    expect(result).toEqual({ tier: 1, sessionName: "01-Somwind" });
+  });
+
+  test("strict mode leaves substring-only fleet matches unresolved", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "Somwind-oracle", windows: [{ name: "main" }] },
+      ],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("fuzzy mode can resolve substring-only sleeping fleet matches", async () => {
+    const result = await resolveAttachTarget("wind", {
+      listSessions: async () => [],
+      loadFleet: () => [
+        { name: "Somwind-oracle", windows: [{ name: "main" }] },
+      ],
+    }, { fuzzy: true });
+
+    expect(result).toEqual({ tier: 2, fleetName: "Somwind-oracle" });
+  });
+
+});

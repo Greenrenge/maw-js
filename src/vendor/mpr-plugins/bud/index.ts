@@ -37,6 +37,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--dry-run": Boolean,
         "--pr": Boolean,
         "--split": Boolean,
+        "--scaffold-only": Boolean,
         "--seed": Boolean,
         "--blank": Boolean,
         "--signal-on-birth": Boolean,
@@ -73,7 +74,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const name = flags._[0];
       if (!name || name === "--help" || name === "-h") {
-        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--nickname <pretty>] [--fast] [--split] [--dry-run]\n       Or:    maw bud --from-repo <path|url> --stem <stem> [--pr] [--from <parent>] [--seed] [--sync-peers] [--force] [--track-vault] [--dry-run]  (#588)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
+        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--nickname <pretty>] [--fast] [--split] [--scaffold-only] [--dry-run]\n       Or:    maw scaffold <name> [bud flags...]  (structure only; no commit/push/wake/awaken)\n       Or:    maw bud --from-repo <path|url> --stem <stem> [--pr] [--from <parent>] [--seed] [--sync-peers] [--force] [--track-vault] [--dry-run]  (#588)\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
       }
       if (name.startsWith("-")) {
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };
@@ -90,6 +91,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         root: flags["--root"],
         dryRun: flags["--dry-run"],
         split: flags["--split"],
+        scaffoldOnly: flags["--scaffold-only"],
         seed: flags["--seed"],
         blank: flags["--blank"],
         signalOnBirth: flags["--signal-on-birth"],
@@ -109,6 +111,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         root: body.root as boolean | undefined,
         dryRun: body.dryRun as boolean | undefined,
         split: body.split as boolean | undefined,
+        scaffoldOnly: body.scaffoldOnly as boolean | undefined,
         seed: body.seed as boolean | undefined,
         blank: body.blank as boolean | undefined,
         signalOnBirth: body.signalOnBirth as boolean | undefined,

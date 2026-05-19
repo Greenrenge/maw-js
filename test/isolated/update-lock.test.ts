@@ -32,6 +32,7 @@ const READ_FD = 7777; // arbitrary fd handed back for stale-read opens
 let nowPlan: number[] = [];
 let nowCursor = 0;
 let realNow: () => number;
+let existsResult = true;
 // readSyncImpl returns the bytes that the production code's readSync sees.
 // It used to be readSyncImpl returning a string; under the fd-based read
 // the impl writes into the caller-supplied buffer, so we model it that way.
@@ -61,7 +62,7 @@ await mock.module("fs", () => ({
   },
   existsSync: (path: string) => {
     calls.push({ fn: "existsSync", args: [path] });
-    return true; // ~/.maw already exists in mock-world
+    return existsResult;
   },
   mkdirSync: (path: string, opts: unknown) => {
     calls.push({ fn: "mkdirSync", args: [path, opts] });
@@ -91,6 +92,7 @@ beforeEach(() => {
   nowPlan = [];
   nowCursor = 0;
   realNow = Date.now;
+  existsResult = true;
 });
 
 afterEach(() => {
@@ -253,5 +255,104 @@ describe("withUpdateLock — acquisition + release (#551)", () => {
       console.log = origLog;
     }
     expect(caught?.message).toContain("update lock timeout");
+  });
+
+  test("case 7 — creates the lock directory when missing", async () => {
+    existsResult = false;
+    openPlan = [123];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+
+    await withUpdateLock(async () => "created");
+
+    expect(calls.some((c) => c.fn === "mkdirSync" && (c.args[1] as { recursive?: boolean }).recursive === true)).toBe(true);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 123)).toBe(true);
+  });
+
+  test("case 8 — SIGINT handler releases the lock and exits with shell interrupt code", async () => {
+    openPlan = [1301];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+    const originalOnce = process.once;
+    const originalRemoveListener = process.removeListener;
+    const originalExit = process.exit;
+    const callbacks: Record<string, () => void> = {};
+    const removed: string[] = [];
+    const exits: number[] = [];
+    let releaseFn!: () => void;
+    const held = new Promise<void>((resolve) => { releaseFn = resolve; });
+
+    process.once = ((event: string, callback: () => void) => {
+      callbacks[event] = callback;
+      return process;
+    }) as typeof process.once;
+    process.removeListener = ((event: string) => {
+      removed.push(event);
+      return process;
+    }) as typeof process.removeListener;
+    process.exit = ((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      const pending = withUpdateLock(async () => {
+        await held;
+        return "done";
+      });
+      await Promise.resolve();
+
+      callbacks.SIGINT();
+      releaseFn();
+      await expect(pending).resolves.toBe("done");
+    } finally {
+      process.once = originalOnce;
+      process.removeListener = originalRemoveListener;
+      process.exit = originalExit;
+    }
+
+    expect(exits).toEqual([130]);
+    expect(removed).toEqual(["SIGINT", "SIGTERM"]);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 1301)).toBe(true);
+    expect(calls.some((c) => c.fn === "unlinkSync")).toBe(true);
+  });
+
+  test("case 9 — SIGTERM handler releases the lock and exits with terminate code", async () => {
+    openPlan = [1431];
+    const { withUpdateLock } = await import("../../src/cli/update-lock");
+    const originalOnce = process.once;
+    const originalRemoveListener = process.removeListener;
+    const originalExit = process.exit;
+    const callbacks: Record<string, () => void> = {};
+    const exits: number[] = [];
+    let releaseFn!: () => void;
+    const held = new Promise<void>((resolve) => { releaseFn = resolve; });
+
+    process.once = ((event: string, callback: () => void) => {
+      callbacks[event] = callback;
+      return process;
+    }) as typeof process.once;
+    process.removeListener = (() => process) as typeof process.removeListener;
+    process.exit = ((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      const pending = withUpdateLock(async () => {
+        await held;
+        return "done";
+      });
+      await Promise.resolve();
+
+      callbacks.SIGTERM();
+      releaseFn();
+      await expect(pending).resolves.toBe("done");
+    } finally {
+      process.once = originalOnce;
+      process.removeListener = originalRemoveListener;
+      process.exit = originalExit;
+    }
+
+    expect(exits).toEqual([143]);
+    expect(calls.some((c) => c.fn === "closeSync" && c.args[0] === 1431)).toBe(true);
   });
 });

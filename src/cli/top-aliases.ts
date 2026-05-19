@@ -22,8 +22,9 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
-import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
+import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
+import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 
@@ -44,11 +45,15 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
   tile: "Tile current window or spawn N panes tiled",
-  bring: "Bring an oracle HERE — split current pane and attach",
+  bring: "Bring an oracle HERE — thin alias for `wake --split`",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (compact, -a roster, -v detail)",
+  ls: "List sessions (compact default, -v detail, -r recent, -a roster)",
+  scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
+  awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
+  new: "Create a plain tmux workspace session",
   preflight: "Pre-flight check — version, plugins, dead agents, config",
+  snapshots: "List and inspect fleet recovery snapshots",
 };
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
@@ -68,16 +73,23 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
-  //   maw ls      → compact, live sessions only
-  //   maw ls -a   → compact + sleeping oracles (roster)
+  //   maw ls      → compact live-session summary (#1613)
   //   maw ls -v   → full per-pane detail
+  //   maw ls -c   → explicit compact alias
+  //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
+  //   maw ls -r   → compact sessions sorted newest-first by tmux creation time
+  //   maw ls --active [30m|1h] → compact sessions touched within the threshold
   ls: { kind: "direct", handler: "cmdLs" },
+  scaffold: ["bud", "--scaffold-only"],
 
   // Direct-handler form — cmdWake is in core (src/commands/shared/wake-cmd.ts)
   // even though the wake/ plugin was extracted to the registry in #918.
   wake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdWake" },
+  awake: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdAwake" },
+  new: { kind: "direct", handler: "./cmd-new:cmdNew" },
 
   preflight: { kind: "direct", handler: "../commands/shared/preflight:cmdPreflight" },
+  snapshots: ["fleet", "snapshots"],
 };
 
 /**
@@ -95,24 +107,23 @@ export function resolveTopAlias(args: string[]): AliasResolution | null {
   const entry = TOP_ALIASES[verb];
   if (!entry) return null;
 
-  if (Array.isArray(entry)) {
-    // Argv-rewrite: replace args[0] with the canonical chain, keep rest.
-    return { kind: "argv", argv: [...entry, ...args.slice(1)] };
-  }
+  // Argv-rewrite: replace args[0] with the canonical chain, keep rest.
+  if (Array.isArray(entry)) return { kind: "argv", argv: [...entry, ...args.slice(1)] };
 
   // Direct-handler: pass the rest of argv (everything after the verb) as-is.
   return { kind: "direct", handler: entry.handler, argv: args.slice(1) };
 }
 
-export function parseBringArgs(argv: string[]): {
+export function parseBringArgs(
+  argv: string[],
+  writeUsage: (line: string) => void = console.error,
+): {
   oracle: string;
   opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
 } {
-  // v1 default (#1398, locked by #1430): `maw bring <oracle>` splits the
-  // current pane and attaches there. `--split` is kept as a no-op alias for
-  // muscle memory, while `--tab` preserves the background tmux-window path.
-  // The top-right respawn experiment (#1422) is deliberately not wired to
-  // `--tab`: tab must be non-destructive.
+  // #1799: `maw bring <oracle>` is a thin `maw wake <oracle> --split`
+  // alias. Keep this tiny parser for legacy unit tests and usage validation;
+  // runtime dispatch goes through the wake parser so all wake flags work.
   const flags = parseFlags(argv, {
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
@@ -120,18 +131,36 @@ export function parseBringArgs(argv: string[]): {
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
-    console.error("usage: maw bring <oracle> [--split|--tab] [-e|--engine <name>]");
-    console.error("  Default: split the current pane and attach (v1).");
-    console.error("  --split is accepted as an explicit alias of the default.");
-    console.error("  Use --tab for a non-destructive background tmux window.");
-    console.error("  Symmetric with `maw a` (attach goes there, bring comes here).");
+    printBringUsage(writeUsage);
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = flags["--tab"]
-    ? { bring: true, tab: true }
-    : { split: true };
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
   return { oracle, opts };
+}
+
+function printBringUsage(write: (line: string) => void = console.log): void {
+  write("usage: maw bring <oracle> [wake flags...]");
+  write("       maw b <oracle> [wake flags...]");
+  write("  Thin alias: maw bring <oracle> ≡ maw wake <oracle> --split");
+  write("  Supports the same flags as `maw wake`, including --task, --wt, --dry-run, and -e/--engine.");
+}
+
+function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  if (verb === "awake") {
+    write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
+    write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
+  } else {
+    write("  Wake or reuse an oracle session, fuzzy-resolving repos and worktrees as needed.");
+  }
+  write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
+  write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
+  write("  --pick opens the reusable worktree picker; --name creates/reuses a stable named worktree.");
+  write("  --list previews worktrees only; it does not create sessions or respawn windows.");
+  write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
+  write("  --bud with --task/--wt writes ψ/.lineage.yaml in the worktree (no repo/fleet mutation).");
+  write("  --signal-on-birth with --bud also drops a parent ψ/memory/signals birth signal.");
 }
 
 /**
@@ -141,44 +170,133 @@ export function parseBringArgs(argv: string[]): {
  * help-text rendering, but the path is no longer used at runtime —
  * dispatch is by `exportName` against a static handler map.
  *
- * For `ls`, `-a` = roster (sleeping oracles), `-v` = full detail.
+ * For `ls`, compact summary is the default; `-v` returns full per-pane detail,
+ * `-c` is an explicit compact alias, `-a` preserves the legacy
+ * compact+roster behavior, `-r/--recent [N]` sorts newest-first, and
+ * `--active [duration]` filters by tmux session_activity (default 30m).
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
+export function parseLsAliasOpts(argv: string[]) {
+  const flags = parseFlags(argv, {
+    "--all": Boolean, "-a": "--all",
+    "--compact": Boolean, "-c": "--compact",
+    "--verbose": Boolean, "-v": "--verbose",
+    "--fix": Boolean,
+    "--json": Boolean,
+    "--recent": Boolean, "-r": "--recent",
+    "--active": Boolean,
+    "--node": String,
+    "--channels": Boolean,
+  }, 0);
+
+  // #1613 — restore the original compact default. `-v/--verbose` opts into
+  // per-pane detail; `-c/--compact` is an explicit alias for the default.
+  // `-a/--all` historically meant "include sleeping roster" on top-level
+  // `maw ls`; keep that legacy shape by rendering the compact roster view.
+  const verbose = !!flags["--verbose"] && !flags["--compact"] && !flags["--all"];
+  const compact = !verbose || !!flags["--compact"] || !!flags["--all"];
+  const opts: {
+    all: true;
+    compact: boolean;
+    verbose: boolean;
+    roster: boolean;
+    json: boolean;
+    recent?: boolean;
+    recentLimit?: number;
+    active?: boolean;
+    activeThresholdSec?: number;
+    filter?: string;
+    channels?: boolean;
+  } = {
+    all: true,
+    compact,
+    verbose,
+    roster: !!flags["--all"],
+    json: !!flags["--json"],
+  };
+  if (flags["--channels"] || flags["--all"]) opts.channels = true;
+  const positionals = flags._ as string[];
+  const activeArg = activeDurationArg(argv);
+  const filterPositionals = activeArg
+    ? positionals.filter((arg) => arg !== activeArg)
+    : positionals;
+  const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
+  const positionalFilter = filterPositionals.find((arg) => !/^\d+$/.test(arg) && !(flags["--active"] && parseActiveDurationSeconds(arg)))?.trim() ?? "";
+  if (nodeFilter || positionalFilter) opts.filter = nodeFilter || positionalFilter;
+
+  if (flags["--recent"]) {
+    opts.recent = true;
+    const limitRaw = positionals.find((arg) => /^\d+$/.test(arg));
+    if (limitRaw) {
+      const limit = Number(limitRaw);
+      if (Number.isSafeInteger(limit) && limit > 0) opts.recentLimit = limit;
+    }
+  }
+  if (flags["--active"]) {
+    opts.active = true;
+    opts.activeThresholdSec = parseActiveDurationSeconds(activeArg) ?? undefined;
+  }
+  return opts;
+}
+
+type MaybePromise<T = unknown> = T | Promise<T>;
+
+export interface TopAliasHandlerDeps {
+  cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
+  cmdNew?: (argv: string[]) => MaybePromise;
+  cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
+  loadConfig?: () => { commands?: Record<string, unknown> };
+  log?: (line: string) => void;
+  error?: (line: string) => void;
+}
+
 export async function invokeDirectHandler(
   handler: string,
   argv: string[],
+  deps: TopAliasHandlerDeps = {},
 ): Promise<void> {
   const exportName = handler.includes(":") ? handler.split(":")[1] : handler;
   if (!exportName) {
     throw new Error(`top-alias: malformed handler spec '${handler}' — expected '<module>:<export>' or name`);
   }
 
+  const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directCmdWake = deps.cmdWake ?? cmdWake;
+  const directCmdNew = deps.cmdNew ?? cmdNew;
+  const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
+  const log = deps.log ?? console.log;
+  const error = deps.error ?? console.error;
+
   if (exportName === "cmdLs") {
-    const flags = parseFlags(argv, {
-      "--all": Boolean, "-a": "--all",
-      "--verbose": Boolean, "-v": "--verbose",
-      "--fix": Boolean,
-      "--json": Boolean,
-    }, 0);
-    await cmdTmuxLs({
-      all: true,
-      compact: !flags["--verbose"],
-      verbose: !!flags["--verbose"],
-      roster: !!flags["--all"],
-      json: !!flags["--json"],
-    });
+    await directCmdTmuxLs(parseLsAliasOpts(argv));
     return;
   }
 
-  if (exportName === "cmdWake") {
+  if (exportName === "cmdWake" || exportName === "cmdAwake") {
+    const verb = exportName === "cmdAwake" ? "awake" : "wake";
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printWakeAliasUsage(verb, log);
+      return;
+    }
+
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
+      "--session": String,
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
-      "--fresh": Boolean,
+      "--fresh": Boolean, "--new": "--fresh",
+      "--pick": Boolean,
+      "--name": String,
+      "--bud": Boolean,
+      "--signal-on-birth": Boolean,
       "--attach": Boolean, "-a": "--attach",
       "--list": Boolean,
+      "--dry-run": Boolean,
+      "--from-snapshot": Boolean,
+      "--snapshot": String,
+      "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
       "--split": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
@@ -187,29 +305,50 @@ export async function invokeDirectHandler(
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
-      throw new UserError("wake: missing oracle name");
+      printWakeAliasUsage(verb, error);
+      throw new UserError(`${verb}: missing oracle name`);
     }
 
     const opts: {
       task?: string;
       wt?: string;
+      session?: string;
       prompt?: string;
       incubate?: string;
       fresh?: boolean;
+      pick?: boolean;
+      name?: string;
       attach?: boolean;
       listWt?: boolean;
+      dryRun?: boolean;
+      noRehydrate?: boolean;
       split?: boolean;
+      bud?: boolean;
+      signalOnBirth?: boolean;
       allLocal?: boolean;
       engine?: string;
+      fromSnapshot?: boolean;
+      snapshotId?: string;
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
+    if (flags["--session"]) opts.session = flags["--session"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];
     if (flags["--fresh"]) opts.fresh = true;
+    if (flags["--pick"]) opts.pick = true;
+    if (flags["--name"]) opts.name = flags["--name"];
+    if (flags["--bud"]) opts.bud = true;
+    if (flags["--signal-on-birth"]) opts.signalOnBirth = true;
     if (flags["--attach"]) opts.attach = true;
     if (flags["--list"]) opts.listWt = true;
+    if (flags["--dry-run"]) opts.dryRun = true;
+    if (flags["--from-snapshot"]) opts.fromSnapshot = true;
+    if (flags["--snapshot"]) {
+      opts.snapshotId = flags["--snapshot"];
+      opts.fromSnapshot = true;
+    }
+    if (flags["--main"]) opts.noRehydrate = true;
     if (flags["--split"]) opts.split = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
@@ -217,7 +356,7 @@ export async function invokeDirectHandler(
     // Shorthand: --codex, --gemini etc. → engine from config.commands
     // Unknown flags land in flags._ (permissive mode), so scan for --<engine>
     if (!opts.engine) {
-      const { loadConfig } = await import("../config");
+      const loadConfig = deps.loadConfig ?? (await import("../config")).loadConfig;
       const commands = loadConfig().commands || {};
       for (const arg of (flags._ as string[])) {
         if (arg.startsWith("--") && commands[arg.slice(2)]) {
@@ -227,21 +366,28 @@ export async function invokeDirectHandler(
       }
     }
 
-    await cmdWake(oracle, opts);
+    await directCmdWake(oracle, opts);
     return;
   }
 
   if (exportName === "cmdBring") {
-    // `maw bring <oracle>` defaults to the v1 current-pane split path.
-    // `--tab` opts into the non-destructive background tmux-window path.
-    const { oracle, opts } = parseBringArgs(argv);
-    await cmdWake(oracle, opts);
+    // #1799 — keep bring as a thin wake alias so every wake flag works.
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printBringUsage(log);
+      return;
+    }
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdWake", [...argv, "--split"], deps);
+    return;
+  }
+
+  if (exportName === "cmdNew") {
+    await directCmdNew(argv);
     return;
   }
 
   if (exportName === "cmdPreflight") {
     const flags = parseFlags(argv, { "--fix": Boolean }, 0);
-    await cmdPreflight({ fix: !!flags["--fix"] });
+    await directCmdPreflight({ fix: !!flags["--fix"] });
     return;
   }
 

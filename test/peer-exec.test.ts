@@ -23,7 +23,8 @@ import {
   isReadOnlyCmd,
   isShellPeerAllowed,
   resolvePeerUrl,
-  peerExecApi,
+  relayToPeer,
+  createPeerExecApi,
 } from "../src/api/peer-exec";
 
 // ---- Pure helper tests ---------------------------------------------------
@@ -119,37 +120,105 @@ describe("isShellPeerAllowed", () => {
   });
 
   test("unknown origin is denied (no config.wormhole.shellPeers entry)", () => {
-    // The real config probably doesn't have any wormhole.shellPeers yet,
-    // so any origin returns false. This test locks that default.
-    expect(isShellPeerAllowed("some-random-host-xyz-does-not-exist")).toBe(false);
+    expect(isShellPeerAllowed("some-random-host-xyz-does-not-exist", {
+      loadConfig: () => ({ wormhole: { shellPeers: [] } }) as any,
+    })).toBe(false);
   });
 });
 
 describe("resolvePeerUrl", () => {
+  const noNamedPeers = { loadConfig: () => ({ namedPeers: [] }) as any };
+
   test("resolves a bare host:port to http://host:port", () => {
-    expect(resolvePeerUrl("10.20.0.7:3456")).toBe("http://10.20.0.7:3456");
-    expect(resolvePeerUrl("localhost:3457")).toBe("http://localhost:3457");
+    expect(resolvePeerUrl("10.20.0.7:3456", noNamedPeers)).toBe("http://10.20.0.7:3456");
+    expect(resolvePeerUrl("localhost:3457", noNamedPeers)).toBe("http://localhost:3457");
   });
 
   test("returns a full http:// URL unchanged", () => {
-    expect(resolvePeerUrl("http://oracle-world.example:3456")).toBe(
+    expect(resolvePeerUrl("http://oracle-world.example:3456", noNamedPeers)).toBe(
       "http://oracle-world.example:3456",
     );
   });
 
   test("returns a full https:// URL unchanged", () => {
-    expect(resolvePeerUrl("https://local.buildwithoracle.com")).toBe(
+    expect(resolvePeerUrl("https://local.buildwithoracle.com", noNamedPeers)).toBe(
       "https://local.buildwithoracle.com",
     );
   });
 
   test("returns null for an unknown bare peer name", () => {
-    // Assuming the real config doesn't have "ghost-peer-xyz" in namedPeers
-    expect(resolvePeerUrl("ghost-peer-xyz")).toBeNull();
+    expect(resolvePeerUrl("ghost-peer-xyz", noNamedPeers)).toBeNull();
   });
 
   test("returns null for empty input", () => {
-    expect(resolvePeerUrl("")).toBeNull();
+    expect(resolvePeerUrl("", noNamedPeers)).toBeNull();
+  });
+});
+
+describe("relayToPeer", () => {
+  test("posts JSON, signs when a federation token exists, and reports elapsed time", async () => {
+    const requests: any[] = [];
+    const ticks = [100, 137];
+
+    const result = await relayToPeer(
+      "http://peer.local:3456",
+      { cmd: "/dig", args: ["--deep"], signature: "[local:oracle]" },
+      {
+        loadConfig: () => ({ federationToken: "secret" }) as any,
+        signHeaders: (token, method, path) => ({
+          "x-signed": `${token}:${method}:${path}`,
+        }),
+        now: () => ticks.shift() ?? 137,
+        fetch: (async (url, init) => {
+          requests.push({ url, init });
+          return new Response("accepted", { status: 202 });
+        }) as typeof fetch,
+      },
+    );
+
+    expect(result).toEqual({
+      output: "accepted",
+      from: "http://peer.local:3456",
+      elapsedMs: 37,
+      status: 202,
+    });
+    expect(requests).toEqual([
+      {
+        url: "http://peer.local:3456/api/peer/exec",
+        init: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-signed": "secret:POST:/api/peer/exec",
+          },
+          body: JSON.stringify({
+            cmd: "/dig",
+            args: ["--deep"],
+            signature: "[local:oracle]",
+          }),
+        },
+      },
+    ]);
+  });
+
+  test("omits signing headers when no federation token exists", async () => {
+    const requests: any[] = [];
+
+    const result = await relayToPeer(
+      "http://peer.local:3456",
+      { cmd: "/recap", args: [], signature: "[local:anon]" },
+      {
+        loadConfig: () => ({}) as any,
+        fetch: (async (url, init) => {
+          requests.push({ url, init });
+          return new Response("readonly", { status: 200 });
+        }) as typeof fetch,
+      },
+    );
+
+    expect(result.output).toBe("readonly");
+    expect(requests[0].init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(typeof result.elapsedMs).toBe("number");
   });
 });
 
@@ -158,7 +227,7 @@ describe("resolvePeerUrl", () => {
 // Mount peerExecApi on an Elysia app so we can call it with app.handle().
 // This avoids booting the full server and keeps the tests deterministic.
 
-function makeApp() {
+function makeApp(deps: Parameters<typeof createPeerExecApi>[0] = {}) {
   return new Elysia({ prefix: "/api" })
     .onError(({ code, set }) => {
       if (code === "PARSE") {
@@ -166,7 +235,11 @@ function makeApp() {
         return { error: "invalid_body" };
       }
     })
-    .use(peerExecApi);
+    .use(createPeerExecApi({
+      isShellPeerAllowed: () => false,
+      resolvePeerUrl: () => null,
+      ...deps,
+    }));
 }
 
 // Force production mode so the cookie check is active (dev bypass off).
@@ -285,6 +358,68 @@ describe("POST /api/peer/exec (trust flow)", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as any;
     expect(body.error).toBe("unknown_peer");
+  });
+
+  test("allowlisted shell peers relay with shell trust tier", async () => {
+    const relayCalls: any[] = [];
+    const app = new Elysia({ prefix: "/api" }).use(createPeerExecApi({
+      hasValidSessionCookie: () => true,
+      parseSignature: () => ({ originHost: "trusted-host", originAgent: "operator", isAnon: false }),
+      isReadOnlyCmd: () => false,
+      isShellPeerAllowed: (origin) => origin === "trusted-host",
+      resolvePeerUrl: () => "http://peer.local:3456",
+      relayToPeer: (async (peerUrl, body) => {
+        relayCalls.push({ peerUrl, body });
+        return { output: "done", from: peerUrl, elapsedMs: 9, status: 201 };
+      }) as typeof relayToPeer,
+    }));
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "peer",
+        cmd: "/awaken",
+        args: ["--fast"],
+        signature: "[trusted-host:operator]",
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      output: "done",
+      from: "http://peer.local:3456",
+      elapsed_ms: 9,
+      status: 201,
+      trust_tier: "shell_allowlisted",
+    });
+    expect(relayCalls).toEqual([{
+      peerUrl: "http://peer.local:3456",
+      body: { cmd: "/awaken", args: ["--fast"], signature: "[trusted-host:operator]" },
+    }]);
+  });
+
+  test("relay failures surface as 502", async () => {
+    const app = new Elysia({ prefix: "/api" }).use(createPeerExecApi({
+      hasValidSessionCookie: () => true,
+      parseSignature: () => ({ originHost: "local", originAgent: "anon", isAnon: true }),
+      isReadOnlyCmd: () => true,
+      resolvePeerUrl: () => "http://peer.local:3456",
+      relayToPeer: (async () => { throw new Error("peer offline"); }) as typeof relayToPeer,
+    }));
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({ peer: "peer", cmd: "/dig", signature: "[local:anon]" }),
+    }));
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: "relay_failed",
+      peer: "http://peer.local:3456",
+      reason: "peer offline",
+    });
   });
 
   test("invalid JSON body → 400 invalid_body", async () => {

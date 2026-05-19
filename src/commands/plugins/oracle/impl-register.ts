@@ -27,6 +27,14 @@ export interface DiscoveredOracle {
   entry: OracleEntry;
 }
 
+export interface RegisterDeps {
+  readRawCache?: () => Record<string, unknown>;
+  writeRawCache?: (data: Record<string, unknown>) => void;
+  findInFleetFn?: (name: string) => DiscoveredOracle | null;
+  findInTmuxFn?: (name: string) => Promise<DiscoveredOracle | null>;
+  findInFilesystemFn?: (name: string) => DiscoveredOracle | null;
+}
+
 export function findInFleet(
   name: string,
   fleetDir: string = FLEET_DIR,
@@ -146,14 +154,14 @@ export function findInFilesystem(
 
 // ─── Raw registry I/O ─────────────────────────────────────────────────────────
 
-function readRaw(file: string): Record<string, unknown> {
+export function readRawRegistry(file: string): Record<string, unknown> {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));
   } catch { /* fall through */ }
   return {};
 }
 
-function writeRaw(file: string, data: Record<string, unknown>): void {
+export function writeRawRegistry(file: string, data: Record<string, unknown>): void {
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
@@ -162,18 +170,12 @@ function writeRaw(file: string, data: Record<string, unknown>): void {
 export async function cmdOracleRegister(
   name: string,
   opts: RegisterOpts = {},
-  deps: {
-    readRawCache?: () => Record<string, unknown>;
-    writeRawCache?: (data: Record<string, unknown>) => void;
-    findInFleetFn?: (name: string) => DiscoveredOracle | null;
-    findInTmuxFn?: (name: string) => Promise<DiscoveredOracle | null>;
-    findInFilesystemFn?: (name: string) => DiscoveredOracle | null;
-  } = {},
+  deps: RegisterDeps = {},
 ): Promise<void> {
   if (!name) throw new Error("register requires a name: maw oracle register <name>");
 
-  const readRawCache = deps.readRawCache ?? (() => readRaw(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRaw(CACHE_FILE, data));
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
+  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
 
   const rawCache = readRawCache();
   const oracles: OracleEntry[] = (rawCache.oracles as OracleEntry[] | undefined) ?? [];

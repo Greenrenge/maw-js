@@ -22,7 +22,15 @@ function tierIcon(tier: PluginTier, disabled: boolean): string {
   }
 }
 
-export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlugin[]): void {
+export function doLs(
+  json: boolean,
+  showAll: boolean,
+  discover: () => LoadedPlugin[],
+  load: () => { disabledPlugins?: string[] } = () => {
+    const { loadConfig } = require("../../config");
+    return loadConfig();
+  },
+): void {
   const allPlugins = discover();
 
   if (json) {
@@ -47,8 +55,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
     return;
   }
 
-  const { loadConfig } = require("../../config");
-  const disabledSet = new Set((loadConfig().disabledPlugins ?? []) as string[]);
+  const disabledSet = new Set((load().disabledPlugins ?? []) as string[]);
 
   const activeCount = allPlugins.filter(p => !disabledSet.has(p.manifest.name)).length;
   const disabledCount = allPlugins.length - activeCount;
@@ -74,6 +81,7 @@ export function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlug
   }
 
   for (const tier of tiers) {
+    tier.plugins.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
     if (tier.plugins.length === 0) continue;
     console.log(`\n\x1b[1m${tier.label}\x1b[0m (${tier.plugins.length})`);
     const rows = tier.plugins.map(p => {
