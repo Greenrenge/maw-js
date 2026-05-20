@@ -1,7 +1,7 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { tmux, FLEET_DIR } from "../../sdk";
-import { mawStatePath } from "../../core/xdg";
+import { tmux } from "../../sdk";
+import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 
 export interface FleetWindow {
   name: string;
@@ -27,16 +27,12 @@ export interface FleetEntry {
   session: FleetSession;
 }
 
-function uniqueDirs(dirs: string[]): string[] {
-  return [...new Set(dirs.filter(Boolean))];
-}
-
 export function fleetDirsForRead(): string[] {
-  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
+  return coreFleetDirsForRead();
 }
 
 export function fleetDirForWrite(): string {
-  return mawStatePath("fleet");
+  return coreFleetDirForWrite();
 }
 
 function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string }> {

@@ -11,8 +11,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../paths";
-import { mawStatePath } from "../xdg";
+import { fleetDirsForRead } from "./paths";
 import { loadConfig } from "../../config";
 import type { MawConfig } from "../../config/types";
 import { getGhqRoot } from "../../config/ghq-root";
@@ -26,14 +25,6 @@ interface FleetLineage {
   budded_at: string | null;
 }
 
-
-function uniqueDirs(dirs: string[]): string[] {
-  return [...new Set(dirs.filter(Boolean))];
-}
-
-function fleetLineageDirs(): string[] {
-  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
-}
 
 function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): void {
   const repos: string[] = config.project_repos || [];
@@ -60,7 +51,7 @@ function addFleetLineageConfig(map: Map<string, FleetLineage>, config: any): voi
 export function readFleetLineage(fleetDir?: string | string[]): Map<string, FleetLineage> {
   const map = new Map<string, FleetLineage>();
   const seenFiles = new Set<string>();
-  const dirs = Array.isArray(fleetDir) ? fleetDir : fleetDir ? [fleetDir] : fleetLineageDirs();
+  const dirs = Array.isArray(fleetDir) ? fleetDir : fleetDir ? [fleetDir] : fleetDirsForRead();
   for (const dir of dirs) {
     try {
       for (const file of readdirSync(dir).filter(f => f.endsWith(".json")).sort()) {
@@ -98,7 +89,7 @@ interface ScanLocalDeps {
  */
 export function scanLocal(verbose = true, deps: ScanLocalDeps = {}): OracleEntry[] {
   const config = deps.config ?? loadConfig();
-  const fleetDirs = deps.fleetDirs ?? (deps.fleetDir ? [deps.fleetDir] : fleetLineageDirs());
+  const fleetDirs = deps.fleetDirs ?? (deps.fleetDir ? [deps.fleetDir] : fleetDirsForRead());
   const fleetSource = fleetDirs.join(", ");
   const reposRoot = join(deps.ghqRoot ?? getGhqRoot(), "github.com");
   const now = deps.now ?? new Date().toISOString();

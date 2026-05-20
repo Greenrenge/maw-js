@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../core/paths";
-import { mawStatePath } from "../core/xdg";
+import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 /**
  * Phase 1.1 of #736 — pre-populate `config.agents` from fleet at loadConfig time.
@@ -38,12 +37,8 @@ interface FleetSessionLite {
   windows?: FleetWindowLite[];
 }
 
-function uniqueDirs(dirs: string[]): string[] {
-  return [...new Set(dirs.filter(Boolean))];
-}
-
 export function fleetAgentDirsForRead(): string[] {
-  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
+  return fleetDirsForRead();
 }
 
 /**

@@ -3,7 +3,7 @@ import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
-import { mawStatePath } from "../xdg";
+import { fleetDirsForRead, uniqueDirs } from "./paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";
 import type { Session } from "../runtime/find-window";
 
@@ -31,14 +31,6 @@ export interface ScanWorktreesDeps {
   error: (...args: unknown[]) => void;
 }
 
-function uniqueDirs(dirs: string[]): string[] {
-  return [...new Set(dirs.filter(Boolean))];
-}
-
-function fleetDirsForScan(): string[] {
-  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
-}
-
 function scanDeps(overrides: Partial<ScanWorktreesDeps>): ScanWorktreesDeps {
   return {
     hostExec: overrides.hostExec ?? hostExec,
@@ -47,7 +39,7 @@ function scanDeps(overrides: Partial<ScanWorktreesDeps>): ScanWorktreesDeps {
     readdirSync: overrides.readdirSync ?? (readdirSync as unknown as ScanWorktreesDeps["readdirSync"]),
     readFileSync: overrides.readFileSync ?? (readFileSync as unknown as ScanWorktreesDeps["readFileSync"]),
     fleetDir: overrides.fleetDir ?? FLEET_DIR,
-    fleetDirs: overrides.fleetDirs ?? (overrides.fleetDir ? [overrides.fleetDir] : fleetDirsForScan()),
+    fleetDirs: overrides.fleetDirs ?? (overrides.fleetDir ? [overrides.fleetDir] : fleetDirsForRead()),
     error: overrides.error ?? console.error,
   };
 }

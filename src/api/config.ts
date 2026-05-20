@@ -2,8 +2,8 @@ import { Elysia, t } from "elysia";
 import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "fs";
 import { join, basename } from "path";
 import { type MawConfig, loadConfig, saveConfig, configForDisplay } from "../config";
-import { CONFIG_FILE, FLEET_DIR } from "../core/paths";
-import { mawStatePath } from "../core/xdg";
+import { CONFIG_FILE } from "../core/paths";
+import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 // Rate limit: max 5 attempts per IP per minute
 const pinAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -43,8 +43,8 @@ export function createConfigApi(deps: ConfigApiDeps = {}) {
   const displayConfig = deps.configForDisplay ?? configForDisplay;
   const rootDir = deps.rootDir ?? pathJoin(import.meta.dir, "../..");
   const configFile = deps.configFile ?? (deps.rootDir ? pathJoin(rootDir, "maw.config.json") : CONFIG_FILE);
-  const fleetRoot = deps.fleetDir ?? (deps.rootDir ? pathJoin(rootDir, "fleet") : mawStatePath("fleet"));
-  const fleetReadRoots = uniqueDirs(deps.fleetDirs ?? (deps.fleetDir || deps.rootDir ? [fleetRoot] : [mawStatePath("fleet"), FLEET_DIR]));
+  const fleetRoot = deps.fleetDir ?? (deps.rootDir ? pathJoin(rootDir, "fleet") : fleetDirForWrite());
+  const fleetReadRoots = uniqueDirs(deps.fleetDirs ?? (deps.fleetDir || deps.rootDir ? [fleetRoot] : fleetDirsForRead()));
   const attempts = deps.pinAttempts ?? pinAttempts;
   const now = deps.now ?? (() => Date.now());
   const createAuthToken = deps.createToken ?? (async () => {
@@ -53,10 +53,6 @@ export function createConfigApi(deps: ConfigApiDeps = {}) {
   });
 
   const configApi = new Elysia();
-
-  function uniqueDirs(dirs: string[]): string[] {
-    return [...new Set(dirs.filter(Boolean))];
-  }
 
   function fleetNameFromPath(filePath: string): string | null {
     if (!filePath.startsWith("fleet/")) return null;

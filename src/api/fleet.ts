@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../core/paths";
-import { mawStatePath } from "../core/xdg";
+import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 export interface FleetApiDeps {
   fleetDir: string;
@@ -12,14 +12,10 @@ export interface FleetApiDeps {
   join: typeof join;
 }
 
-function uniqueDirs(dirs: string[]): string[] {
-  return [...new Set(dirs.filter(Boolean))];
-}
-
 function defaultFleetApiDeps(): FleetApiDeps {
   return {
     fleetDir: FLEET_DIR,
-    fleetDirs: uniqueDirs([mawStatePath("fleet"), FLEET_DIR]),
+    fleetDirs: fleetDirsForRead(),
     readdirSync,
     readFileSync,
     join,
