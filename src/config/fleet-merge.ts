@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../core/paths";
+import { mawStatePath } from "../core/xdg";
 
 /**
  * Phase 1.1 of #736 — pre-populate `config.agents` from fleet at loadConfig time.
@@ -22,9 +23,9 @@ import { FLEET_DIR } from "../core/paths";
  *   --init-agents` and `maw wake`.
  *
  * Failure mode:
- *   If FLEET_DIR doesn't exist or any file is malformed, we swallow and return
- *   the input agents map unchanged. loadConfig() is too foundational to throw on
- *   a fleet glitch.
+ *   If fleet directories don't exist or any file is malformed, we swallow and
+ *   return the input agents map unchanged. loadConfig() is too foundational to
+ *   throw on a fleet glitch.
  */
 
 interface FleetWindowLite {
@@ -35,6 +36,14 @@ interface FleetWindowLite {
 interface FleetSessionLite {
   name?: string;
   windows?: FleetWindowLite[];
+}
+
+function uniqueDirs(dirs: string[]): string[] {
+  return [...new Set(dirs.filter(Boolean))];
+}
+
+export function fleetAgentDirsForRead(): string[] {
+  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
 }
 
 /**
@@ -85,8 +94,37 @@ export function readFleetDir(dir: string): FleetSessionLite[] {
   return out;
 }
 
+export function readFleetDirs(dirs: string[] = fleetAgentDirsForRead()): FleetSessionLite[] {
+  const byName = new Map<string, string>();
+  for (const dir of uniqueDirs(dirs)) {
+    if (!existsSync(dir)) continue;
+    let files: string[];
+    try {
+      files = readdirSync(dir)
+        .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
+        .sort();
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!byName.has(file)) byName.set(file, join(dir, file));
+    }
+  }
+
+  const out: FleetSessionLite[] = [];
+  for (const path of [...byName.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, path]) => path)) {
+    try {
+      out.push(JSON.parse(readFileSync(path, "utf-8")) as FleetSessionLite);
+    } catch {
+      // Skip malformed file — don't break config load over one bad fleet entry.
+    }
+  }
+  return out;
+}
+
 /**
- * Convenience wrapper: read FLEET_DIR and merge into the supplied agents map.
+ * Convenience wrapper: read state fleet configs plus legacy fleet fallbacks and
+ * merge them into the supplied agents map.
  * `localNode` defaults to `"local"` (the convention used by `cmdFleetInitAgents`
  * and `wake-cmd.ts`'s auto-register path). Callers that know the canonical node
  * identity (e.g. `config.node`) can pass it through, but `"local"` keeps the
@@ -95,7 +133,8 @@ export function readFleetDir(dir: string): FleetSessionLite[] {
 export function loadFleetAgents(
   existing: Record<string, string> = {},
   localNode: string = "local",
-  dir: string = FLEET_DIR,
+  dir: string | string[] = fleetAgentDirsForRead(),
 ): Record<string, string> {
-  return mergeFleetIntoAgents(existing, readFleetDir(dir), localNode);
+  const fleet = Array.isArray(dir) ? readFleetDirs(dir) : readFleetDir(dir);
+  return mergeFleetIntoAgents(existing, fleet, localNode);
 }
