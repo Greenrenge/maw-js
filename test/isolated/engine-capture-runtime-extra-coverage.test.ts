@@ -270,7 +270,7 @@ describe("core/runtime/hooks extra coverage", () => {
     process.env.CLAUDE_AGENT_NAME = "env-oracle";
 
     await runHook("missing_event", { to: "pulse", message: "ignored" });
-    expect(readFileCalls).toEqual([{ path: join(mockHome, ".oracle", "maw.hooks.json"), encoding: "utf-8" }]);
+    expect(readFileCalls).toEqual([{ path: join(mockHome, ".config", "maw", "maw.hooks.json"), encoding: "utf-8" }]);
     expect(spawnCalls).toEqual([]);
 
     await runHook("after_send", { to: "pulse", message: "hello" });
@@ -311,7 +311,7 @@ describe("core/runtime/hooks extra coverage", () => {
     const throwingHooks = await importHooks("spawn-throws");
 
     await expect(throwingHooks.runHook("after_send", { to: "pulse", message: "hello" })).resolves.toBeUndefined();
-    expect(readFileCalls.at(-1)).toEqual({ path: join(mockHome, ".oracle", "maw.hooks.json"), encoding: "utf-8" });
+    expect(readFileCalls.at(-1)).toEqual({ path: join(mockHome, ".config", "maw", "maw.hooks.json"), encoding: "utf-8" });
     expect(unrefCalls).toBe(0);
   });
 });

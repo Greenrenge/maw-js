@@ -83,6 +83,16 @@ export function mawMessageLogCandidatePaths(): string[] {
   return primary === legacy ? [primary] : [primary, legacy];
 }
 
+export function legacyOracleHookConfigPath(): string {
+  return join(homedir(), ".oracle", "maw.hooks.json");
+}
+
+export function mawHookConfigCandidatePaths(): string[] {
+  const primary = mawConfigPath("maw.hooks.json");
+  const legacy = legacyOracleHookConfigPath();
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 export function mawStatePath(...parts: string[]): string {
   return join(mawStateDir(), ...parts);
 }

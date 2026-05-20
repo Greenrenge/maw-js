@@ -9,6 +9,7 @@ import {
   mawConfigPath,
   mawDataDir,
   mawDataPath,
+  mawHookConfigCandidatePaths,
   mawMessageLogCandidatePaths,
   mawMessageLogPath,
   mawRuntimeHomeDir,
@@ -56,6 +57,10 @@ describe("maw XDG path resolver", () => {
     expect(mawMessageLogCandidatePaths()).toEqual([
       join(homedir(), ".maw", "maw-log.jsonl"),
       join(homedir(), ".oracle", "maw-log.jsonl"),
+    ]);
+    expect(mawHookConfigCandidatePaths()).toEqual([
+      join(homedir(), ".config", "maw", "maw.hooks.json"),
+      join(homedir(), ".oracle", "maw.hooks.json"),
     ]);
     expect(mawStatePath("peers.json")).toBe(join(homedir(), ".maw", "peers.json"));
     expect(mawCachePath("registry-cache.json")).toBe(join(homedir(), ".maw", "registry-cache.json"));
