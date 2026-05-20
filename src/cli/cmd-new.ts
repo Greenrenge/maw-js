@@ -176,6 +176,29 @@ async function currentTmuxSessionWindow(): Promise<{ session: string; window: st
   return { session, window };
 }
 
+const WORKSPACE_CWD_OPTION = "@maw_new_cwd";
+const WORKSPACE_COMMAND_OPTION = "@maw_new_command";
+
+async function readSessionOption(session: string, option: string): Promise<string | undefined> {
+  try {
+    return (await tmux.run("show-options", "-qv", "-t", session, option)).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+async function readWorkspaceLaunch(session: string): Promise<{ cwd: string; command: string } | undefined> {
+  const cwd = await readSessionOption(session, WORKSPACE_CWD_OPTION);
+  if (cwd === undefined) return undefined;
+  const command = await readSessionOption(session, WORKSPACE_COMMAND_OPTION);
+  return { cwd, command: command ?? "" };
+}
+
+async function rememberWorkspaceLaunch(session: string, cwd: string, command: string | undefined): Promise<void> {
+  await tmux.setOption(session, WORKSPACE_CWD_OPTION, cwd);
+  await tmux.setOption(session, WORKSPACE_COMMAND_OPTION, command ?? "");
+}
+
 function printMachinePayload(payload: NewWorkspacePrintPayload): void {
   console.log(JSON.stringify(payload));
 }
@@ -263,11 +286,18 @@ export async function cmdNew(argv: string[]): Promise<void> {
       ...(machineReadable ? { printFormat: "#{pane_id}" } : {}),
     });
     paneId = rawPaneId?.trim() || undefined;
+    await rememberWorkspaceLaunch(name, cwd, startupCommand);
     if (!machineReadable) {
       const mode = startupCommand ? "lead shell + command" : "lead shell";
       console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (${mode})`);
     }
   } else {
+    const existingLaunch = await readWorkspaceLaunch(name);
+    if (existingLaunch && (existingLaunch.cwd !== cwd || existingLaunch.command !== (startupCommand ?? ""))) {
+      throw new UserError(
+        `new: session '${name}' already exists with different launch context; choose a new name or match the original --path/--cmd`,
+      );
+    }
     paneId = machineReadable ? await leadPaneId(name) : undefined;
     if (!machineReadable) console.log(`\x1b[36m→\x1b[0m session exists: ${name}`);
   }

@@ -7,8 +7,10 @@ let sessions = new Set<string>();
 let newSessionCalls: Array<{ name: string; opts: any }> = [];
 let splitWindowCalls: Array<{ target?: string; opts: any }> = [];
 let selectPaneCalls: Array<{ target: string; opts: any }> = [];
+let setOptionCalls: Array<{ session: string; option: string; value: string }> = [];
 let attached: string[] = [];
 let firstPaneIds = new Map<string, string>();
+let sessionOptions = new Map<string, string>();
 let commandForClaude = "claude --model sonnet";
 let currentSessionWindow = "work\tmain\n";
 
@@ -17,6 +19,13 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     run: async (subcommand: string, ...args: string[]) => {
       if (subcommand === "display-message" && args.includes("#{session_name}\t#{window_name}")) {
         return currentSessionWindow;
+      }
+      if (subcommand === "show-options") {
+        const session = args[args.indexOf("-t") + 1];
+        const option = args.at(-1)!;
+        const key = `${session}:${option}`;
+        if (!sessionOptions.has(key)) throw new Error("missing option");
+        return `${sessionOptions.get(key)}\n`;
       }
       return "";
     },
@@ -32,6 +41,10 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     },
     selectPane: async (target: string, opts: any = {}) => {
       selectPaneCalls.push({ target, opts });
+    },
+    setOption: async (session: string, option: string, value: string) => {
+      setOptionCalls.push({ session, option, value });
+      sessionOptions.set(`${session}:${option}`, value);
     },
     firstPaneId: async (target: string) => firstPaneIds.get(target),
   },
@@ -55,8 +68,10 @@ beforeEach(() => {
   newSessionCalls = [];
   splitWindowCalls = [];
   selectPaneCalls = [];
+  setOptionCalls = [];
   attached = [];
   firstPaneIds = new Map<string, string>();
+  sessionOptions = new Map<string, string>();
   commandForClaude = "claude --model sonnet";
   currentSessionWindow = "work\tmain\n";
 });
@@ -151,6 +166,39 @@ describe("cmdNew workspace session factory", () => {
         },
       ]);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("is idempotent for matching name/path/command and rejects changed launch context", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-new-"));
+    const dir = join(root, "foo-app");
+    mkdirSync(dir);
+    sessions.add("same");
+    firstPaneIds.set("same:lead", "%42");
+    sessionOptions.set("same:@maw_new_cwd", dir);
+    sessionOptions.set("same:@maw_new_command", "bun dev");
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+      lines.push(String(line));
+    });
+    try {
+      await cmdNew(["same", "-p", dir, "-c", "bun dev", "--print", "--no-attach"]);
+
+      expect(newSessionCalls).toEqual([]);
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "same",
+        window: "lead",
+        pane_id: "%42",
+        cwd: dir,
+        command: "bun dev",
+        reused: true,
+      });
+
+      await expect(cmdNew(["same", "-p", dir, "-c", "bun test", "--no-attach"]))
+        .rejects.toThrow("different launch context");
+    } finally {
+      logSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -273,13 +321,14 @@ describe("cmdNew workspace session factory", () => {
       newSessionCalls = [];
       sessions.add("script");
       firstPaneIds.set("script:lead", "%42");
-      await cmdNew(["script", "--path", dir, "--json", "--no-attach"]);
+      await cmdNew(["script", "--path", dir, "--cmd", "bun test", "--json", "--no-attach"]);
       expect(newSessionCalls).toEqual([]);
       expect(JSON.parse(lines[0])).toEqual({
         session: "script",
         window: "lead",
         pane_id: "%42",
         cwd: dir,
+        command: "bun test",
         reused: true,
       });
     } finally {
