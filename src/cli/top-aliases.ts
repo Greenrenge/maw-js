@@ -27,6 +27,7 @@ import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
+import { parseBringToTarget } from "../commands/shared/bring-flags";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -119,7 +120,7 @@ export function parseBringArgs(
   writeUsage: (line: string) => void = console.error,
 ): {
   oracle: string;
-  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string };
+  opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string; pick?: boolean; session?: string; splitTarget?: string };
 } {
   // #1799: `maw bring <oracle>` is a thin `maw wake <oracle> --split`
   // alias. Keep this tiny parser for legacy unit tests and usage validation;
@@ -128,14 +129,22 @@ export function parseBringArgs(
     "--engine": String, "-e": "--engine",
     "--split": Boolean,
     "--tab": Boolean,
+    "--to": String,
+    "--pick": Boolean,
   }, 0);
   const oracle = (flags._ as string[])[0];
   if (!oracle) {
     printBringUsage(writeUsage);
     throw new UserError("bring: missing oracle name");
   }
-  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string } = { split: true };
+  const opts: { bring?: true; split?: boolean; tab?: boolean; engine?: string; pick?: boolean; session?: string; splitTarget?: string } = { split: true };
   if (flags["--engine"]) opts.engine = flags["--engine"];
+  if (flags["--pick"]) opts.pick = true;
+  if (flags["--to"]) {
+    const target = parseBringToTarget(flags["--to"]);
+    opts.session = target.session;
+    if (target.window) opts.splitTarget = `${target.session}:${target.window}`;
+  }
   return { oracle, opts };
 }
 

@@ -148,12 +148,21 @@ describe("top alias option parsers", () => {
     });
   });
 
-  test("bring opts default to split and reject missing oracle", () => {
+  test("bring opts default to split, parse #1816 flags, and reject missing oracle", () => {
     expect(parseBringArgs(["neo", "--tab", "--split", "-e", "codex"])).toEqual({
       oracle: "neo",
       opts: { split: true, engine: "codex" },
     });
     expect(parseBringArgs(["neo"])).toEqual({ oracle: "neo", opts: { split: true } });
+    expect(parseBringArgs(["neo", "--pick", "--to", "50-mawjs:maw-js-1816"])).toEqual({
+      oracle: "neo",
+      opts: {
+        split: true,
+        pick: true,
+        session: "50-mawjs",
+        splitTarget: "50-mawjs:maw-js-1816",
+      },
+    });
 
     const errors: string[] = [];
     expect(() => parseBringArgs(["--tab"], (line) => errors.push(line))).toThrow(UserError);
