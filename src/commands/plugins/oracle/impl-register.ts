@@ -13,7 +13,10 @@ import { dirname, join } from "path";
 import { listSessions } from "../../../sdk";
 import { getGhqRoot } from "../../../config/ghq-root";
 import type { OracleEntry } from "../../../sdk";
-import { CACHE_FILE, LEGACY_CACHE_FILE } from "../../../core/fleet/registry-oracle-types";
+import {
+  registryCacheFilePath,
+  legacyRegistryCacheFilePath,
+} from "../../../core/fleet/registry-oracle-types";
 import { fleetDirsForRead, uniqueDirs } from "../../../core/fleet/paths";
 
 
@@ -170,8 +173,9 @@ export function findInFilesystem(
 export function readRawRegistry(file: string): Record<string, unknown> {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));
-    if (file === CACHE_FILE && existsSync(LEGACY_CACHE_FILE)) {
-      return JSON.parse(readFileSync(LEGACY_CACHE_FILE, "utf-8"));
+    if (file === registryCacheFilePath()) {
+      const legacyFile = legacyRegistryCacheFilePath();
+      if (existsSync(legacyFile)) return JSON.parse(readFileSync(legacyFile, "utf-8"));
     }
   } catch { /* fall through */ }
   return {};
@@ -191,8 +195,9 @@ export async function cmdOracleRegister(
 ): Promise<void> {
   if (!name) throw new Error("register requires a name: maw oracle register <name>");
 
-  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
+  const registryFile = registryCacheFilePath();
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(registryFile));
+  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(registryFile, data));
 
   const rawCache = readRawCache();
   const oracles: OracleEntry[] = (rawCache.oracles as OracleEntry[] | undefined) ?? [];
