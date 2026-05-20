@@ -154,6 +154,31 @@ describe("tile impl next coverage", () => {
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("cmd"));
   });
 
+  test("--cmd stays shell-first across back-to-back single-pane spawns", async () => {
+    const firstCmd = "claude --agent-id reader-a@team --model sonnet";
+    const secondCmd = "claude --agent-id reader-b@team --model sonnet";
+
+    plainPaneList = "%lead\n%p1\n";
+    await cmdTile(1, { cmd: firstCmd });
+
+    tilePaneList = "%lead|||leader|||\n%p1|||lead-tile-1|||1\n";
+    plainPaneList = "%lead\n%p1\n%p2\n";
+    await cmdTile(1, { cmd: secondCmd });
+
+    const splits = commands.filter((cmd) => cmd.includes("tmux split-window"));
+    expect(splits).toHaveLength(2);
+    for (const split of splits) {
+      expect(split).toContain("exec zsh");
+      expect(split).not.toContain("--agent-id reader-");
+    }
+
+    expect(commands).toContain(`tmux send-keys -t '%p1' -l '${firstCmd}'`);
+    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
+    expect(commands).toContain(`tmux send-keys -t '%p2' -l '${secondCmd}'`);
+    expect(commands).toContain("tmux send-keys -t '%p2' Enter");
+    expect(borderCalls.map((call) => call.label)).toEqual(["sess-tile-1", "sess-tile-2"]);
+  });
+
   test("clean reports no-op when there are no tile panes and git discovery fails", async () => {
     throwGitTop = true;
 
