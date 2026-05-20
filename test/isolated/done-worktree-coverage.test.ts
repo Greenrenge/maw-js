@@ -133,7 +133,7 @@ describe("removeWorktreeByGhqScan", () => {
     const other = join(REPOS_ROOT, "github.com", "org", "other.wt-bugfix");
 
     hostExecHandler = (command) => {
-      if (command.startsWith(`find ${REPOS_ROOT}`)) {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) {
         return [exact, substringOnly, other].join("\n");
       }
       if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/done\n";
@@ -147,7 +147,7 @@ describe("removeWorktreeByGhqScan", () => {
 
     const mainPath = exact.replace("repo.wt-123-feature", "repo");
     expect(hostExecCalls).toEqual([
-      `find ${REPOS_ROOT} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`,
+      `find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`,
       `git -C '${exact}' rev-parse --abbrev-ref HEAD`,
       `git -C '${mainPath}' worktree remove '${exact}' --force`,
       `git -C '${mainPath}' worktree prune`,

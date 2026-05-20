@@ -66,7 +66,7 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleet: () => [],
 }));
 
-mock.module("maw-js/vendor/mpr-plugins/attach/resolve-attach-target", () => ({
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/attach/resolve-attach-target.ts"), () => ({
   resolveAttachTarget: async (target: string, deps: any) => {
     const currentSessions = await deps.listSessions();
     resolveCalls.push({ target, sessions: currentSessions });

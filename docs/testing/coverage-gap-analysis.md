@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-19T02:54:44.817Z
+Generated: 2026-05-20T01:01:49.418Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (30331/30331)
-Overall function coverage: **100.0%** (5037/5037)
+Overall line coverage: **100.0%** (30385/30395)
+Overall function coverage: **100.0%** (5049/5049)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 100.0% (5352/5352) | 100.0% (807/807) | n/a (0/0) |
+| cli/dispatch | 91 | 0 | 100.0% (5368/5368) | 100.0% (807/807) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (763/763) | 100.0% (133/133) | n/a (0/0) |
-| fleet | 17 | 0 | 100.0% (648/648) | 100.0% (103/103) | n/a (0/0) |
+| fleet | 18 | 0 | 100.0% (659/659) | 100.0% (105/105) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 5 | 100.0% (8430/8430) | 100.0% (1447/1447) | n/a (0/0) |
+| other | 172 | 5 | 99.9% (8462/8468) | 100.0% (1455/1455) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 100.0% (677/677) | 100.0% (89/89) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 100.0% (421/421) | 100.0% (76/76) | n/a (0/0) |
-| transport | 28 | 0 | 100.0% (1669/1669) | 100.0% (444/444) | n/a (0/0) |
-| vendor plugins | 245 | 2 | 100.0% (12298/12298) | 100.0% (1920/1920) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 100.0% (422/422) | 100.0% (76/76) | n/a (0/0) |
+| transport | 28 | 0 | 100.0% (1672/1672) | 100.0% (444/444) | n/a (0/0) |
+| vendor plugins | 245 | 2 | 100.0% (12289/12293) | 100.0% (1922/1922) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -36,6 +36,8 @@ Overall function coverage: **100.0%** (5037/5037)
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
+| 1 | medium | other | `src/api/sessions.ts` | 6 | 97.8% | 100.0% | partial coverage |
+| 2 | low | vendor plugins | `src/vendor/mpr-plugins/done/done-worktree.ts` | 4 | 94.4% | 100.0% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
@@ -142,6 +144,7 @@ Overall function coverage: **100.0%** (5037/5037)
 | fleet | `src/core/fleet/registry-oracle-scan-local.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-types.ts` | 100.0% | 100.0% |
+| fleet | `src/core/fleet/session-name.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/snapshot.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/tab-order.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/validate.ts` | 100.0% | 100.0% |

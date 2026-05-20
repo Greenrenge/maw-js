@@ -1,6 +1,6 @@
 import { hostExec, listSessions, tmuxCmd } from "maw-js/sdk";
 import { loadFleet } from "maw-js/commands/shared/fleet-load";
-import { resolveAttachTarget } from "maw-js/vendor/mpr-plugins/attach/resolve-attach-target";
+import { resolveAttachTarget } from "../attach/resolve-attach-target";
 
 export interface CaptureOpts {
   /** Pane index within the resolved window. Default: current/first. */
