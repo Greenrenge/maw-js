@@ -122,6 +122,49 @@ describe("doctor impl runtime coverage", () => {
     expect(execCalls).toEqual([]);
   });
 
+  test("xdg check prints config, state, data, and cache roots", async () => {
+    const original = {
+      mawHome: process.env.MAW_HOME,
+      mawXdg: process.env.MAW_XDG,
+      xdgConfig: process.env.XDG_CONFIG_HOME,
+      xdgState: process.env.XDG_STATE_HOME,
+      xdgData: process.env.XDG_DATA_HOME,
+      xdgCache: process.env.XDG_CACHE_HOME,
+    };
+    try {
+      delete process.env.MAW_HOME;
+      process.env.MAW_XDG = "1";
+      process.env.XDG_CONFIG_HOME = "/tmp/maw-doctor-xdg-config";
+      process.env.XDG_STATE_HOME = "/tmp/maw-doctor-xdg-state";
+      process.env.XDG_DATA_HOME = "/tmp/maw-doctor-xdg-data";
+      process.env.XDG_CACHE_HOME = "/tmp/maw-doctor-xdg-cache";
+
+      const result = await cmdDoctor(["xdg"]);
+
+      expect(result.ok).toBe(true);
+      expect(result.checks).toHaveLength(1);
+      expect(result.checks[0]?.name).toBe("xdg:paths");
+      expect(result.checks[0]?.message).toContain("MAW_XDG=on");
+      expect(result.checks[0]?.message).toContain("config=/tmp/maw-doctor-xdg-config/maw");
+      expect(result.checks[0]?.message).toContain("state=/tmp/maw-doctor-xdg-state/maw");
+      expect(result.checks[0]?.message).toContain("data=/tmp/maw-doctor-xdg-data/maw");
+      expect(result.checks[0]?.message).toContain("cache=/tmp/maw-doctor-xdg-cache/maw");
+    } finally {
+      if (original.mawHome === undefined) delete process.env.MAW_HOME;
+      else process.env.MAW_HOME = original.mawHome;
+      if (original.mawXdg === undefined) delete process.env.MAW_XDG;
+      else process.env.MAW_XDG = original.mawXdg;
+      if (original.xdgConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = original.xdgConfig;
+      if (original.xdgState === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = original.xdgState;
+      if (original.xdgData === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = original.xdgData;
+      if (original.xdgCache === undefined) delete process.env.XDG_CACHE_HOME;
+      else process.env.XDG_CACHE_HOME = original.xdgCache;
+    }
+  });
+
   test("version check reports drift and --allow-drift downgrades version-only failures", async () => {
     pm2Jlist = JSON.stringify([
       { name: "maw", pm_id: 7, pm2_env: { env: { MAW_PORT: "4567" } } },

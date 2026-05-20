@@ -6,7 +6,14 @@ import { loadPeers } from "./internal/peers-store";
 import { findDuplicateIdentities, formatDuplicate } from "./internal/duplicate-detect";
 import { loadConfig } from "maw-js/config";
 import { C } from "maw-js/commands/shared/fleet-doctor-fixer";
-import { mawDataPath } from "../../../core/xdg";
+import {
+  isMawXdgEnabled,
+  mawCacheDir,
+  mawConfigDir,
+  mawDataDir,
+  mawDataPath,
+  mawStateDir,
+} from "../../../core/xdg";
 import { loadManifestCached, invalidateManifest } from "maw-js/lib/oracle-manifest";
 import { findGaps, summarizeGaps } from "./cross-source-detect";
 import { checkMawJsBranch } from "./internal/maw-js-branch-check";
@@ -40,6 +47,9 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   } else {
     if (!only || only === "install" || only === "all") {
       checks.push(await checkInstall());
+    }
+    if (only === "xdg" || only === "all") {
+      checks.push(checkXdgLayout());
     }
     if (!only || only === "version" || only === "all") {
       const vChecks = await checkVersionDrift();
@@ -109,6 +119,29 @@ async function checkInstall(): Promise<{ name: string; ok: boolean; message: str
     }
   } catch { /* not a symlink — that's fine */ }
   return { name: "install", ok: true, message: "maw binary present and resolvable" };
+}
+
+function checkXdgLayout(): DoctorResult["checks"][number] {
+  const legacyRuntime = join(process.env.HOME || homedir(), ".maw");
+  const legacyRuntimeState = existsSync(legacyRuntime) ? "present" : "missing";
+  const mode = process.env.MAW_HOME
+    ? `MAW_HOME=${process.env.MAW_HOME}`
+    : isMawXdgEnabled()
+      ? "MAW_XDG=on"
+      : "MAW_XDG=off";
+
+  return {
+    name: "xdg:paths",
+    ok: true,
+    message: [
+      mode,
+      `config=${mawConfigDir()}`,
+      `state=${mawStateDir()}`,
+      `data=${mawDataDir()}`,
+      `cache=${mawCacheDir()}`,
+      `legacy ~/.maw ${legacyRuntimeState}`,
+    ].join("; "),
+  };
 }
 
 /**
