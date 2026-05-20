@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "path";
 import { mockSshModule } from "../helpers/mock-ssh";
 
@@ -37,6 +37,9 @@ let spawnImpl: (command: string, args: string[], options: any) => { unref: () =>
 };
 
 const originalAgentName = process.env.CLAUDE_AGENT_NAME;
+const originalMawHome = process.env.MAW_HOME;
+const originalMawConfigDir = process.env.MAW_CONFIG_DIR;
+const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];
@@ -77,7 +80,16 @@ function resetHookState() {
     return { unref: () => { unrefCalls += 1; } };
   };
   restoreEnv("CLAUDE_AGENT_NAME", originalAgentName);
+  delete process.env.MAW_HOME;
+  delete process.env.MAW_CONFIG_DIR;
+  process.env.XDG_CONFIG_HOME = join(mockHome, ".config");
 }
+
+afterAll(() => {
+  restoreEnv("MAW_HOME", originalMawHome);
+  restoreEnv("MAW_CONFIG_DIR", originalMawConfigDir);
+  restoreEnv("XDG_CONFIG_HOME", originalXdgConfigHome);
+});
 
 async function importHooks(label: string) {
   return import(`../../src/core/runtime/hooks.ts?engine-capture-runtime-extra=${label}-${Date.now()}-${Math.random()}`);

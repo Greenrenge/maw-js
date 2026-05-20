@@ -17,6 +17,9 @@ let spawnImpl: (command: string, args: string[], options: any) => { unref: () =>
 let spawnCalls: Array<{ command: string; args: string[]; options: any }> = [];
 let unrefCalls = 0;
 const originalAgentName = process.env.CLAUDE_AGENT_NAME;
+const originalMawHome = process.env.MAW_HOME;
+const originalMawConfigDir = process.env.MAW_CONFIG_DIR;
+const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 const originalWarn = console.warn;
 const originalError = console.error;
 const globalConfigSandbox = mkdtempSync(join(tmpdir(), "maw-coverage-100b-config-"));
@@ -75,6 +78,9 @@ function resetHookState() {
     return { unref: () => { unrefCalls += 1; } };
   };
   restoreEnv("CLAUDE_AGENT_NAME", originalAgentName);
+  delete process.env.MAW_HOME;
+  delete process.env.MAW_CONFIG_DIR;
+  process.env.XDG_CONFIG_HOME = join(mockHome, ".config");
 }
 
 async function importHooks(label: string) {
@@ -102,6 +108,9 @@ beforeEach(() => {
 
 afterAll(() => {
   rmSync(globalConfigSandbox, { recursive: true, force: true });
+  restoreEnv("MAW_HOME", originalMawHome);
+  restoreEnv("MAW_CONFIG_DIR", originalMawConfigDir);
+  restoreEnv("XDG_CONFIG_HOME", originalXdgConfigHome);
 });
 
 afterEach(() => {
