@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { listSessions, hostExec, tmux, FLEET_DIR, takeSnapshot } from "../../sdk";
 import { getGhqRoot } from "../../config/ghq-root";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
+import { mawDataPath } from "../../core/xdg";
 
 export interface DoneOpts {
   force?: boolean;
@@ -32,6 +33,7 @@ export interface DoneDeps {
   fleetDir?: string;
   ghqRoot?: string;
   homeDir?: string;
+  inboxDir?: string;
   takeSnapshot?: (trigger: string) => Promise<unknown>;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -40,6 +42,7 @@ export interface DoneDeps {
 }
 
 function doneDeps(deps: DoneDeps = {}) {
+  const homeDir = deps.homeDir ?? homedir();
   return {
     listSessions: deps.listSessions ?? (listSessions as () => Promise<SessionInfo[]>),
     hostExec: deps.hostExec ?? hostExec,
@@ -49,7 +52,8 @@ function doneDeps(deps: DoneDeps = {}) {
     },
     fleetDir: deps.fleetDir ?? FLEET_DIR,
     ghqRoot: deps.ghqRoot ?? getGhqRoot(),
-    homeDir: deps.homeDir ?? homedir(),
+    homeDir,
+    inboxDir: deps.inboxDir ?? (deps.homeDir ? join(deps.homeDir, ".maw", "inbox") : mawDataPath("inbox")),
     takeSnapshot: deps.takeSnapshot ?? takeSnapshot,
     now: deps.now ?? (() => new Date()),
     sleep: deps.sleep ?? Bun.sleep,
@@ -128,7 +132,7 @@ export function signalParentInbox(
   const parentWindow = sessions.find(s => s.name === sessionName)?.windows[0]?.name;
   if (!parentWindow) return;
   const parentTarget = parentWindow.replace(/[^a-zA-Z0-9_-]/g, "");
-  const inboxDir = join(d.homeDir, ".oracle", "inbox");
+  const inboxDir = d.inboxDir;
   const signal =
     JSON.stringify({ ts: d.now().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
   try {
