@@ -3,6 +3,7 @@ import { mockConfigModule } from "../helpers/mock-config";
 import type { DiscoveryError, DiscoveryResponse } from "../../src/vendor/mpr-plugins/peers/discovered";
 import type { LoadedPlugin } from "../../src/plugin/types";
 import type { FleetEntry } from "../../src/commands/shared/fleet-load";
+import type { OracleManifestEntry } from "../../src/lib/oracle-manifest";
 
 const configPath = import.meta.resolve("../../src/config");
 const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
@@ -10,6 +11,7 @@ const sshPath = import.meta.resolve("../../src/core/transport/ssh");
 const registryPath = import.meta.resolve("../../src/plugin/registry");
 const repoDiscoveryPath = import.meta.resolve("../../src/core/repo-discovery");
 const fleetLoadPath = import.meta.resolve("../../src/commands/shared/fleet-load");
+const oracleManifestPath = import.meta.resolve("../../src/lib/oracle-manifest");
 
 let configValue: Record<string, unknown> = {};
 let discoveryResult: DiscoveryResponse | DiscoveryError;
@@ -20,6 +22,8 @@ let ghqPaths: string[] = [];
 let ghqError: Error | null = null;
 let fleetEntries: FleetEntry[] = [];
 let fleetError: Error | null = null;
+let manifestRows: OracleManifestEntry[] = [];
+let manifestError: Error | null = null;
 let sessions: Array<{
   name: string;
   windows: Array<{ index: number; name: string; active: boolean }>;
@@ -68,6 +72,13 @@ mock.module(fleetLoadPath, () => ({
   loadFleetEntries: () => {
     if (fleetError) throw fleetError;
     return fleetEntries;
+  },
+}));
+
+mock.module(oracleManifestPath, () => ({
+  loadManifestCached: () => {
+    if (manifestError) throw manifestError;
+    return manifestRows;
   },
 }));
 
@@ -128,6 +139,19 @@ function fleetEntry(name: string, windows: FleetEntry["session"]["windows"], ove
   };
 }
 
+function oracle(name: string, overrides: Partial<OracleManifestEntry> = {}): OracleManifestEntry {
+  return {
+    name,
+    sources: ["oracles-json"],
+    repo: `Soul-Brews-Studio/${name}-oracle`,
+    localPath: `/opt/Code/github.com/Soul-Brews-Studio/${name}-oracle`,
+    hasPsi: true,
+    hasFleetConfig: false,
+    isLive: false,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   configValue = {
     peers: ["http://config:3456"],
@@ -141,6 +165,8 @@ beforeEach(() => {
   ghqError = null;
   fleetEntries = [];
   fleetError = null;
+  manifestRows = [];
+  manifestError = null;
   sessions = [];
   sessionsError = null;
 });
@@ -188,6 +214,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
     });
     expect(parsed.fleet).toEqual({
       source: "fleet-config",
+      total: 0,
+      records: [],
+    });
+    expect(parsed.oracles).toEqual({
+      source: "oracle-manifest",
       total: 0,
       records: [],
     });
@@ -332,6 +363,80 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.output).toContain("offline");
   });
 
+  test("includes registered oracle inventory joined with ghq, fleet, and peers", async () => {
+    configValue = {
+      namedPeers: [{ name: "mawjs", url: "http://m5:3456" }],
+      agents: { "mawjs-oracle": "m5" },
+    };
+    ghqPaths = ["/opt/Code/github.com/Soul-Brews-Studio/maw-js"];
+    fleetEntries = [fleetEntry("mawjs", [{ name: "mawjs-oracle", repo: "Soul-Brews-Studio/maw-js" }])];
+    manifestRows = [
+      oracle("mawjs", {
+        sources: ["fleet", "agent", "oracles-json"],
+        node: "m5",
+        session: "50-mawjs",
+        window: "mawjs-oracle",
+        repo: "Soul-Brews-Studio/maw-js",
+        localPath: "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+        hasFleetConfig: true,
+      }),
+    ];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.oracles.total).toBe(1);
+    expect(parsed.oracles.records).toEqual([{
+      source: "oracle-manifest",
+      type: "oracle",
+      name: "mawjs",
+      sources: ["fleet", "agent", "oracles-json"],
+      node: "m5",
+      session: "50-mawjs",
+      window: "mawjs-oracle",
+      repo: "Soul-Brews-Studio/maw-js",
+      localPath: "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+      hasPsi: true,
+      hasFleetConfig: true,
+      awake: false,
+      ghqPath: "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+      worktree: false,
+      fleetMatched: true,
+      peerUrls: ["http://m5:3456"],
+    }]);
+  });
+
+  test("dedupes duplicate registered oracle rows and joins tmux evidence in tree output", async () => {
+    manifestRows = [
+      oracle("mawjs", { sources: ["oracles-json"], window: "mawjs-oracle" }),
+      oracle("mawjs", { sources: ["fleet"], window: "mawjs-oracle" }),
+    ];
+    sessions = [{
+      name: "50-mawjs",
+      windows: [{ index: 1, name: "mawjs-oracle", active: true }],
+    }];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.oracles.total).toBe(1);
+    expect(parsed.tree.oracles).toHaveLength(1);
+    expect(parsed.tree.oracles[0].awake).toBe(true);
+  });
+
+  test("renders registered oracle inventory in text output", async () => {
+    manifestRows = [oracle("mother")];
+
+    const result = await handler({ source: "cli", args: ["--peers=config"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("registered oracles");
+    expect(result.output).toContain("mother");
+    expect(result.output).toContain("oracles-json");
+  });
+
   test("renders plugin registry in text output", async () => {
     pluginRows = [plugin("handover", { disabled: true })];
 
@@ -424,6 +529,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
       total: 0,
       records: [],
     });
+    expect(parsed.oracles).toEqual({
+      source: "oracle-manifest",
+      total: 0,
+      records: [],
+    });
     expect(parsed.ghq).toEqual({
       source: "ghq",
       total: 0,
@@ -497,6 +607,16 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("fleet config (0 configured)");
     expect(result.output).toContain("warning: fleet config unavailable (fleet missing)");
+  });
+
+  test("renders oracle registry warnings in tree output without crashing", async () => {
+    manifestError = new Error("manifest missing");
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("registered oracles (0)");
+    expect(result.output).toContain("warning: oracle registry unavailable (manifest missing)");
   });
 
   test("renders ghq warnings in tree output without crashing", async () => {

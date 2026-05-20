@@ -3,6 +3,8 @@ import { loadConfig } from "../../../config";
 import { listSessions } from "../../../core/transport/ssh";
 import type { Session } from "../../../core/runtime/find-window";
 import { getRepos } from "../../../core/repo-discovery";
+import { loadManifestCached } from "../../../lib/oracle-manifest";
+import type { OracleManifestEntry, OracleManifestSource } from "../../../lib/oracle-manifest";
 import { discoverPackages } from "../../../plugin/registry";
 import type { LoadedPlugin } from "../../../plugin/types";
 import { loadFleetEntries } from "../../shared/fleet-load";
@@ -137,6 +139,36 @@ interface FleetConfigState {
   source: "fleet-config";
   total: number;
   records: FleetConfigRecord[];
+  warnings: string[];
+}
+
+interface RegisteredOracleRecord {
+  source: "oracle-manifest";
+  type: "oracle";
+  name: string;
+  sources: OracleManifestSource[];
+  node?: string;
+  session?: string;
+  window?: string;
+  repo?: string;
+  localPath?: string;
+  sessionId?: string;
+  hasPsi?: boolean;
+  hasFleetConfig?: boolean;
+  buddedFrom?: string | null;
+  buddedAt?: string | null;
+  born?: OracleManifestEntry["born"];
+  awake: boolean;
+  ghqPath?: string;
+  worktree: boolean;
+  fleetMatched: boolean;
+  peerUrls: string[];
+}
+
+interface OracleRegistrationState {
+  source: "oracle-manifest";
+  total: number;
+  records: RegisteredOracleRecord[];
   warnings: string[];
 }
 
@@ -288,6 +320,97 @@ function loadFleetConfigState(config: MawConfig, peers: PeerTarget[]): FleetConf
   }
 }
 
+function oracleNameVariants(name: string): string[] {
+  return [name, `${name}-oracle`];
+}
+
+function ghqRecordMatchesOracle(repo: GhqRepoRecord, oracle: OracleManifestEntry): boolean {
+  if (oracle.localPath && normalizeRepoPath(oracle.localPath).toLowerCase() === repo.path.toLowerCase()) return true;
+  if (oracle.repo && `${repo.owner ?? ""}/${repo.name}`.toLowerCase() === oracle.repo.toLowerCase()) return true;
+  return oracleNameVariants(oracle.name).some((variant) => repo.name.toLowerCase() === variant.toLowerCase());
+}
+
+function fleetRecordMatchesOracle(record: FleetConfigRecord, oracle: OracleManifestEntry): boolean {
+  return oracleNameVariants(oracle.name).some((variant) => record.name === variant || record.session.endsWith(`-${variant}`));
+}
+
+function peerMatchesOracle(peer: PeerTarget, oracle: OracleManifestEntry): boolean {
+  const variants = oracleNameVariants(oracle.name);
+  return peerIdentityKeys(peer).some((key) => variants.includes(key) || key === oracle.name);
+}
+
+function liveMatchesOracle(live: LiveRuntimeState | undefined, oracle: OracleManifestEntry): boolean {
+  if (!live) return oracle.isLive === true;
+  for (const session of live.sessions) {
+    if (oracle.session && session.name === oracle.session) return true;
+    for (const window of session.windows) {
+      if (oracle.window && window.name === oracle.window) return true;
+      if (oracleNameVariants(oracle.name).includes(window.name)) return true;
+    }
+  }
+  return oracle.isLive === true;
+}
+
+function registeredOracleRecord(
+  oracle: OracleManifestEntry,
+  ghq: GhqState,
+  fleet: FleetConfigState,
+  peers: PeerTarget[],
+  live?: LiveRuntimeState,
+): RegisteredOracleRecord {
+  const ghqMatch = ghq.repos.find((repo) => ghqRecordMatchesOracle(repo, oracle));
+  const peerUrls = peers.filter((peer) => peerMatchesOracle(peer, oracle)).map((peer) => peer.url);
+  return {
+    source: "oracle-manifest",
+    type: "oracle",
+    name: oracle.name,
+    sources: oracle.sources,
+    node: oracle.node,
+    session: oracle.session,
+    window: oracle.window,
+    repo: oracle.repo,
+    localPath: oracle.localPath,
+    sessionId: oracle.sessionId,
+    hasPsi: oracle.hasPsi,
+    hasFleetConfig: oracle.hasFleetConfig,
+    buddedFrom: oracle.buddedFrom,
+    buddedAt: oracle.buddedAt,
+    born: oracle.born,
+    awake: liveMatchesOracle(live, oracle),
+    ghqPath: ghqMatch?.path,
+    worktree: ghqMatch?.worktree ?? false,
+    fleetMatched: fleet.records.some((record) => fleetRecordMatchesOracle(record, oracle)),
+    peerUrls: [...new Set(peerUrls)],
+  };
+}
+
+function loadOracleRegistrationState(ghq: GhqState, fleet: FleetConfigState, peers: PeerTarget[], live?: LiveRuntimeState): OracleRegistrationState {
+  try {
+    const seen = new Set<string>();
+    const records: RegisteredOracleRecord[] = [];
+    for (const oracle of loadManifestCached()) {
+      const key = oracle.name.toLowerCase();
+      if (!oracle.name || seen.has(key)) continue;
+      seen.add(key);
+      records.push(registeredOracleRecord(oracle, ghq, fleet, peers, live));
+    }
+    return {
+      source: "oracle-manifest",
+      total: records.length,
+      records,
+      warnings: [],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      source: "oracle-manifest",
+      total: 0,
+      records: [],
+      warnings: [`oracle registry unavailable (${message})`],
+    };
+  }
+}
+
 function pluginRecord(plugin: LoadedPlugin): PluginRecord {
   const manifest = plugin.manifest;
   return {
@@ -373,11 +496,29 @@ function renderFleetConfig(fleet: FleetConfigState): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function renderDiscoverTable(result: PeerSourceResult, plugins: PluginRegistryState, ghq: GhqState, fleet: FleetConfigState): string {
+function renderRegisteredOracles(oracles: OracleRegistrationState): string {
+  if (oracles.records.length === 0) return "no registered oracles";
+  const header = ["name", "node", "awake", "sources", "repo", "ghq"];
+  const rows = oracles.records.map((oracle) => [
+    oracle.name,
+    oracle.node ?? "-",
+    oracle.awake ? "yes" : "no",
+    oracle.sources.join("+") || "-",
+    oracle.repo ?? "-",
+    oracle.ghqPath ?? "-",
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+  return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
+}
+
+function renderDiscoverTable(result: PeerSourceResult, plugins: PluginRegistryState, ghq: GhqState, fleet: FleetConfigState, oracles: OracleRegistrationState): string {
   const chunks = [formatPeerSources(result)];
+  if (oracles.records.length > 0) chunks.push(`registered oracles\n${renderRegisteredOracles(oracles)}`);
   if (fleet.records.length > 0) chunks.push(`fleet config\n${renderFleetConfig(fleet)}`);
   if (plugins.records.length > 0) chunks.push(`plugin registry\n${renderPluginRecords(plugins)}`);
   if (ghq.repos.length > 0) chunks.push(`ghq repos\n${renderGhqRepos(ghq)}`);
+  for (const warning of oracles.warnings) chunks.push(`warning: ${warning}`);
   for (const warning of fleet.warnings) chunks.push(`warning: ${warning}`);
   for (const warning of plugins.warnings) chunks.push(`warning: ${warning}`);
   for (const warning of ghq.warnings) chunks.push(`warning: ${warning}`);
@@ -393,7 +534,14 @@ function renderLiveSessions(live: LiveRuntimeState): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, plugins: PluginRegistryState, ghq: GhqState, fleet: FleetConfigState): string {
+function renderDiscoverTree(
+  result: PeerSourceResult,
+  live: LiveRuntimeState,
+  plugins: PluginRegistryState,
+  ghq: GhqState,
+  fleet: FleetConfigState,
+  oracles: OracleRegistrationState,
+): string {
   const lines = ["discover"];
   lines.push(`  tmux (${live.sessions.length} live session${live.sessions.length === 1 ? "" : "s"})`);
   for (const session of live.sessions) {
@@ -414,6 +562,13 @@ function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, pl
     const repo = record.repo ? ` repo=${record.repo}` : "";
     lines.push(`    ${record.node}/${record.name} ${record.session}${endpoint}${repo}`);
   }
+  lines.push(`  registered oracles (${oracles.records.length})`);
+  for (const oracle of oracles.records) {
+    const awake = oracle.awake ? " awake" : "";
+    const ghq = oracle.ghqPath ? ` ghq=${oracle.ghqPath}` : "";
+    const repo = oracle.repo ? ` repo=${oracle.repo}` : "";
+    lines.push(`    ${oracle.name}${awake} sources=${oracle.sources.join("+") || "-"}${repo}${ghq}`);
+  }
   lines.push(`  plugins (${plugins.records.length} registered)`);
   for (const plugin of plugins.records) {
     const command = plugin.command ? ` command=${plugin.command}` : "";
@@ -426,7 +581,7 @@ function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, pl
     const worktree = repo.worktree ? " worktree" : "";
     lines.push(`    ${repo.name}${oracle}${worktree} -> ${repo.path}`);
   }
-  for (const warning of [...result.warnings, ...live.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings]) lines.push(`warning: ${warning}`);
+  for (const warning of [...result.warnings, ...live.warnings, ...fleet.warnings, ...oracles.warnings, ...plugins.warnings, ...ghq.warnings]) lines.push(`warning: ${warning}`);
   return lines.join("\n");
 }
 
@@ -481,6 +636,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   const fleet = loadFleetConfigState(config, result.peers);
   const plugins = loadPluginRegistryState();
   const ghq = await loadGhqState();
+  let oracles = loadOracleRegistrationState(ghq, fleet, result.peers);
 
   if (!tree && !awake) {
     emit(json ? JSON.stringify({
@@ -498,25 +654,31 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         total: fleet.total,
         records: fleet.records,
       },
+      oracles: {
+        source: oracles.source,
+        total: oracles.total,
+        records: oracles.records,
+      },
       ghq: {
         source: ghq.source,
         total: ghq.total,
         repos: ghq.repos,
       },
-      warnings: [...result.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings],
-    }, null, 2) : renderDiscoverTable(result, plugins, ghq, fleet));
+      warnings: [...result.warnings, ...fleet.warnings, ...oracles.warnings, ...plugins.warnings, ...ghq.warnings],
+    }, null, 2) : renderDiscoverTable(result, plugins, ghq, fleet, oracles));
     return { ok: true, output: logs.join("\n") || undefined };
   }
 
   const live = await loadLiveRuntimeState();
-  const warnings = [...result.warnings, ...live.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings];
+  oracles = loadOracleRegistrationState(ghq, fleet, result.peers, live);
+  const warnings = [...result.warnings, ...live.warnings, ...fleet.warnings, ...oracles.warnings, ...plugins.warnings, ...ghq.warnings];
 
   if (json) {
     emit(JSON.stringify({
       ok: true,
       mode: result.mode,
       total: tree
-        ? result.peers.length + live.sessions.length + fleet.records.length + plugins.records.length + ghq.repos.length
+        ? result.peers.length + live.sessions.length + fleet.records.length + oracles.records.length + plugins.records.length + ghq.repos.length
         : live.sessions.length,
       awakeOnly: awake,
       peers: tree ? result.peers : [],
@@ -524,6 +686,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         source: fleet.source,
         total: fleet.total,
         records: tree ? fleet.records : [],
+      },
+      oracles: {
+        source: oracles.source,
+        total: oracles.total,
+        records: tree ? oracles.records : [],
       },
       plugins: {
         source: plugins.source,
@@ -540,11 +707,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         total: live.total,
         sessions: live.sessions,
       },
-      ...(tree ? { tree: { live: live.sessions, peers: result.peers, fleet: fleet.records, plugins: plugins.records, ghq: ghq.repos } } : {}),
+      ...(tree ? { tree: { live: live.sessions, peers: result.peers, fleet: fleet.records, oracles: oracles.records, plugins: plugins.records, ghq: ghq.repos } } : {}),
       warnings,
     }, null, 2));
   } else {
-    emit(tree ? renderDiscoverTree(result, live, plugins, ghq, fleet) : renderLiveSessions(live));
+    emit(tree ? renderDiscoverTree(result, live, plugins, ghq, fleet, oracles) : renderLiveSessions(live));
   }
   return { ok: true, output: logs.join("\n") || undefined };
 }
