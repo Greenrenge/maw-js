@@ -6,6 +6,7 @@ import { join } from "path";
 const originalEnv = {
   MAW_HOME: process.env.MAW_HOME,
   MAW_CONFIG_DIR: process.env.MAW_CONFIG_DIR,
+  MAW_DATA_DIR: process.env.MAW_DATA_DIR,
 };
 
 function restoreEnv(): void {
@@ -13,39 +14,56 @@ function restoreEnv(): void {
   else process.env.MAW_HOME = originalEnv.MAW_HOME;
   if (originalEnv.MAW_CONFIG_DIR === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = originalEnv.MAW_CONFIG_DIR;
+  if (originalEnv.MAW_DATA_DIR === undefined) delete process.env.MAW_DATA_DIR;
+  else process.env.MAW_DATA_DIR = originalEnv.MAW_DATA_DIR;
 }
 
 afterEach(() => {
   restoreEnv();
 });
 
-describe("workspace-store XDG config paths", () => {
-  test("uses shared config resolver for MAW_HOME and MAW_CONFIG_DIR", async () => {
+describe("workspace-store XDG data paths", () => {
+  test("writes joined workspaces to data storage and reads legacy config fallback", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-workspace-store-default-"));
     try {
       const store = await import("../src/commands/shared/workspace-store.ts?workspace-store-default");
 
       process.env.MAW_HOME = join(root, "instance");
       process.env.MAW_CONFIG_DIR = join(root, "ignored-config");
-      expect(store.workspacesDir()).toBe(join(root, "instance", "config", "workspaces"));
-      expect(store.configPath("ws-home")).toBe(join(root, "instance", "config", "workspaces", "ws-home.json"));
+      expect(store.workspacesDir()).toBe(join(root, "instance", "workspaces"));
+      expect(store.configPath("ws-home")).toBe(join(root, "instance", "workspaces", "ws-home.json"));
 
       delete process.env.MAW_HOME;
+      process.env.MAW_DATA_DIR = join(root, "data");
       process.env.MAW_CONFIG_DIR = join(root, "config");
-      expect(store.workspacesDir()).toBe(join(root, "config", "workspaces"));
+      expect(store.workspacesDir()).toBe(join(root, "data", "workspaces"));
 
       store.saveWorkspace({
-        id: "ws-config",
-        name: "Config Workspace",
+        id: "ws-data",
+        name: "Data Workspace",
         hubUrl: "https://hub.example",
         sharedAgents: ["mawjs"],
         joinedAt: "2026-05-20T16:15:00.000Z",
       });
 
-      const path = join(root, "config", "workspaces", "ws-config.json");
+      const path = join(root, "data", "workspaces", "ws-data.json");
       expect(existsSync(path)).toBe(true);
-      expect(JSON.parse(readFileSync(path, "utf-8")).name).toBe("Config Workspace");
-      expect(store.loadWorkspace("ws-config")?.sharedAgents).toEqual(["mawjs"]);
+      expect(JSON.parse(readFileSync(path, "utf-8")).name).toBe("Data Workspace");
+      expect(store.loadWorkspace("ws-data")?.sharedAgents).toEqual(["mawjs"]);
+
+      const legacyDir = join(root, "config", "workspaces");
+      const { mkdirSync, writeFileSync } = await import("fs");
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, "ws-legacy.json"), JSON.stringify({
+        id: "ws-legacy",
+        name: "Legacy Workspace",
+        hubUrl: "https://legacy.example",
+        sharedAgents: ["legacy"],
+        joinedAt: "2026-05-20T16:20:00.000Z",
+      }), "utf-8");
+
+      expect(store.loadWorkspace("ws-legacy")?.name).toBe("Legacy Workspace");
+      expect(store.loadAllWorkspaces().map(ws => ws.id).sort()).toEqual(["ws-data", "ws-legacy"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

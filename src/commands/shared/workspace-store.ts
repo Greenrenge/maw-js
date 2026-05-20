@@ -1,14 +1,24 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../../config";
-import { mawConfigPath } from "../../core/xdg";
+import { mawConfigPath, mawDataPath } from "../../core/xdg";
 
-// ── Workspace config directory ──────────────────────────────────────
+// ── Workspace data directory ────────────────────────────────────────
 export function workspacesDir(): string {
-  return mawConfigPath("workspaces");
+  return mawDataPath("workspaces");
 }
 
 export const WORKSPACES_DIR = workspacesDir();
+
+function legacyWorkspacesDir(): string {
+  return mawConfigPath("workspaces");
+}
+
+function candidateWorkspacesDirs(): string[] {
+  const primary = workspacesDir();
+  const legacy = legacyWorkspacesDir();
+  return primary === legacy ? [primary] : [primary, legacy];
+}
 
 function ensureDir(): void {
   mkdirSync(workspacesDir(), { recursive: true });
@@ -29,6 +39,16 @@ export interface WorkspaceConfig {
 
 export function configPath(id: string): string {
   return join(workspacesDir(), `${id}.json`);
+}
+
+function legacyConfigPath(id: string): string {
+  return join(legacyWorkspacesDir(), `${id}.json`);
+}
+
+function candidateConfigPaths(id: string): string[] {
+  const primary = configPath(id);
+  const legacy = legacyConfigPath(id);
+  return primary === legacy ? [primary] : [primary, legacy];
 }
 
 /**
@@ -79,13 +99,15 @@ export function normalizeWorkspace(raw: unknown): WorkspaceConfig | null {
 }
 
 export function loadWorkspace(id: string): WorkspaceConfig | null {
-  const p = configPath(id);
-  if (!existsSync(p)) return null;
-  try {
-    return normalizeWorkspace(JSON.parse(readFileSync(p, "utf-8")));
-  } catch {
-    return null;
+  for (const p of candidateConfigPaths(id)) {
+    if (!existsSync(p)) continue;
+    try {
+      return normalizeWorkspace(JSON.parse(readFileSync(p, "utf-8")));
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 export function saveWorkspace(ws: WorkspaceConfig): void {
@@ -96,17 +118,19 @@ export function saveWorkspace(ws: WorkspaceConfig): void {
 export function loadAllWorkspaces(): WorkspaceConfig[] {
   try {
     ensureDir();
-    const dir = workspacesDir();
-    const files = readdirSync(dir).filter(f => f.endsWith(".json"));
-    return files
-      .map(f => {
+    const byId = new Map<string, WorkspaceConfig>();
+    for (const dir of [...candidateWorkspacesDirs()].reverse()) {
+      if (!existsSync(dir)) continue;
+      for (const f of readdirSync(dir).filter(f => f.endsWith(".json")).sort()) {
         try {
-          return normalizeWorkspace(JSON.parse(readFileSync(join(dir, f), "utf-8")));
+          const ws = normalizeWorkspace(JSON.parse(readFileSync(join(dir, f), "utf-8")));
+          if (ws) byId.set(ws.id, ws);
         } catch {
-          return null;
+          // skip corrupt workspace records
         }
-      })
-      .filter((ws): ws is WorkspaceConfig => ws !== null);
+      }
+    }
+    return [...byId.values()];
   } catch {
     return [];
   }
