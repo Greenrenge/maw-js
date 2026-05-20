@@ -53,7 +53,7 @@ function doneDeps(deps: DoneDeps = {}) {
     fleetDir: deps.fleetDir ?? FLEET_DIR,
     ghqRoot: deps.ghqRoot ?? getGhqRoot(),
     homeDir,
-    inboxDir: deps.inboxDir ?? (deps.homeDir ? join(deps.homeDir, ".maw", "inbox") : mawDataPath("inbox")),
+    inboxDir: deps.inboxDir ?? mawDataPath("inbox"),
     takeSnapshot: deps.takeSnapshot ?? takeSnapshot,
     now: deps.now ?? (() => new Date()),
     sleep: deps.sleep ?? Bun.sleep,

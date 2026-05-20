@@ -124,6 +124,7 @@ beforeEach(() => {
   oldAgentName = process.env.CLAUDE_AGENT_NAME;
   oldMawDataDir = process.env.MAW_DATA_DIR;
   process.env.CLAUDE_AGENT_NAME = "codex-agent";
+  process.env.MAW_DATA_DIR = "/xdg-data";
 });
 
 afterEach(() => {
@@ -145,8 +146,8 @@ describe("cmdDone", () => {
     expect(h.logs.join("\n")).toContain("would send /rrr to work:tile-1");
     expect(h.logs.join("\n")).toContain("would git add + commit + push");
 
-    const inboxPath = "/home/tester/.maw/inbox/leadmain.jsonl";
-    expect(h.dirs).toContain("/home/tester/.maw/inbox");
+    const inboxPath = "/xdg-data/inbox/leadmain.jsonl";
+    expect(h.dirs).toContain("/xdg-data/inbox");
     const signal = JSON.parse(h.files.get(inboxPath)!.trim());
     expect(signal).toEqual({
       ts: "2026-05-17T01:02:03.004Z",
@@ -245,7 +246,7 @@ describe("done inbox and autosave helpers", () => {
     expect(failing.errors.join("\n")).toContain("inbox signal failed");
   });
 
-  test("signalParentInbox can use the default clock when tests inject only filesystem paths", () => {
+  test("signalParentInbox uses XDG data inbox even when tests inject only filesystem paths", () => {
     const memory = createMemoryFs();
     signalParentInbox("tile-1", "work", [
       { name: "work", windows: [{ index: 0, name: "lead", active: true }] },
@@ -255,14 +256,13 @@ describe("done inbox and autosave helpers", () => {
       logger: { log() {}, error() {} },
     });
 
-    const signal = JSON.parse(memory.files.get("/home/default-clock/.maw/inbox/lead.jsonl")!.trim());
+    const signal = JSON.parse(memory.files.get("/xdg-data/inbox/lead.jsonl")!.trim());
     expect(Number.isNaN(Date.parse(signal.ts))).toBe(false);
     expect(signal.msg).toBe("worktree tile-1 completed");
   });
 
   test("signalParentInbox writes to XDG data inbox when no home override is injected", () => {
     const memory = createMemoryFs();
-    process.env.MAW_DATA_DIR = "/xdg-data";
 
     signalParentInbox("tile-1", "work", [
       { name: "work", windows: [{ index: 0, name: "lead", active: true }] },
@@ -274,6 +274,20 @@ describe("done inbox and autosave helpers", () => {
 
     const signal = JSON.parse(memory.files.get("/xdg-data/inbox/lead.jsonl")!.trim());
     expect(signal).toMatchObject({ from: "codex-agent", type: "done", msg: "worktree tile-1 completed" });
+  });
+
+  test("signalParentInbox keeps an explicit inboxDir override for harnesses", () => {
+    const memory = createMemoryFs();
+
+    signalParentInbox("tile-1", "work", [
+      { name: "work", windows: [{ index: 0, name: "lead", active: true }] },
+    ], {
+      fs: memory.fs,
+      inboxDir: "/tmp/custom-inbox",
+      logger: { log() {}, error() {} },
+    });
+
+    expect(memory.files.has("/tmp/custom-inbox/lead.jsonl")).toBe(true);
   });
 
   test("autoSave sends /rrr, waits, and commits/pushes when pane cwd is known", async () => {
