@@ -29,7 +29,7 @@ function backgroundAttachCommand(target: string): string {
   // Detached background tabs run a nested tmux client inside a fresh pane.
   // Clear/reset that pane before attach so stale redraw artifacts from the
   // caller are not mirrored into the new tab (#1816 live smear at cccbd33c).
-  return `TMUX=; printf '\\033c'; clear 2>/dev/null || true; exec tmux attach-session -t ${shellArg(target)}`;
+  return `unset TMUX; printf '\\033c'; clear 2>/dev/null || true; exec tmux attach-session -t ${shellArg(target)}`;
 }
 
 /** @internal — exported for tests only. */
@@ -81,10 +81,11 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
       const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
       const client = String(raw).trim();
       if (client.length > 0) {
-        // Full-client repaint plus a targeted status redraw. `-c` fixes the
-        // visible pane body; the follow-up `-S` is the low-cost source-client
-        // nudge Nat requested after the cccbd33c live smear repro.
-        await bestEffortTmux(`tmux refresh-client -c -t ${shellArg(client)}`);
+        // Force a real repaint of the source client, then update status.
+        // `refresh-client -c` only resets cursor tracking; it does not repaint
+        // the visible body, which let the lower-half dot smear persist at
+        // 957c41c1. A no-flag targeted refresh is the tmux body redraw.
+        await bestEffortTmux(`tmux refresh-client -t ${shellArg(client)}`);
         await bestEffortTmux(`tmux refresh-client -S -t ${shellArg(client)}`);
         return;
       }
@@ -94,7 +95,7 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
     }
   }
 
-  await bestEffortTmux("tmux refresh-client -c");
+  await bestEffortTmux("tmux refresh-client");
   await bestEffortTmux("tmux refresh-client -S");
 }
 
