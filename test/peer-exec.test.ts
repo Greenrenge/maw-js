@@ -482,3 +482,204 @@ describe("trust boundary — anon-* can only run readonly cmds", () => {
     // Together: readonly = false AND allowlist = false, so denied.
   });
 });
+
+// ---- WormholeRequest / WormholeFail feed events --------------------------
+//
+// peer-exec.ts emits typed wormhole lifecycle events through the plugin
+// feed bus (mirroring MessageSend/MessageDeliver/MessageFail). The fail
+// events are gated behind a successful signature parse — malformed
+// requests do NOT produce events.
+
+describe("wormhole feed lifecycle emission", () => {
+  type EmittedEvent = Parameters<NonNullable<Parameters<typeof createPeerExecApi>[0]>["emitWormholeLifecycle"] & Function>[0];
+
+  function makeAppWith(opts: {
+    overrides?: Parameters<typeof createPeerExecApi>[0];
+    relay?: typeof relayToPeer;
+  } = {}) {
+    const events: EmittedEvent[] = [];
+    const app = new Elysia({ prefix: "/api" }).use(createPeerExecApi({
+      hasValidSessionCookie: () => true,
+      parseSignature: () => ({ originHost: "white", originAgent: "white-wormhole", isAnon: false }),
+      isReadOnlyCmd: () => true,
+      isShellPeerAllowed: () => true,
+      resolvePeerUrl: () => "http://peer.local:3456",
+      relayToPeer: opts.relay ?? ((async () => ({ output: "ok", from: "peer", elapsedMs: 5, status: 200 })) as typeof relayToPeer),
+      emitWormholeLifecycle: (input) => { events.push(input); },
+      ...(opts.overrides ?? {}),
+    }));
+    return { app, events };
+  }
+
+  test("relay success emits WormholeRequest delivered with trust_tier + outputBytes", async () => {
+    const { app, events } = makeAppWith({
+      relay: (async () => ({
+        output: "x".repeat(123),
+        from: "http://peer.local:3456",
+        elapsedMs: 42,
+        status: 200,
+      })) as typeof relayToPeer,
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "white",
+        cmd: "/dig",
+        args: ["--deep"],
+        signature: "[white:white-wormhole]",
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      direction: "relayed",
+      state: "delivered",
+      cmd: "/dig",
+      args: ["--deep"],
+      origin: "[white:white-wormhole]",
+      peer: "white",
+      peerUrl: "http://peer.local:3456",
+      trustTier: "readonly",
+      elapsedMs: 42,
+      status: 200,
+      outputBytes: 123,
+    });
+  });
+
+  test("missing session cookie emits WormholeFail with status=401", async () => {
+    // Force production so cookie check runs
+    const savedEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    const { app, events } = makeAppWith({
+      overrides: { hasValidSessionCookie: () => false },
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        peer: "white",
+        cmd: "/dig",
+        signature: "[white:white-wormhole]",
+      }),
+    }));
+
+    process.env.NODE_ENV = savedEnv;
+
+    expect(res.status).toBe(401);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      state: "failed",
+      status: 401,
+      trustTier: "denied",
+      error: "no_session",
+      origin: "[white:white-wormhole]",
+      peer: "white",
+    });
+  });
+
+  test("shell_peer_denied emits WormholeFail with status=403 trustTier=denied", async () => {
+    const { app, events } = makeAppWith({
+      overrides: {
+        isReadOnlyCmd: () => false,
+        isShellPeerAllowed: () => false,
+        parseSignature: () => ({ originHost: "unknown-host", originAgent: "stranger", isAnon: false }),
+      },
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "white",
+        cmd: "/awaken",
+        signature: "[unknown-host:stranger]",
+      }),
+    }));
+
+    expect(res.status).toBe(403);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      state: "failed",
+      status: 403,
+      trustTier: "denied",
+      error: "shell_peer_denied",
+      origin: "[unknown-host:stranger]",
+    });
+  });
+
+  test("unknown_peer emits WormholeFail with status=404", async () => {
+    const { app, events } = makeAppWith({
+      overrides: { resolvePeerUrl: () => null },
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "ghost-peer",
+        cmd: "/dig",
+        signature: "[white:white-wormhole]",
+      }),
+    }));
+
+    expect(res.status).toBe(404);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      state: "failed",
+      status: 404,
+      trustTier: "readonly",
+      error: "unknown_peer",
+      peer: "ghost-peer",
+    });
+  });
+
+  test("relay throw emits WormholeFail with status=502 and the underlying message", async () => {
+    const { app, events } = makeAppWith({
+      relay: (async () => { throw new Error("peer offline"); }) as typeof relayToPeer,
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "white",
+        cmd: "/dig",
+        signature: "[white:white-wormhole]",
+      }),
+    }));
+
+    expect(res.status).toBe(502);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      state: "failed",
+      status: 502,
+      error: "peer offline",
+      peer: "white",
+      peerUrl: "http://peer.local:3456",
+    });
+  });
+
+  test("bad_signature (400) does NOT emit (no parsed origin available)", async () => {
+    const { app, events } = makeAppWith({
+      overrides: { parseSignature: () => null },
+    });
+
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: "pe_session=fake" },
+      body: JSON.stringify({
+        peer: "white",
+        cmd: "/dig",
+        signature: "not-bracketed",
+      }),
+    }));
+
+    expect(res.status).toBe(400);
+    expect(events).toHaveLength(0);
+  });
+});
