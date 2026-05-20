@@ -101,8 +101,10 @@ describe("federation API identity/status/snapshot routes", () => {
     const tmp = mkdtempSync(join(tmpdir(), "maw-federation-api-"));
     const savedPeerKey = process.env.MAW_PEER_KEY;
     const savedConfigDir = process.env.MAW_CONFIG_DIR;
+    const savedDataDir = process.env.MAW_DATA_DIR;
     process.env.MAW_PEER_KEY = "test-peer-key";
     process.env.MAW_CONFIG_DIR = tmp;
+    process.env.MAW_DATA_DIR = join(tmp, "data");
     try {
       const app = makeApp({
         homedir: () => tmp,
@@ -121,6 +123,8 @@ describe("federation API identity/status/snapshot routes", () => {
       else process.env.MAW_PEER_KEY = savedPeerKey;
       if (savedConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
       else process.env.MAW_CONFIG_DIR = savedConfigDir;
+      if (savedDataDir === undefined) delete process.env.MAW_DATA_DIR;
+      else process.env.MAW_DATA_DIR = savedDataDir;
       rmSync(tmp, { recursive: true, force: true });
     }
   });
