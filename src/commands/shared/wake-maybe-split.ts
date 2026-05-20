@@ -221,7 +221,7 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
           return;
         }
       }
-      if (await isClaudeLikeCallerPane(anchor) && process.env.MAW_FORCE_SPLIT !== "1") {
+      if (await isClaudeLikeCallerPane(anchor) && process.env.MAW_SAFE_SPLIT === "1") {
         const action = await openBackgroundTab(target, {
           destinationSession: opts.splitTarget ? targetSession(opts.splitTarget) : undefined,
           sourceAnchor: anchor,
@@ -231,8 +231,7 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
         const label = action === "existing" ? "target already in background tab" :
           action === "linked" ? "linked as background tab" :
             "opened as background tab";
-        console.log(`  \x1b[36m→\x1b[0m ${label} (split skipped — Claude TUI pane would smear #1562).`);
-        console.log(`      \x1b[90mforce split:      MAW_FORCE_SPLIT=1 maw bring ...\x1b[0m`);
+        console.log(`  \x1b[36m→\x1b[0m ${label} (MAW_SAFE_SPLIT=1 — explicit smear-avoidance opt-in).`);
         return;
       }
       if (

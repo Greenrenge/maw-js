@@ -39,6 +39,7 @@ describe("wake maybeSplit", () => {
   const originalAllowClaudeSplit = process.env.MAW_ALLOW_CLAUDE_SPLIT;
   const originalAllowSelfBring = process.env.MAW_ALLOW_SELF_BRING;
   const originalForceSplit = process.env.MAW_FORCE_SPLIT;
+  const originalSafeSplit = process.env.MAW_SAFE_SPLIT;
 
   beforeEach(() => {
     hostExecCalls = [];
@@ -55,6 +56,7 @@ describe("wake maybeSplit", () => {
     delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
     delete process.env.MAW_ALLOW_SELF_BRING;
     delete process.env.MAW_FORCE_SPLIT;
+    delete process.env.MAW_SAFE_SPLIT;
   });
 
   test("does nothing when split is not requested", async () => {
@@ -111,9 +113,10 @@ describe("wake maybeSplit", () => {
   });
 
 
-  test("opens a background tab instead of smearing Claude-like caller panes (#1562)", async () => {
+  test("MAW_SAFE_SPLIT opens a background tab from Claude-like caller panes (#1836)", async () => {
     paneCommandResponse = "claude";
     newWindowResponse = "@88";
+    process.env.MAW_SAFE_SPLIT = "1";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
@@ -121,28 +124,14 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[1]).toContain("pane_current_command");
     expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
     expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
-    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_name}|#{client_tty}'");
-    expect(hostExecCalls[5]).toBe("tmux refresh-client -t '/dev/ttys001'");
-    expect(hostExecCalls[6]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
-    expect(hostExecCalls[7]).toBe("tmux refresh-client");
-    expect(hostExecCalls[8]).toBe("tmux refresh-client -S");
     expect(hostExecCalls[9]).toContain("tmux new-window -P -F '#{window_id}' -d");
     expect(hostExecCalls[9]).toContain("-n 'bring-homekeeper-oracle'");
     expect(hostExecCalls[9]).toContain("unset TMUX");
     expect(hostExecCalls[9]).toContain("clear 2>/dev/null");
-    expect(hostExecCalls[10]).toBe("tmux send-keys -R -t '@88' C-l");
-    expect(hostExecCalls[11]).toBe("tmux clear-history -t '@88'");
-    expect(hostExecCalls[12]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[13]).toBe("tmux clear-history -t '%42'");
-    expect(hostExecCalls[14]).toBe("tmux display-message -p -t '%42' '#{client_name}|#{client_tty}'");
-    expect(hostExecCalls[15]).toBe("tmux refresh-client -t '/dev/ttys001'");
-    expect(hostExecCalls[16]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
-    expect(hostExecCalls[17]).toBe("tmux refresh-client");
-    expect(hostExecCalls[18]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 
-  test("reuses an existing target tab in the caller session instead of nesting attach-session", async () => {
+  test("same-session target from Claude-like panes refuses nested split instead of attaching", async () => {
     paneCommandResponse = "claude";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -150,18 +139,12 @@ describe("wake maybeSplit", () => {
 
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
-    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
-    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_name}|#{client_tty}'");
-    expect(hostExecCalls[5]).toBe("tmux refresh-client -t '/dev/ttys001'");
-    expect(hostExecCalls[6]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
-    expect(hostExecCalls[7]).toBe("tmux refresh-client");
-    expect(hostExecCalls[8]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
   });
 
-  test("reuses an existing target tab when explicit --to points inside that same session (#1827)", async () => {
+  test("explicit --to inside the same session refuses nested split (#1827/#1836)", async () => {
     paneCommandResponse = "claude";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -172,15 +155,13 @@ describe("wake maybeSplit", () => {
 
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{pane_current_command}'");
-    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '50-mawjs:mawjs-oracle' C-l");
-    expect(hostExecCalls[3]).toBe("tmux clear-history -t '50-mawjs:mawjs-oracle'");
-    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{client_name}|#{client_tty}'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("link-window"))).toBe(false);
     expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
   });
 
-  test("links cross-session background tabs from Claude-like panes before nested fallback", async () => {
+  test("splits cross-session targets from Claude-like panes by default (#1836)", async () => {
     paneCommandResponse = "claude";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
 
@@ -188,23 +169,8 @@ describe("wake maybeSplit", () => {
 
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
-    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
-    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_name}|#{client_tty}'");
-    expect(hostExecCalls[5]).toBe("tmux refresh-client -t '/dev/ttys001'");
-    expect(hostExecCalls[6]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
-    expect(hostExecCalls[7]).toBe("tmux refresh-client");
-    expect(hostExecCalls[8]).toBe("tmux refresh-client -S");
-    expect(hostExecCalls[9]).toBe("tmux link-window -d -s '20-homekeeper:homekeeper-oracle' -t '50-mawjs:'");
-    expect(hostExecCalls[10]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[11]).toBe("tmux clear-history -t '%42'");
-    expect(hostExecCalls[12]).toBe("tmux display-message -p -t '%42' '#{client_name}|#{client_tty}'");
-    expect(hostExecCalls[13]).toBe("tmux refresh-client -t '/dev/ttys001'");
-    expect(hostExecCalls[14]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
-    expect(hostExecCalls[15]).toBe("tmux refresh-client");
-    expect(hostExecCalls[16]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[2]).toContain("tmux split-window -t '%42' -h -l 50%");
     expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
-    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
   });
 
   test("uses a specific split target when --to contains a session:window", async () => {
@@ -310,5 +276,7 @@ describe("wake maybeSplit", () => {
     else process.env.MAW_ALLOW_SELF_BRING = originalAllowSelfBring;
     if (originalForceSplit === undefined) delete process.env.MAW_FORCE_SPLIT;
     else process.env.MAW_FORCE_SPLIT = originalForceSplit;
+    if (originalSafeSplit === undefined) delete process.env.MAW_SAFE_SPLIT;
+    else process.env.MAW_SAFE_SPLIT = originalSafeSplit;
   });
 });
