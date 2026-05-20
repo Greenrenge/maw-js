@@ -1,8 +1,7 @@
 import { Elysia } from "elysia";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../core/paths";
-import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
+import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 export interface FleetApiDeps {
   fleetDir: string;
@@ -14,7 +13,7 @@ export interface FleetApiDeps {
 
 function defaultFleetApiDeps(): FleetApiDeps {
   return {
-    fleetDir: FLEET_DIR,
+    fleetDir: fleetDirForWrite(),
     fleetDirs: fleetDirsForRead(),
     readdirSync,
     readFileSync,

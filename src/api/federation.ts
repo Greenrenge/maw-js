@@ -6,10 +6,10 @@ import { hostedAgents as defaultHostedAgents } from "../commands/shared/federati
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { FLEET_DIR } from "../core/paths";
 import { getPeerKey } from "../lib/peer-key";
 import { resolveNodeIdentity } from "../core/fleet/node-identity";
 import { mawMessageLogCandidatePaths } from "../core/xdg";
+import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
 
 /**
  * Endpoints advertised by /api/identity (#804 Step 1).
@@ -61,6 +61,7 @@ export interface FederationApiDeps {
   homedir?: typeof homedir;
   messageLogPaths?: () => string[];
   fleetDir?: string;
+  fleetDirs?: string[];
 }
 
 export function createFederationApi(deps: FederationApiDeps = {}) {
@@ -77,7 +78,11 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
   const readDir = deps.readdirSync ?? readdirSync;
   const pathJoin = deps.join ?? join;
   const messageLogPaths = deps.messageLogPaths ?? mawMessageLogCandidatePaths;
-  const fleetDir = deps.fleetDir ?? FLEET_DIR;
+  const fleetDirs = deps.fleetDirs?.length
+    ? uniqueDirs(deps.fleetDirs)
+    : deps.fleetDir
+      ? [deps.fleetDir]
+      : fleetDirsForRead();
   const loadLedger = deps.loadLedger ?? (async () => await import("../vendor/mpr-plugins/messages/ledger"));
 
   const federationApi = new Elysia();
@@ -186,11 +191,25 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
 
   /** Fleet configs — serve fleet/*.json with lineage data */
   federationApi.get("/fleet", () => {
+    const seenFiles = new Set<string>();
+    const configs: unknown[] = [];
     try {
-      const files = readDir(fleetDir).filter((f) => f.endsWith(".json") && !f.endsWith(".disabled"));
-      const configs = files.map((f) => {
-        try { return { file: f, ...JSON.parse(readFile(pathJoin(fleetDir, f), "utf-8")) }; } catch { return null; }
-      }).filter(Boolean);
+      for (const fleetDir of fleetDirs) {
+        let files: string[];
+        try {
+          files = readDir(fleetDir).filter((f) => f.endsWith(".json") && !f.endsWith(".disabled")).sort();
+        } catch {
+          continue;
+        }
+
+        for (const file of files) {
+          if (seenFiles.has(file)) continue;
+          seenFiles.add(file);
+          try {
+            configs.push({ file, ...JSON.parse(readFile(pathJoin(fleetDir, file), "utf-8")) });
+          } catch { /* skip invalid config */ }
+        }
+      }
       return { fleet: configs };
     } catch {
       return { fleet: [] };

@@ -214,6 +214,39 @@ describe("federation API fleet route", () => {
     });
   });
 
+  test("serves XDG state fleet configs before duplicate legacy configs", async () => {
+    const reads: string[] = [];
+    const app = makeApp({
+      fleetDirs: ["/state/fleet", "/legacy/fleet"],
+      join: ((...parts: string[]) => parts.join("/")) as any,
+      readdirSync: ((dir: string) => {
+        if (dir === "/state/fleet") return ["01-state.json", "bad.json"] as any;
+        if (dir === "/legacy/fleet") return ["01-state.json", "02-legacy.json"] as any;
+        return [] as any;
+      }) as any,
+      readFileSync: ((path: string) => {
+        reads.push(path);
+        if (path === "/state/fleet/01-state.json") return JSON.stringify({ node: "state" });
+        if (path === "/state/fleet/bad.json") throw new Error("bad json");
+        if (path === "/legacy/fleet/01-state.json") throw new Error("duplicate legacy should be skipped");
+        if (path === "/legacy/fleet/02-legacy.json") return JSON.stringify({ node: "legacy" });
+        return "{}";
+      }) as any,
+    });
+
+    expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({
+      fleet: [
+        { file: "01-state.json", node: "state" },
+        { file: "02-legacy.json", node: "legacy" },
+      ],
+    });
+    expect(reads).toEqual([
+      "/state/fleet/01-state.json",
+      "/state/fleet/bad.json",
+      "/legacy/fleet/02-legacy.json",
+    ]);
+  });
+
   test("returns an empty fleet when the fleet directory cannot be read", async () => {
     const app = makeApp({ readdirSync: (() => { throw new Error("missing fleet"); }) as any });
 

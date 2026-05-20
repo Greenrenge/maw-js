@@ -79,6 +79,7 @@ mock.module("maw-js/config/ghq-root", () => ({
 }));
 
 mock.module("maw-js/commands/shared/fleet-load", () => ({
+  fleetDirForWrite: () => fleetDir,
   loadFleetEntries: () => fleetEntries,
 }));
 
