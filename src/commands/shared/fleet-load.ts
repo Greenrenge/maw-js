@@ -20,6 +20,8 @@ export interface FleetSession {
 
 export interface FleetEntry {
   file: string;
+  /** Absolute path of the config file that supplied this entry. */
+  path?: string;
   num: number;
   groupName: string;
   session: FleetSession;
@@ -31,6 +33,10 @@ function uniqueDirs(dirs: string[]): string[] {
 
 export function fleetDirsForRead(): string[] {
   return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
+}
+
+export function fleetDirForWrite(): string {
+  return mawStatePath("fleet");
 }
 
 function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string }> {
@@ -62,6 +68,7 @@ export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntr
     const match = file.match(/^(\d+)-(.+)\.json$/);
     return {
       file,
+      path,
       num: match ? parseInt(match[1], 10) : 0,
       groupName: match ? match[2] : file.replace(".json", ""),
       session: raw as FleetSession,
