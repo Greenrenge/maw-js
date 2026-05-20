@@ -17,7 +17,7 @@ const HELP = [
   "  maw ls --verify         include worktree-bind diagnostics",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
-  "Peer aliases are resolved from ~/.maw/peers.json (see: maw peers list).",
+  "Peer aliases are resolved from the maw state peers store (see: maw peers list).",
   "For registered fleet config, use maw fleet ls.",
 ].join("\n");
 
@@ -82,7 +82,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: true, output: logs.join("\n") || undefined };
     }
 
-    // Cross-node: explicit peer alias. Resolves via ~/.maw/peers.json — if
+    // Cross-node: explicit peer alias. Resolves via the maw state peers store — if
     // the positional doesn't match a known peer, surface a clear "unknown
     // peer alias" error rather than silently falling through to local ls
     // (which would be confusing — "I asked for oracle-world, why am I
@@ -92,7 +92,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return await lsPeer(positional, { json });
     }
 
-    // Cross-node: aggregate every alias in ~/.maw/peers.json.
+    // Cross-node: aggregate every alias in the maw state peers store.
     if (flags["--all"]) {
       const { lsAllPeers } = await import("./internal/peer-call");
       return await lsAllPeers({ json });
