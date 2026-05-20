@@ -7,10 +7,12 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "discover",
-    "help": "maw discover [--peers config|scout|both] [--json]",
+    "help": "maw discover [--peers config|scout|both] [--json] [--tree] [--awake]",
     "flags": {
       "--peers": "string",
-      "--json": "boolean"
+      "--json": "boolean",
+      "--tree": "boolean",
+      "--awake": "boolean"
     }
   },
   "weight": 10
