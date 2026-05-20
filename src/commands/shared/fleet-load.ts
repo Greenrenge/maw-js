@@ -1,6 +1,7 @@
 import { join } from "path";
-import { readdirSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
+import { mawStatePath } from "../../core/xdg";
 
 export interface FleetWindow {
   name: string;
@@ -24,24 +25,45 @@ export interface FleetEntry {
   session: FleetSession;
 }
 
-export function loadFleet(): FleetSession[] {
-  const files = readdirSync(FLEET_DIR)
-    .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
-    .sort();
-  return files.map(f => require(join(FLEET_DIR, f)) as FleetSession);
+function uniqueDirs(dirs: string[]): string[] {
+  return [...new Set(dirs.filter(Boolean))];
 }
 
-export function loadFleetEntries(): FleetEntry[] {
-  const files = readdirSync(FLEET_DIR)
-    .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
-    .sort();
-  return files.map(f => {
-    const raw = require(join(FLEET_DIR, f));
-    const match = f.match(/^(\d+)-(.+)\.json$/);
+export function fleetDirsForRead(): string[] {
+  return uniqueDirs([mawStatePath("fleet"), FLEET_DIR]);
+}
+
+function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string }> {
+  const byName = new Map<string, { file: string; path: string }>();
+  for (const dir of uniqueDirs(dirs)) {
+    if (!existsSync(dir)) continue;
+    let files: string[];
+    try {
+      files = readdirSync(dir)
+        .filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))
+        .sort();
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!byName.has(file)) byName.set(file, { file, path: join(dir, file) });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.file.localeCompare(b.file));
+}
+
+export function loadFleet(dirs: string[] = fleetDirsForRead()): FleetSession[] {
+  return readFleetFiles(dirs).map(({ path }) => JSON.parse(readFileSync(path, "utf-8")) as FleetSession);
+}
+
+export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntry[] {
+  return readFleetFiles(dirs).map(({ file, path }) => {
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    const match = file.match(/^(\d+)-(.+)\.json$/);
     return {
-      file: f,
+      file,
       num: match ? parseInt(match[1], 10) : 0,
-      groupName: match ? match[2] : f.replace(".json", ""),
+      groupName: match ? match[2] : file.replace(".json", ""),
       session: raw as FleetSession,
     };
   });

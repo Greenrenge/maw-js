@@ -7,6 +7,10 @@ const sdkPath = import.meta.resolve("../../src/sdk/index.ts");
 
 const root = mkdtempSync(join(tmpdir(), "maw-ensure-fleet-coverage-"));
 const fleetDir = join(root, "fleet");
+const stateDir = join(root, "state");
+const stateFleetDir = join(stateDir, "fleet");
+const originalMawStateDir = process.env.MAW_STATE_DIR;
+process.env.MAW_STATE_DIR = stateDir;
 let tmuxOutput = "";
 let tmuxError: Error | null = null;
 let tmuxCalls: string[][] = [];
@@ -39,6 +43,7 @@ beforeEach(() => {
   tasksDir = join(root, `tasks-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   teamHelpers._setDirs(teamsDir, tasksDir);
   resetDir(fleetDir);
+  resetDir(stateFleetDir);
   tmuxOutput = "";
   tmuxError = null;
   tmuxCalls = [];
@@ -48,9 +53,12 @@ afterEach(() => {
   rmSync(teamsDir, { recursive: true, force: true });
   rmSync(tasksDir, { recursive: true, force: true });
   resetDir(fleetDir);
+  resetDir(stateFleetDir);
 });
 
 afterAll(() => {
+  if (originalMawStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalMawStateDir;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -120,6 +128,34 @@ describe("fleet-load coverage", () => {
         num: 0,
         groupName: "loose",
         session: { name: "loose", windows: [{ name: "loose-oracle" }] },
+      },
+    ]);
+  });
+
+  test("loadFleetEntries reads XDG state fleet first with legacy config fallback", () => {
+    writeFileSync(join(fleetDir, "10-legacy-only.json"), JSON.stringify({ name: "legacy", windows: [] }));
+    writeFileSync(join(fleetDir, "20-overlap.json"), JSON.stringify({ name: "legacy-overlap", windows: [] }));
+    writeFileSync(join(stateFleetDir, "05-state-only.json"), JSON.stringify({ name: "state", windows: [{ name: "state-oracle" }] }));
+    writeFileSync(join(stateFleetDir, "20-overlap.json"), JSON.stringify({ name: "state-overlap", windows: [{ name: "winner" }] }));
+
+    expect(fleetLoad.loadFleetEntries()).toEqual([
+      {
+        file: "05-state-only.json",
+        num: 5,
+        groupName: "state-only",
+        session: { name: "state", windows: [{ name: "state-oracle" }] },
+      },
+      {
+        file: "10-legacy-only.json",
+        num: 10,
+        groupName: "legacy-only",
+        session: { name: "legacy", windows: [] },
+      },
+      {
+        file: "20-overlap.json",
+        num: 20,
+        groupName: "overlap",
+        session: { name: "state-overlap", windows: [{ name: "winner" }] },
       },
     ]);
   });
