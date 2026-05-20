@@ -28,6 +28,13 @@ function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function backgroundAttachCommand(target: string): string {
+  // Detached background tabs run a nested tmux client inside a fresh pane.
+  // Clear/reset that pane before attach so stale redraw artifacts from the
+  // caller are not mirrored into the new tab (#1816 live smear at cccbd33c).
+  return `TMUX=; printf '\\033c'; clear 2>/dev/null || true; exec tmux attach-session -t ${shellArg(target)}`;
+}
+
 function validateClaudePanePolicy(value: unknown): ClaudePanePolicy | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || !CLAUDE_PANE_POLICIES.has(value as ClaudePanePolicy)) {
@@ -216,28 +223,40 @@ async function readAnchorSession(anchor: string | undefined): Promise<string | n
   }
 }
 
-async function refreshSourceClient(anchor: string | undefined): Promise<void> {
+async function bestEffortTmux(command: string): Promise<void> {
   try {
-    if (anchor) {
+    await hostExec(command);
+  } catch {
+    // Best-effort repaint only: the user action already succeeded.
+  }
+}
+
+async function refreshSourceClient(anchor: string | undefined): Promise<void> {
+  if (anchor) {
+    try {
       const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
       const client = String(raw).trim();
       if (client.length > 0) {
-        // Full-client repaint, not default/status-only refresh: this mirrors the
-        // bring hotfix that cleared Nat's lower-half dot smear at b42deda8.
-        await hostExec(`tmux refresh-client -c -t ${shellArg(client)}`);
+        // Full-client repaint plus a targeted status redraw. Keep this aligned
+        // with wake-maybe-split so every background-tab caller gets the same
+        // smear fix (#1816 live repro after cccbd33c).
+        await bestEffortTmux(`tmux refresh-client -c -t ${shellArg(client)}`);
+        await bestEffortTmux(`tmux refresh-client -S -t ${shellArg(client)}`);
         return;
       }
+    } catch {
+      // Fall through to global redraws.
     }
-    await hostExec("tmux refresh-client -c");
-  } catch {
-    // Best-effort redraw only. The split policy action already succeeded.
   }
+  await bestEffortTmux("tmux refresh-client -c");
+  await bestEffortTmux("tmux refresh-client -S");
 }
 
 async function repaintSourcePane(anchor: string | undefined): Promise<void> {
   if (!anchor) return;
   try {
     await hostExec(`tmux send-keys -R -t ${shellArg(anchor)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(anchor)}`);
   } catch {
     // Keep going: the full-client refresh below is often the more important
     // part of clearing stale lower-half redraw artifacts.
@@ -248,6 +267,7 @@ async function repaintSourcePane(anchor: string | undefined): Promise<void> {
 async function clearNewTabPane(target: string): Promise<void> {
   try {
     await hostExec(`tmux send-keys -R -t ${shellArg(target)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(target)}`);
   } catch {
     // Best-effort repaint only: a failed clear must not hide the newly opened
     // background tab from the caller.
@@ -275,7 +295,7 @@ async function splitIntoPane(resolved: string, pct: number, opts: SplitOpts, anc
 async function openBackgroundTab(resolved: string, opts: SplitOpts, anchor: string | undefined): Promise<void> {
   const destinationSession = await readAnchorSession(anchor);
   const destination = destinationSession ? `-t ${shellArg(`${destinationSession}:`)} ` : "";
-  const innerCmd = `TMUX= tmux attach-session -t ${resolved}`;
+  const innerCmd = backgroundAttachCommand(resolved);
   await repaintSourcePane(anchor);
   let openedWindow = "";
   await runWithOptionalLock(opts, async () => {

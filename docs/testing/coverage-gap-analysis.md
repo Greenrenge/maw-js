@@ -1,20 +1,20 @@
 # Coverage gap analysis
 
-Generated: 2026-05-20T06:28:46.435Z
+Generated: 2026-05-20T06:45:36.240Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (30860/30860)
-Overall function coverage: **100.0%** (5159/5159)
+Overall line coverage: **100.0%** (30873/30873)
+Overall function coverage: **100.0%** (5165/5165)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 93 | 0 | 100.0% (5641/5641) | 100.0% (863/863) | n/a (0/0) |
+| cli/dispatch | 93 | 0 | 100.0% (5647/5647) | 100.0% (866/866) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (780/780) | 100.0% (135/135) | n/a (0/0) |
 | fleet | 19 | 0 | 100.0% (678/678) | 100.0% (108/108) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
@@ -22,7 +22,7 @@ Overall function coverage: **100.0%** (5159/5159)
 | plugin dispatch | 15 | 1 | 100.0% (677/677) | 100.0% (89/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 100.0% (431/431) | 100.0% (76/76) | n/a (0/0) |
 | transport | 28 | 0 | 100.0% (1695/1695) | 100.0% (452/452) | n/a (0/0) |
-| vendor plugins | 245 | 2 | 100.0% (12355/12355) | 100.0% (1954/1954) | n/a (0/0) |
+| vendor plugins | 245 | 2 | 100.0% (12362/12362) | 100.0% (1957/1957) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 

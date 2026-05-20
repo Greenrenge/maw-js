@@ -120,14 +120,20 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
     expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
-    expect(hostExecCalls[5]).toContain("tmux new-window -P -F '#{window_id}' -d");
-    expect(hostExecCalls[5]).toContain("-n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[6]).toBe("tmux send-keys -R -t '@88' C-l");
-    expect(hostExecCalls[7]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[8]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[9]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls[7]).toContain("tmux new-window -P -F '#{window_id}' -d");
+    expect(hostExecCalls[7]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[7]).toContain("clear 2>/dev/null");
+    expect(hostExecCalls[8]).toBe("tmux send-keys -R -t '@88' C-l");
+    expect(hostExecCalls[9]).toBe("tmux clear-history -t '@88'");
+    expect(hostExecCalls[10]).toBe("tmux send-keys -R -t '%42' C-l");
+    expect(hostExecCalls[11]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[12]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[13]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[14]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 

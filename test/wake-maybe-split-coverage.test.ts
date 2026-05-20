@@ -201,13 +201,21 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
     expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
-    expect(hostExecCalls[5]).toContain("tmux new-window -P -F '#{window_id}' -d -n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[6]).toBe("tmux send-keys -R -t '@88' C-l");
-    expect(hostExecCalls[7]).toBe("tmux send-keys -R -t '%42' C-l");
-    expect(hostExecCalls[8]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[9]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls[7]).toContain("tmux new-window -P -F '#{window_id}' -d -n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[7]).toContain("printf");
+    expect(hostExecCalls[7]).toContain("clear 2>/dev/null");
+    expect(hostExecCalls[7]).toContain("exec tmux attach-session -t");
+    expect(hostExecCalls[8]).toBe("tmux send-keys -R -t '@88' C-l");
+    expect(hostExecCalls[9]).toBe("tmux clear-history -t '@88'");
+    expect(hostExecCalls[10]).toBe("tmux send-keys -R -t '%42' C-l");
+    expect(hostExecCalls[11]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[12]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[13]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[14]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
     expect(output()).toContain("opened as background tab (split skipped — Claude TUI pane would smear #1562)");
     expect(output()).toContain("MAW_FORCE_SPLIT=1");
@@ -220,10 +228,14 @@ describe("wake maybe split/window coverage", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -c");
-    expect(hostExecCalls[7]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[8]).toBe("tmux refresh-client -c");
+    expect(hostExecCalls[3]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -c");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[9]).toBe("tmux clear-history -t '%42'");
+    expect(hostExecCalls[10]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[11]).toBe("tmux refresh-client -c");
+    expect(hostExecCalls[12]).toBe("tmux refresh-client -S");
     expect(output()).toContain("opened as background tab");
   });
 

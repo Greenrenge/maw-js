@@ -334,14 +334,23 @@ for (const helper of helpers) {
         `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux display-message -p -t '%7' '#{session_name}'`,
         `tmux send-keys -R -t '%7' C-l`,
+        `tmux clear-history -t '%7'`,
         `tmux display-message -p -t '%7' '#{client_tty}'`,
         `tmux refresh-client -c -t '/dev/ttys001'`,
-        `tmux new-window -P -F '#{window_id}' -d -t 'caller:' -n 'split-2' 'TMUX= tmux attach-session -t alpha:2'`,
+        `tmux refresh-client -S -t '/dev/ttys001'`,
+        hostExecCalls[7]!,
         `tmux send-keys -R -t '@42' C-l`,
+        `tmux clear-history -t '@42'`,
         `tmux send-keys -R -t '%7' C-l`,
+        `tmux clear-history -t '%7'`,
         `tmux display-message -p -t '%7' '#{client_tty}'`,
         `tmux refresh-client -c -t '/dev/ttys001'`,
+        `tmux refresh-client -S -t '/dev/ttys001'`,
       ]);
+      expect(hostExecCalls[7]).toContain(`tmux new-window -P -F '#{window_id}' -d -t 'caller:' -n 'split-2'`);
+      expect(hostExecCalls[7]).toContain("printf");
+      expect(hostExecCalls[7]).toContain("clear 2>/dev/null");
+      expect(hostExecCalls[7]).toContain("exec tmux attach-session -t");
       expect(stdout()).toContain("opened background tab — alpha:2");
     });
 
@@ -380,6 +389,7 @@ for (const helper of helpers) {
         `tmux link-window -d -s 'alpha:2' -t 'caller:'`,
         `tmux display-message -p -t '%7' '#{client_tty}'`,
         `tmux refresh-client -c -t '/dev/ttys002'`,
+        `tmux refresh-client -S -t '/dev/ttys002'`,
       ]);
       expect(stdout()).toContain("linked background tab — alpha:2");
     });
@@ -394,14 +404,21 @@ for (const helper of helpers) {
         `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux display-message -p -t '%7' '#{session_name}'`,
         `tmux send-keys -R -t '%7' C-l`,
+        `tmux clear-history -t '%7'`,
         `tmux display-message -p -t '%7' '#{client_tty}'`,
         "tmux refresh-client -c",
-        `tmux new-window -P -F '#{window_id}' -d -n 'split-2' 'TMUX= tmux attach-session -t alpha:2'`,
+        "tmux refresh-client -S",
+        hostExecCalls[7]!,
         `tmux send-keys -R -t '@42' C-l`,
+        `tmux clear-history -t '@42'`,
         `tmux send-keys -R -t '%7' C-l`,
+        `tmux clear-history -t '%7'`,
         `tmux display-message -p -t '%7' '#{client_tty}'`,
         "tmux refresh-client -c",
+        "tmux refresh-client -S",
       ]);
+      expect(hostExecCalls[7]).toContain(`tmux new-window -P -F '#{window_id}' -d -n 'split-2'`);
+      expect(hostExecCalls[7]).toContain("clear 2>/dev/null");
     });
 
     test("link-window policy requires a readable source session", async () => {

@@ -25,6 +25,13 @@ function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function backgroundAttachCommand(target: string): string {
+  // Detached background tabs run a nested tmux client inside a fresh pane.
+  // Clear/reset that pane before attach so stale redraw artifacts from the
+  // caller are not mirrored into the new tab (#1816 live smear at cccbd33c).
+  return `TMUX=; printf '\\033c'; clear 2>/dev/null || true; exec tmux attach-session -t ${shellArg(target)}`;
+}
+
 /** @internal — exported for tests only. */
 export async function probeTmuxServer(): Promise<boolean> {
   try {
@@ -60,37 +67,42 @@ async function refreshSplitClient(): Promise<void> {
   }
 }
 
+async function bestEffortTmux(command: string): Promise<void> {
+  try {
+    await hostExec(command);
+  } catch {
+    // Best-effort repaint only: the user action already succeeded.
+  }
+}
+
 async function refreshSourceClient(anchor?: string): Promise<void> {
   if (anchor) {
     try {
       const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
       const client = String(raw).trim();
       if (client.length > 0) {
-        // Full-client repaint, not `-S`: tmux documents `-S` as status-line
-        // only, which leaves the lower-half dot smear Nat saw at 957c41c1.
-        await hostExec(`tmux refresh-client -c -t ${shellArg(client)}`);
+        // Full-client repaint plus a targeted status redraw. `-c` fixes the
+        // visible pane body; the follow-up `-S` is the low-cost source-client
+        // nudge Nat requested after the cccbd33c live smear repro.
+        await bestEffortTmux(`tmux refresh-client -c -t ${shellArg(client)}`);
+        await bestEffortTmux(`tmux refresh-client -S -t ${shellArg(client)}`);
         return;
       }
     } catch {
-      // Fall through to a global structural refresh. Some tmux versions or
-      // transient clients reject targeted refreshes even though the repaint is
-      // only cosmetic.
+      // Fall through to global redraws. Some tmux versions or transient clients
+      // reject targeted refreshes even though the repaint is only cosmetic.
     }
   }
 
-  try {
-    await hostExec("tmux refresh-client -c");
-  } catch {
-    // Best-effort full-client redraw only (#1816/#1562): the background tab
-    // was created; never fail the user action because the source client
-    // cannot be targeted/refreshed.
-  }
+  await bestEffortTmux("tmux refresh-client -c");
+  await bestEffortTmux("tmux refresh-client -S");
 }
 
 async function repaintSourcePane(anchor?: string): Promise<void> {
   if (!anchor) return;
   try {
     await hostExec(`tmux send-keys -R -t ${shellArg(anchor)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(anchor)}`);
   } catch {
     // Keep going: the full-client refresh below is often the more
     // important part of clearing stale lower-half redraw artifacts.
@@ -101,6 +113,7 @@ async function repaintSourcePane(anchor?: string): Promise<void> {
 async function clearNewTabPane(target: string): Promise<void> {
   try {
     await hostExec(`tmux send-keys -R -t ${shellArg(target)} C-l`);
+    await bestEffortTmux(`tmux clear-history -t ${shellArg(target)}`);
   } catch {
     // Best-effort repaint only: a failed clear must not hide the newly opened
     // background tab from the caller.
@@ -236,7 +249,7 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
   const session = targetSession(target);
   const targetWindow = target.split(":").slice(1).join(":") || session;
   const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
-  const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
+  const innerCmd = backgroundAttachCommand(target);
   const destination = opts.destinationSession ? `-t ${shellArg(`${opts.destinationSession}:`)} ` : "";
   await repaintSourcePane(opts.sourceAnchor);
   const opened = await hostExec(`tmux new-window -P -F '#{window_id}' -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
