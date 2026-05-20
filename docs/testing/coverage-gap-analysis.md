@@ -1,27 +1,27 @@
 # Coverage gap analysis
 
-Generated: 2026-05-20T08:25:24.638Z
+Generated: 2026-05-20T09:46:37.847Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (31039/31039)
-Overall function coverage: **100.0%** (5193/5193)
+Overall line coverage: **100.0%** (31188/31189)
+Overall function coverage: **100.0%** (5234/5234)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 93 | 0 | 100.0% (5684/5684) | 100.0% (877/877) | n/a (0/0) |
+| cli/dispatch | 94 | 0 | 100.0% (5784/5785) | 100.0% (906/906) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (780/780) | 100.0% (135/135) | n/a (0/0) |
 | fleet | 19 | 0 | 100.0% (678/678) | 100.0% (108/108) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
-| other | 173 | 5 | 100.0% (8613/8613) | 100.0% (1477/1477) | n/a (0/0) |
+| other | 174 | 5 | 100.0% (8659/8659) | 100.0% (1487/1487) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 100.0% (705/705) | 100.0% (91/91) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 100.0% (431/431) | 100.0% (76/76) | n/a (0/0) |
-| transport | 28 | 0 | 100.0% (1695/1695) | 100.0% (452/452) | n/a (0/0) |
+| transport | 28 | 0 | 100.0% (1698/1698) | 100.0% (454/454) | n/a (0/0) |
 | vendor plugins | 245 | 2 | 100.0% (12380/12380) | 100.0% (1959/1959) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
@@ -36,6 +36,7 @@ Overall function coverage: **100.0%** (5193/5193)
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
+| 1 | critical | cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 1 | 98.9% | 100.0% | partial coverage |
 
 ## Critical files at or above the 80% line target
 
@@ -76,7 +77,7 @@ Overall function coverage: **100.0%** (5193/5193)
 | cli/dispatch | `src/commands/shared/federation-diff.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-fetch.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-identity.ts` | 100.0% | 100.0% |
-| cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/federation-sync-cli.ts` | 98.9% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-sync.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
@@ -94,6 +95,7 @@ Overall function coverage: **100.0%** (5193/5193)
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pane-target-resolver.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/peer-sources.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-as.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
@@ -210,7 +212,7 @@ Overall function coverage: **100.0%** (5193/5193)
 
 ## Critical gaps to prioritize
 
-No critical files appeared in the top 20 uncovered files.
+- `src/commands/shared/federation-sync-cli.ts` (cli/dispatch): 1 uncovered lines, 98.9% line coverage.
 
 ## Prioritization guidance
 

@@ -210,6 +210,41 @@ describe("federation status", () => {
     ]);
   });
 
+  test("getFederationStatus accepts ephemeral peer inputs without mutating config", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      peers: [],
+      namedPeers: [],
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "scout:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "scout:3456/api/identity", res: { ok: true, status: 200, data: { node: "scout", agents: ["pulse"] } } },
+    ];
+
+    const status = await getFederationStatus({
+      config,
+      peers: [{ name: "scout-node", url: "http://scout:3456" }],
+    });
+
+    expect(config.namedPeers).toEqual([]);
+    expect(status.totalPeers).toBe(1);
+    expect(status.peers).toEqual([
+      {
+        url: "http://scout:3456",
+        peerName: "scout-node",
+        reachable: true,
+        latency: 0,
+        node: "scout",
+        agents: ["pulse"],
+        clockDeltaMs: undefined,
+        clockWarning: undefined,
+      },
+    ]);
+  });
+
   test("getFederationStatus warns only when sessions succeed but identity fails", async () => {
     config.peers = ["http://identity-404:3456", "http://identity-throw:3456", "http://fully-down:3456"];
     responses = [

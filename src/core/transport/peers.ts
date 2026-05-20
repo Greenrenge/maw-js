@@ -38,6 +38,16 @@ export interface PeerStatus {
 /** Clock drift warning threshold — 3 minutes (early warning before 5-min HMAC cutoff) (#268) */
 const CLOCK_WARN_MS = 3 * 60 * 1000;
 
+export interface FederationPeerInput {
+  url: string;
+  name?: string;
+}
+
+export interface FederationStatusOptions {
+  peers?: FederationPeerInput[];
+  config?: ReturnType<typeof loadConfig>;
+}
+
 /**
  * Check if a peer is reachable by making a GET /api/sessions request.
  *
@@ -179,7 +189,7 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
 /**
  * Get federation status — list peers and check connectivity + clock health (#268)
  */
-export async function getFederationStatus(): Promise<{
+export async function getFederationStatus(options: FederationStatusOptions = {}): Promise<{
   localUrl: string;
   localReachable: boolean;
   localLatency?: number;
@@ -192,10 +202,14 @@ export async function getFederationStatus(): Promise<{
     uptimeSeconds: number;
   };
 }> {
-  const config = loadConfig();
-  const peers = getPeers();
+  const config = options.config ?? loadConfig();
+  const peerInputs = options.peers ?? getPeers().map((url) => ({ url }));
+  const peers = peerInputs.map((peer) => peer.url);
   const peerNameByUrl = new Map((config.namedPeers ?? []).map(p => [p.url, p.name]));
-  const port = loadConfig().port ?? 3456;
+  for (const peer of peerInputs) {
+    if (peer.name && !peerNameByUrl.has(peer.url)) peerNameByUrl.set(peer.url, peer.name);
+  }
+  const port = config.port ?? 3456;
   const localUrl = `http://localhost:${port}`;
 
   const [localProbe, rawStatuses] = await Promise.all([

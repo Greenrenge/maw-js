@@ -1,0 +1,73 @@
+import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import { loadConfig } from "../../../config";
+import {
+  formatPeerSources,
+  parsePeerSourceMode,
+  resolvePeerSources,
+} from "../../shared/peer-sources";
+
+export const command = {
+  name: "discover",
+  description: "List configured and discovered federation peers.",
+};
+
+function cliArgs(ctx: InvokeContext): string[] {
+  return ctx.source === "cli" && Array.isArray(ctx.args) ? ctx.args : [];
+}
+
+function argsObject(ctx: InvokeContext): Record<string, unknown> {
+  return ctx.source !== "cli" && ctx.args && !Array.isArray(ctx.args)
+    ? ctx.args as Record<string, unknown>
+    : {};
+}
+
+function readOption(args: string[], name: string): string | undefined {
+  const inline = args.find((arg) => arg.startsWith(`${name}=`));
+  if (inline) return inline.slice(name.length + 1);
+  const idx = args.indexOf(name);
+  if (idx < 0) return undefined;
+  const value = args[idx + 1];
+  return value && !value.startsWith("--") ? value : undefined;
+}
+
+function boolish(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.toLowerCase();
+    if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+    if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  }
+  return undefined;
+}
+
+export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
+  const args = cliArgs(ctx);
+  const query = argsObject(ctx);
+  const logs: string[] = [];
+  const emit = (...values: unknown[]) => {
+    if (ctx.writer) ctx.writer(...values);
+    else logs.push(values.map(String).join(" "));
+  };
+
+  const peerSourceRaw = readOption(args, "--peers")
+    ?? (typeof query.peers === "string" ? query.peers : undefined);
+  const mode = parsePeerSourceMode(peerSourceRaw, "both");
+  if (!mode) {
+    return {
+      ok: false,
+      error: "invalid_peer_source",
+      output: "usage: maw discover [--peers config|scout|both] [--json]",
+    };
+  }
+
+  const json = args.includes("--json") || boolish(query.json) === true;
+  const result = await resolvePeerSources(loadConfig(), mode);
+  emit(json ? JSON.stringify({
+    ok: true,
+    mode: result.mode,
+    total: result.peers.length,
+    peers: result.peers,
+    warnings: result.warnings,
+  }, null, 2) : formatPeerSources(result));
+  return { ok: true, output: logs.join("\n") || undefined };
+}
