@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "List configured and discovered federation peers.",
+  "description": "List configured/discovered federation peers, inventory sources, and live tmux state.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "discover",

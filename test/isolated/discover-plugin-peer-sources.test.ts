@@ -7,7 +7,7 @@ import type { OracleManifestEntry } from "../../src/lib/oracle-manifest";
 
 const configPath = import.meta.resolve("../../src/config");
 const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
-const sshPath = import.meta.resolve("../../src/core/transport/ssh");
+const liveStatePath = import.meta.resolve("../../src/commands/shared/discover-live-state");
 const registryPath = import.meta.resolve("../../src/plugin/registry");
 const repoDiscoveryPath = import.meta.resolve("../../src/core/repo-discovery");
 const fleetLoadPath = import.meta.resolve("../../src/commands/shared/fleet-load");
@@ -16,6 +16,23 @@ const oracleManifestPath = import.meta.resolve("../../src/lib/oracle-manifest");
 let configValue: Record<string, unknown> = {};
 let discoveryResult: DiscoveryResponse | DiscoveryError;
 let fetchCalls: Array<Record<string, unknown> | undefined> = [];
+let liveCalls: unknown[] = [];
+let liveStateResult: {
+  source: "tmux";
+  live: Array<{
+    source: "tmux";
+    id: string;
+    target: string;
+    session: string;
+    window: string;
+    pane: string;
+    command?: string;
+    cwd?: string;
+    awake: true;
+    matches: string[];
+  }>;
+  warnings: string[];
+};
 let pluginRows: LoadedPlugin[] = [];
 let pluginError: Error | null = null;
 let ghqPaths: string[] = [];
@@ -24,11 +41,6 @@ let fleetEntries: FleetEntry[] = [];
 let fleetError: Error | null = null;
 let manifestRows: OracleManifestEntry[] = [];
 let manifestError: Error | null = null;
-let sessions: Array<{
-  name: string;
-  windows: Array<{ index: number; name: string; active: boolean }>;
-}> = [];
-let sessionsError: Error | null = null;
 
 mock.module(configPath, () => ({
   ...mockConfigModule(() => configValue as never),
@@ -41,11 +53,25 @@ mock.module(discoveredPath, () => ({
   },
 }));
 
-mock.module(sshPath, () => ({
-  listSessions: async () => {
-    if (sessionsError) throw sessionsError;
-    return sessions;
+mock.module(liveStatePath, () => ({
+  resolveTmuxLiveState: async (peers: Array<Record<string, unknown>>) => {
+    liveCalls.push(peers);
+    return liveStateResult;
   },
+  markPeerTargetsLive: (peers: Array<Record<string, unknown>>, live: Array<Record<string, unknown>>) => peers.map((peer) => {
+    const signals = new Set([peer.name, peer.node, peer.oracle, peer.url].filter(Boolean));
+    const matching = live.filter((pane) => Array.isArray(pane.matches) && pane.matches.some((match) => signals.has(match)));
+    return {
+      ...peer,
+      awake: matching.length > 0,
+      liveTargets: matching.map((pane) => pane.target),
+      liveSessions: [...new Set(matching.map((pane) => pane.session))],
+    };
+  }),
+  formatTmuxLiveState: (result: { live: Array<Record<string, unknown>>; warnings: string[] }) =>
+    result.live.length > 0
+      ? result.live.map((pane) => `tmux ${pane.session}:${pane.window}.${pane.pane} ${pane.command ?? "-"}`).join("\n")
+      : `no live tmux sessions/windows found${result.warnings.length ? `\nwarning: ${result.warnings.join(",")}` : ""}`,
 }));
 
 mock.module(registryPath, () => ({
@@ -159,6 +185,23 @@ beforeEach(() => {
   };
   discoveryResult = discovery("http://scout:3456");
   fetchCalls = [];
+  liveCalls = [];
+  liveStateResult = {
+    source: "tmux",
+    live: [{
+      source: "tmux",
+      id: "%1",
+      target: "101-mawjs:agent.0",
+      session: "101-mawjs",
+      window: "agent",
+      pane: "0",
+      command: "claude",
+      cwd: "/repo/mawjs-oracle",
+      awake: true,
+      matches: ["named"],
+    }],
+    warnings: [],
+  };
   pluginRows = [];
   pluginError = null;
   ghqPaths = [];
@@ -167,15 +210,13 @@ beforeEach(() => {
   fleetError = null;
   manifestRows = [];
   manifestError = null;
-  sessions = [];
-  sessionsError = null;
 });
 
-describe("discover plugin peer-source integration (#1808)", () => {
+describe("discover plugin peer-source integration (#1808, #1831)", () => {
   test("exports command metadata", () => {
     expect(command).toEqual({
       name: "discover",
-      description: "List configured and discovered federation peers.",
+      description: "List configured/discovered federation peers, inventory sources, and live tmux state.",
     });
   });
 
@@ -188,25 +229,31 @@ describe("discover plugin peer-source integration (#1808)", () => {
       output: "usage: maw discover [--peers config|scout|both] [--json] [--tree] [--awake]",
     });
     expect(fetchCalls).toEqual([]);
+    expect(liveCalls).toEqual([]);
   });
 
-  test("renders text output for inline scout mode", async () => {
+  test("renders text output for inline scout mode without probing tmux", async () => {
     const result = await handler({ source: "cli", args: ["--peers=scout"] } as any);
 
     expect(fetchCalls).toEqual([{ all: true }]);
     expect(result.ok).toBe(true);
     expect(result.output).toContain("scout-node");
     expect(result.output).toContain("http://scout:3456");
+    expect(liveCalls).toEqual([]);
   });
 
-  test("renders config-only JSON without calling scout", async () => {
+  test("renders config-only JSON with live peer metadata without calling scout", async () => {
     const result = await handler({ source: "cli", args: ["--peers", "config", "--json"] } as any);
 
     expect(fetchCalls).toEqual([]);
+    expect(liveCalls).toHaveLength(1);
     expect(result.ok).toBe(true);
     const parsed = JSON.parse(result.output ?? "{}");
     expect(parsed.mode).toBe("config");
     expect(parsed.total).toBe(2);
+    expect(parsed.liveTotal).toBe(1);
+    expect(parsed.live.panes[0].target).toBe("101-mawjs:agent.0");
+    expect(parsed.live.sessions[0].name).toBe("101-mawjs");
     expect(parsed.plugins).toEqual({
       source: "plugin-registry",
       total: 0,
@@ -227,6 +274,7 @@ describe("discover plugin peer-source integration (#1808)", () => {
       total: 0,
       repos: [],
     });
+    expect(parsed.peers.find((peer: { name?: string }) => peer.name === "named").awake).toBe(true);
     expect(parsed.peers.map((peer: { url: string }) => peer.url)).toEqual(["http://config:3456", "http://named:3456"]);
   });
 
@@ -241,9 +289,12 @@ describe("discover plugin peer-source integration (#1808)", () => {
 
     expect(result).toEqual({ ok: true, output: undefined });
     expect(fetchCalls).toEqual([{ all: true }]);
+    expect(liveCalls).toHaveLength(1);
     const parsed = JSON.parse(writes[0]);
     expect(parsed.mode).toBe("both");
     expect(parsed.total).toBe(3);
+    expect(parsed.liveTotal).toBe(1);
+    expect(parsed.peers.find((peer: { name?: string }) => peer.name === "named").awake).toBe(true);
   });
 
   test("API source accepts string false json and renders warnings in text", async () => {
@@ -261,6 +312,7 @@ describe("discover plugin peer-source integration (#1808)", () => {
     } as any);
 
     expect(result).toEqual({ ok: true, output: undefined });
+    expect(liveCalls).toEqual([]);
     expect(writes.join("\n")).toContain("warning: scout unavailable");
   });
 
@@ -412,10 +464,21 @@ describe("discover plugin peer-source integration (#1808)", () => {
       oracle("mawjs", { sources: ["oracles-json"], window: "mawjs-oracle" }),
       oracle("mawjs", { sources: ["fleet"], window: "mawjs-oracle" }),
     ];
-    sessions = [{
-      name: "50-mawjs",
-      windows: [{ index: 1, name: "mawjs-oracle", active: true }],
-    }];
+    liveStateResult = {
+      source: "tmux",
+      live: [{
+        source: "tmux",
+        id: "%9",
+        target: "50-mawjs:mawjs-oracle.0",
+        session: "50-mawjs",
+        window: "mawjs-oracle",
+        pane: "0",
+        command: "claude",
+        awake: true,
+        matches: ["mawjs"],
+      }],
+      warnings: [],
+    };
 
     const result = await handler({ source: "cli", args: ["--peers", "config", "--tree", "--json"] } as any);
 
@@ -424,6 +487,32 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(parsed.oracles.total).toBe(1);
     expect(parsed.tree.oracles).toHaveLength(1);
     expect(parsed.tree.oracles[0].awake).toBe(true);
+  });
+
+  test("joins registered oracles to ghq by repo slug and oracle name variants", async () => {
+    ghqPaths = [
+      "/opt/Code/github.com/Soul-Brews-Studio/repo-join",
+      "/opt/Code/github.com/Soul-Brews-Studio/variant-oracle",
+    ];
+    manifestRows = [
+      oracle("repojoin", {
+        repo: "Soul-Brews-Studio/repo-join",
+        localPath: undefined,
+      }),
+      oracle("variant", {
+        repo: undefined,
+        localPath: undefined,
+      }),
+    ];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.oracles.records.map((record: { ghqPath?: string }) => record.ghqPath)).toEqual([
+      "/opt/Code/github.com/Soul-Brews-Studio/repo-join",
+      "/opt/Code/github.com/Soul-Brews-Studio/variant-oracle",
+    ]);
   });
 
   test("renders registered oracle inventory in text output", async () => {
@@ -446,6 +535,7 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.output).toContain("plugin registry");
     expect(result.output).toContain("handover");
     expect(result.output).toContain("disabled");
+    expect(liveCalls).toEqual([]);
   });
 
   test("includes deduped ghq repos in JSON and tree output", async () => {
@@ -486,6 +576,7 @@ describe("discover plugin peer-source integration (#1808)", () => {
       "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
       "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-features",
     ]);
+    expect(parsed.live.panes[0].target).toBe("101-mawjs:agent.0");
   });
 
   test("renders ghq repos in text output", async () => {
@@ -497,16 +588,38 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.output).toContain("ghq repos");
     expect(result.output).toContain("mother-oracle");
     expect(result.output).toContain("yes");
+    expect(liveCalls).toEqual([]);
   });
 
-  test("renders discover tree with tmux live-state in JSON", async () => {
-    sessions = [{
-      name: "50-mawjs",
-      windows: [
-        { index: 1, name: "mawjs-oracle", active: true },
-        { index: 2, name: "mawjs-codex", active: false },
+  test("renders discover tree with pane-level tmux live-state in JSON", async () => {
+    liveStateResult = {
+      source: "tmux",
+      live: [
+        {
+          source: "tmux",
+          id: "%1",
+          target: "50-mawjs:mawjs-oracle.0",
+          session: "50-mawjs",
+          window: "mawjs-oracle",
+          pane: "0",
+          command: "claude",
+          awake: true,
+          matches: ["mawjs"],
+        },
+        {
+          source: "tmux",
+          id: "%2",
+          target: "50-mawjs:mawjs-codex.0",
+          session: "50-mawjs",
+          window: "mawjs-codex",
+          pane: "0",
+          command: "codex",
+          awake: true,
+          matches: [],
+        },
       ],
-    }];
+      warnings: [],
+    };
 
     const result = await handler({
       source: "cli",
@@ -517,8 +630,8 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.ok).toBe(true);
     const parsed = JSON.parse(result.output ?? "{}");
     expect(parsed.mode).toBe("both");
-    expect(parsed.awakeOnly).toBe(true);
-    expect(parsed.total).toBe(4);
+    expect(parsed.awake).toBe(true);
+    expect(parsed.total).toBe(5);
     expect(parsed.plugins).toEqual({
       source: "plugin-registry",
       total: 0,
@@ -539,20 +652,12 @@ describe("discover plugin peer-source integration (#1808)", () => {
       total: 0,
       repos: [],
     });
-    expect(parsed.live).toEqual({
-      source: "tmux",
-      total: 1,
-      sessions: [{
-        source: "tmux",
-        name: "50-mawjs",
-        awake: true,
-        windowCount: 2,
-        windows: [
-          { index: 1, name: "mawjs-oracle", active: true, target: "50-mawjs:1" },
-          { index: 2, name: "mawjs-codex", active: false, target: "50-mawjs:2" },
-        ],
-      }],
-    });
+    expect(parsed.live.total).toBe(2);
+    expect(parsed.live.sessions[0].name).toBe("50-mawjs");
+    expect(parsed.live.sessions[0].windows.map((window: { name: string }) => window.name)).toEqual([
+      "mawjs-oracle",
+      "mawjs-codex",
+    ]);
     expect(parsed.tree.live[0].name).toBe("50-mawjs");
     expect(parsed.tree.peers.map((peer: { url: string }) => peer.url)).toEqual([
       "http://config:3456",
@@ -561,32 +666,87 @@ describe("discover plugin peer-source integration (#1808)", () => {
     ]);
   });
 
-  test("renders awake-only text from tmux sessions", async () => {
-    sessions = [{
-      name: "23-discord-admin",
-      windows: [{ index: 1, name: "discord-oracle", active: true }],
-    }];
+  test("renders tree text with plugin and ghq live inventory rows", async () => {
+    pluginRows = [plugin("handover", { disabled: true })];
+    ghqPaths = ["/opt/Code/github.com/Soul-Brews-Studio/mother-oracle.wt-review"];
+    configValue = {
+      namedPeers: [{ name: "m5", url: "http://m5:3456" }],
+      agents: { "handover-oracle": "m5" },
+    };
+    fleetEntries = [fleetEntry("handover", [{ name: "handover-oracle", repo: "Soul-Brews-Studio/handover-oracle" }])];
+    manifestRows = [
+      oracle("mother", {
+        repo: "Soul-Brews-Studio/mother-oracle",
+        localPath: "/opt/Code/github.com/Soul-Brews-Studio/mother-oracle.wt-review",
+      }),
+    ];
+    liveStateResult = {
+      source: "tmux",
+      live: [{
+        source: "tmux",
+        id: "%8",
+        target: "50-mother:mother-oracle.0",
+        session: "50-mother",
+        window: "mother-oracle",
+        pane: "0",
+        command: "claude",
+        awake: true,
+        matches: ["mother"],
+      }],
+      warnings: [],
+    };
 
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet config (1 configured)");
+    expect(result.output).toContain("m5/handover-oracle 50-handover endpoint=http://m5:3456 repo=Soul-Brews-Studio/handover-oracle");
+    expect(result.output).toContain("registered oracles (1)");
+    expect(result.output).toContain("mother awake sources=oracles-json repo=Soul-Brews-Studio/mother-oracle ghq=/opt/Code/github.com/Soul-Brews-Studio/mother-oracle.wt-review");
+    expect(result.output).toContain("plugins (1 registered)");
+    expect(result.output).toContain("handover@1.2.3 ts/standard command=handover disabled");
+    expect(result.output).toContain("ghq (1 repos)");
+    expect(result.output).toContain("mother-oracle.wt-review oracle-like worktree");
+  });
+
+  test("renders awake-only text from tmux panes without loading peers", async () => {
     const result = await handler({ source: "cli", args: ["--awake"] } as any);
 
     expect(result.ok).toBe(true);
     expect(fetchCalls).toEqual([]);
-    expect(result.output).toContain("session");
-    expect(result.output).toContain("23-discord-admin");
+    expect(liveCalls).toEqual([[]]);
+    expect(result.output).toContain("tmux 101-mawjs:agent.0 claude");
     expect(result.output).not.toContain("http://config:3456");
   });
 
+  test("awake JSON filters peer rows to live matches while preserving live panes", async () => {
+    const result = await handler({ source: "cli", args: ["--awake", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.awake).toBe(true);
+    expect(parsed.total).toBe(1);
+    expect(parsed.peers.map((peer: { name?: string }) => peer.name)).toEqual(["named"]);
+    expect(parsed.liveTotal).toBe(1);
+    expect(parsed.live.panes[0].target).toBe("101-mawjs:agent.0");
+    expect(parsed.plugins.records).toEqual([]);
+    expect(parsed.ghq.repos).toEqual([]);
+  });
+
   test("renders awake JSON with tmux warning when live-state is unavailable", async () => {
-    sessionsError = new Error("tmux missing");
+    liveStateResult = {
+      source: "tmux",
+      live: [],
+      warnings: ["tmux unavailable (tmux missing)"],
+    };
 
     const result = await handler({ source: "cli", args: ["--awake", "--json"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(fetchCalls).toEqual([]);
     const parsed = JSON.parse(result.output ?? "{}");
     expect(parsed.live.total).toBe(0);
     expect(parsed.live.sessions).toEqual([]);
-    expect(parsed.warnings).toEqual(["tmux unavailable (tmux missing)"]);
+    expect(parsed.warnings).toContain("tmux unavailable (tmux missing)");
   });
 
   test("renders plugin registry warnings in tree output without crashing", async () => {
