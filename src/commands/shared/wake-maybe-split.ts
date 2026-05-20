@@ -78,16 +78,18 @@ async function bestEffortTmux(command: string): Promise<void> {
 async function refreshSourceClient(anchor?: string): Promise<void> {
   if (anchor) {
     try {
-      const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
-      const client = String(raw).trim();
-      if (client.length > 0) {
+      const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_name}|#{client_tty}'`);
+      const clients = String(raw)
+        .split("|")
+        .map(client => client.trim())
+        .filter((client, index, all) => client.length > 0 && all.indexOf(client) === index);
+      for (const client of clients) {
         // Force a real repaint of the source client, then update status.
         // `refresh-client -c` only resets cursor tracking; it does not repaint
         // the visible body, which let the lower-half dot smear persist at
         // 957c41c1. A no-flag targeted refresh is the tmux body redraw.
         await bestEffortTmux(`tmux refresh-client -t ${shellArg(client)}`);
         await bestEffortTmux(`tmux refresh-client -S -t ${shellArg(client)}`);
-        return;
       }
     } catch {
       // Fall through to global redraws. Some tmux versions or transient clients
@@ -95,6 +97,9 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
     }
   }
 
+  // Always also repaint the current/default client. Earlier builds returned
+  // after a targeted refresh even when tmux rejected the client target inside
+  // bestEffortTmux, leaving Nat's live Claude pane with the lower-half smear.
   await bestEffortTmux("tmux refresh-client");
   await bestEffortTmux("tmux refresh-client -S");
 }
@@ -269,14 +274,15 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
   const innerCmd = backgroundAttachCommand(target);
   const destinationSession = opts.destinationSession || opts.sourceSession;
   if (opts.preferLinkWindow && destinationSession) {
-    if (!opts.destinationSession && sameSessionExistingWindow(target, destinationSession)) {
-      await refreshSourceClient(opts.sourceAnchor);
+    if (sameSessionExistingWindow(target, destinationSession)) {
+      await repaintSourcePane(opts.sourceAnchor);
       console.log(`  \x1b[32m✓\x1b[0m target tab already in this session — ${target}`);
       return "existing";
     }
     try {
+      await repaintSourcePane(opts.sourceAnchor);
       await hostExec(`tmux link-window -d -s ${shellArg(target)} -t ${shellArg(`${destinationSession}:`)}`);
-      await refreshSourceClient(opts.sourceAnchor);
+      await repaintSourcePane(opts.sourceAnchor);
       console.log(`  \x1b[32m✓\x1b[0m linked background tab — ${target}`);
       return "linked";
     } catch {
