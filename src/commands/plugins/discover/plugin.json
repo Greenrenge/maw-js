@@ -1,0 +1,17 @@
+{
+  "name": "discover",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "List configured and discovered federation peers.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "discover",
+    "help": "maw discover [--peers config|scout|both] [--json]",
+    "flags": {
+      "--peers": "string",
+      "--json": "boolean"
+    }
+  },
+  "weight": 10
+}
