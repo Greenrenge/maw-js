@@ -59,7 +59,7 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../core/paths";
-import { mawCachePath } from "../core/xdg";
+import { mawCachePath, mawConfigPath } from "../core/xdg";
 import { readCache } from "../core/fleet/oracle-registry";
 import type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
 import { loadConfig } from "../config";
@@ -152,6 +152,12 @@ export type OracleBirthsByName = Record<string, OracleBirthInfo>;
 
 const ORACLE_BIRTHS_FILE = "oracle-births.json";
 
+function oracleBirthCandidateFiles(): string[] {
+  const primary = mawCachePath(ORACLE_BIRTHS_FILE);
+  const legacy = mawConfigPath(ORACLE_BIRTHS_FILE);
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 function isBirthInfo(value: unknown): value is OracleBirthInfo {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
@@ -170,10 +176,12 @@ function isBirthInfo(value: unknown): value is OracleBirthInfo {
  * shapes so the CLI can consume existing caches without pinning the skill layer
  * to one historical layout.
  */
-export function loadOracleBirths(file: string = mawCachePath(ORACLE_BIRTHS_FILE)): OracleBirthsByName {
-  if (!existsSync(file)) return {};
+export function loadOracleBirths(file?: string): OracleBirthsByName {
+  const candidates = file ? [file] : oracleBirthCandidateFiles();
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) return {};
   try {
-    const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
+    const raw = JSON.parse(readFileSync(found, "utf-8")) as Record<string, unknown>;
     const source = raw.entries && typeof raw.entries === "object" && !Array.isArray(raw.entries)
       ? raw.entries as Record<string, unknown>
       : raw;
