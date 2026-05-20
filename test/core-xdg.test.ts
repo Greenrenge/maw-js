@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import {
   isMawXdgEnabled,
+  legacyMawPath,
   mawCacheDir,
   mawCachePath,
   mawConfigDir,
@@ -18,6 +19,7 @@ import {
 } from "../src/core/xdg";
 
 const ENV_KEYS = [
+  "HOME",
   "MAW_HOME",
   "MAW_CONFIG_DIR",
   "MAW_DATA_DIR",
@@ -65,6 +67,15 @@ describe("maw XDG path resolver", () => {
     expect(mawStatePath("peers.json")).toBe(join(homedir(), ".maw", "peers.json"));
     expect(mawCachePath("registry-cache.json")).toBe(join(homedir(), ".maw", "registry-cache.json"));
     expect(mawConfigPath("maw.config.json")).toBe(join(homedir(), ".config", "maw", "maw.config.json"));
+  });
+
+  test("legacyMawPath centralizes HOME-based compatibility fallbacks", () => {
+    for (const key of ENV_KEYS) delete process.env[key];
+    process.env.HOME = "/legacy-home";
+
+    expect(legacyMawPath()).toBe("/legacy-home/.maw");
+    expect(legacyMawPath("peers.json")).toBe("/legacy-home/.maw/peers.json");
+    expect(legacyMawPath("artifacts", "team")).toBe("/legacy-home/.maw/artifacts/team");
   });
 
   test("MAW_XDG flips runtime data/state/cache to XDG bases", () => {

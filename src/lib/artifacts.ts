@@ -16,9 +16,8 @@
  */
 
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync, statSync } from "fs";
-import { homedir } from "os";
 import { join, basename } from "path";
-import { mawCachePath } from "../core/xdg";
+import { legacyMawPath, mawCachePath } from "../core/xdg";
 
 export function artifactsRoot(): string {
   return mawCachePath("artifacts");
@@ -26,7 +25,7 @@ export function artifactsRoot(): string {
 
 function legacyArtifactsRoot(): string | null {
   if (process.env.MAW_HOME || process.env.MAW_CACHE_DIR) return null;
-  const legacy = join(process.env.HOME || homedir(), ".maw", "artifacts");
+  const legacy = legacyMawPath("artifacts");
   const primary = artifactsRoot();
   return legacy === primary ? null : legacy;
 }

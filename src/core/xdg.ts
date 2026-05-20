@@ -16,6 +16,10 @@ function legacyHome(): string {
   return join(homedir(), ".maw");
 }
 
+export function legacyMawPath(...parts: string[]): string {
+  return join(process.env.HOME || homedir(), ".maw", ...parts);
+}
+
 function xdgBase(envName: string, ...fallback: string[]): string {
   return absoluteEnv(envName) ?? join(homedir(), ...fallback);
 }

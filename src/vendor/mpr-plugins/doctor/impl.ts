@@ -13,6 +13,7 @@ import {
   mawDataDir,
   mawDataPath,
   mawStateDir,
+  legacyMawPath,
 } from "../../../core/xdg";
 import { loadManifestCached, invalidateManifest } from "maw-js/lib/oracle-manifest";
 import { findGaps, summarizeGaps } from "./cross-source-detect";
@@ -122,7 +123,7 @@ async function checkInstall(): Promise<{ name: string; ok: boolean; message: str
 }
 
 function checkXdgLayout(): DoctorResult["checks"][number] {
-  const legacyRuntime = join(process.env.HOME || homedir(), ".maw");
+  const legacyRuntime = legacyMawPath();
   const legacyRuntimeState = existsSync(legacyRuntime) ? "present" : "missing";
   const mode = process.env.MAW_HOME
     ? `MAW_HOME=${process.env.MAW_HOME}`
