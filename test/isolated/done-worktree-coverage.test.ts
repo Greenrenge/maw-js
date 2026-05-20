@@ -157,6 +157,27 @@ describe("removeWorktreeByGhqScan", () => {
     expect(output).not.toContain("repo.wt-feature-extra");
   });
 
+
+  test("refuses ambiguous exact suffix matches without mutating worktrees", async () => {
+    const one = join(REPOS_ROOT, "github.com", "org", "repo.wt-feature");
+    const two = join(REPOS_ROOT, "github.com", "other", "repo.wt-feature");
+
+    hostExecHandler = (command) => {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) return [one, two].join("\n");
+      throw new Error(`unexpected mutation: ${command}`);
+    };
+
+    const output = await captureConsole(async () => {
+      expect(await removeWorktreeByGhqScan("mother-feature", REPOS_ROOT)).toBe(false);
+    });
+
+    expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`]);
+    expect(output).toContain("refusing to remove worktree 'feature' — matches 2 repos");
+    expect(output).toContain(one);
+    expect(output).toContain(two);
+    expect(output).toContain("use fleet config or remove the exact worktree manually");
+  });
+
   test("reports scan failures and returns false", async () => {
     hostExecHandler = () => {
       throw new Error("find denied");

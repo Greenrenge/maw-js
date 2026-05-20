@@ -26,6 +26,7 @@ const CACHE_TTL = 30_000;
 
 export interface PeerStatus {
   url: string;
+  peerName?: string;
   reachable: boolean;
   latency?: number;
   node?: string;
@@ -193,6 +194,7 @@ export async function getFederationStatus(): Promise<{
 }> {
   const config = loadConfig();
   const peers = getPeers();
+  const peerNameByUrl = new Map((config.namedPeers ?? []).map(p => [p.url, p.name]));
   const port = loadConfig().port ?? 3456;
   const localUrl = `http://localhost:${port}`;
 
@@ -200,14 +202,14 @@ export async function getFederationStatus(): Promise<{
     checkPeerReachable(localUrl),
     Promise.all(peers.map(async (url) => {
       const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
-      return { url, reachable, latency, node, agents, clockDeltaMs };
+      return { url, peerName: peerNameByUrl.get(url), reachable, latency, node, agents, clockDeltaMs };
     })),
   ]);
 
   // Dedup by node identity (#190) — keep fastest URL per node
   const byNode = new Map<string, PeerStatus>();
   for (const s of rawStatuses) {
-    const key = s.node || s.url; // fall back to URL if no identity
+    const key = s.peerName ? `peer:${s.peerName}` : s.node ? `node:${s.node}` : `url:${s.url}`;
     const existing = byNode.get(key);
     if (!existing || (s.reachable && (!existing.reachable || (s.latency ?? Infinity) < (existing.latency ?? Infinity)))) {
       const clockWarning = s.clockDeltaMs != null ? Math.abs(s.clockDeltaMs) > CLOCK_WARN_MS : undefined;

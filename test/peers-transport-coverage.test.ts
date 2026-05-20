@@ -181,6 +181,34 @@ describe("federation status", () => {
     expect(status.clockHealth).toMatchObject({ timezone: expect.any(String), uptimeSeconds: expect.any(Number) });
   });
 
+  test("getFederationStatus keeps named peers separate when services share a host node (#1814)", async () => {
+    config = {
+      node: "m5",
+      port: 4567,
+      namedPeers: [
+        { name: "white", url: "http://white:3456" },
+        { name: "alpha", url: "http://white:3461" },
+      ],
+    };
+    responses = [
+      { match: "localhost:4567/api/sessions", res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
+      { match: "white:3456/api/sessions", advanceMs: 10, res: { ok: true, status: 200, data: [] } },
+      { match: "white:3456/api/identity", res: { ok: true, status: 200, data: { node: "white", agents: ["nat"] } } },
+      { match: "white:3461/api/sessions", advanceMs: 20, res: { ok: true, status: 200, data: [] } },
+      { match: "white:3461/api/identity", res: { ok: true, status: 200, data: { node: "white", agents: ["alpha"] } } },
+    ];
+
+    const status = await getFederationStatus();
+
+    expect(status.totalPeers).toBe(2);
+    expect(status.reachablePeers).toBe(2);
+    expect(status.peers.map((p) => [p.peerName, p.url, p.node, p.agents])).toEqual([
+      ["white", "http://white:3456", "white", ["nat"]],
+      ["alpha", "http://white:3461", "white", ["alpha"]],
+    ]);
+  });
+
   test("getFederationStatus warns only when sessions succeed but identity fails", async () => {
     config.peers = ["http://identity-404:3456", "http://identity-throw:3456", "http://fully-down:3456"];
     responses = [

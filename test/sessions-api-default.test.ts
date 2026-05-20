@@ -340,6 +340,70 @@ describe("POST /send", () => {
     expect(await readJson(res)).toMatchObject({ error: "target not found: neo" });
   });
 
+  test("fails local sends when tmux proof fails and no receiver inbox is available", async () => {
+    const missingTarget = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+    });
+    const missingRes = await missingTarget.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(missingRes.status).toBe(502);
+    expect(await readJson(missingRes)).toEqual({ ok: false, error: "target not live in tmux: 54-ghost:ghost-oracle", target: "54-ghost:ghost-oracle" });
+    expect(missingTarget.lifecycle[0]).toMatchObject({ state: "failed", error: "target not live in tmux: 54-ghost:ghost-oracle" });
+
+    const initialListFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => { throw new Error("tmux offline"); },
+    });
+    const offlineRes = await initialListFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(offlineRes.status).toBe(502);
+    expect(await readJson(offlineRes)).toMatchObject({ ok: false, error: "tmux unavailable: tmux offline" });
+
+    let calls = 0;
+    const freshListFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => {
+        calls += 1;
+        if (calls === 1) return [session("54-ghost", [{ index: 0, name: "ghost-oracle", active: true }])] as any;
+        throw new Error("fresh tmux offline");
+      },
+    });
+    const freshRes = await freshListFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" }));
+    expect(freshRes.status).toBe(502);
+    expect(await readJson(freshRes)).toMatchObject({ ok: false, error: "tmux unavailable: fresh tmux offline" });
+  });
+
+  test("auto-wake retry failures do not claim delivery without inbox fallback", async () => {
+    let missingResolveCalls = 0;
+    const missingAfterWake = makeHarness({
+      resolveFleetSession: () => "54-neo",
+      shouldAutoWake: () => ({ wake: true }),
+      resolveTarget: (() => (++missingResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+    });
+    const missingRes = await missingAfterWake.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
+    expect(missingRes.status).toBe(502);
+    expect(await readJson(missingRes)).toMatchObject({ ok: false, error: "target not live in tmux after wake: 54-neo:main" });
+
+    let failResolveCalls = 0;
+    const sendFailsAfterWake = makeHarness({
+      resolveFleetSession: () => "54-neo",
+      shouldAutoWake: () => ({ wake: true }),
+      resolveTarget: (() => (++failResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
+      sendKeys: async () => { throw new Error("pane vanished"); },
+    });
+    const sendFailRes = await sendFailsAfterWake.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
+    expect(sendFailRes.status).toBe(502);
+    expect(await readJson(sendFailRes)).toMatchObject({ ok: false, error: "tmux delivery failed after wake: pane vanished" });
+  });
+
+  test("unexpected send errors return a 500 instead of leaking exceptions", async () => {
+    const h = makeHarness({ resolveTarget: (() => { throw new Error("resolver exploded"); }) as any });
+    const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hi" }));
+    expect(res.status).toBe(500);
+    expect((await readJson(res)).error).toContain("resolver exploded");
+  });
+
   test("queues instead of claiming delivered when tmux delivery cannot be proven", async () => {
     const missingTarget = makeHarness({
       resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
