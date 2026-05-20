@@ -112,8 +112,10 @@ describe("wake maybeSplit", () => {
 
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
-    expect(hostExecCalls[2]).toContain("tmux new-window -d");
-    expect(hostExecCalls[2]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[2]).toBe("tmux send-keys -t '%42' C-l");
+    expect(hostExecCalls[3]).toContain("tmux new-window -d");
+    expect(hostExecCalls[3]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 

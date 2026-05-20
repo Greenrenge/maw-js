@@ -194,8 +194,10 @@ describe("wake maybe split/window coverage", () => {
     // #1816 — self-bring guard runs first (mock falls through, returns "" → null → proceed).
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls[2]).toBe("tmux send-keys -t '%42' C-l");
+    expect(hostExecCalls[3]).toContain("tmux new-window -d -n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
-    expect(hostExecCalls.some(cmd => cmd.includes("tmux new-window -d -n 'bring-homekeeper-oracle'"))).toBe(true);
     expect(output()).toContain("opened as background tab (split skipped — Claude TUI pane would smear #1562)");
     expect(output()).toContain("MAW_FORCE_SPLIT=1");
     expect(output()).not.toContain("MAW_ALLOW_CLAUDE_SPLIT=1");

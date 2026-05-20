@@ -60,6 +60,16 @@ async function refreshSplitClient(): Promise<void> {
   }
 }
 
+async function clearSourcePaneBeforeBackgroundAttach(anchor?: string): Promise<void> {
+  if (!anchor) return;
+  try {
+    await hostExec(`tmux send-keys -t ${shellArg(anchor)} C-l`);
+  } catch {
+    // Best-effort repaint only: the background tab is still safer than
+    // split-attaching from Claude-like panes, so never fail delivery here.
+  }
+}
+
 async function isClaudeLikeCallerPane(anchor?: string): Promise<boolean> {
   if (!anchor) return false;
   if (process.env.MAW_ALLOW_CLAUDE_SPLIT === "1") return false;
@@ -143,7 +153,10 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
         }
       }
       if (await isClaudeLikeCallerPane(anchor) && process.env.MAW_FORCE_SPLIT !== "1") {
-        await openBackgroundTab(target, opts.splitTarget ? targetSession(opts.splitTarget) : undefined);
+        await openBackgroundTab(target, {
+          destinationSession: opts.splitTarget ? targetSession(opts.splitTarget) : undefined,
+          sourceAnchor: anchor,
+        });
         console.log(`  \x1b[36m→\x1b[0m opened as background tab (split skipped — Claude TUI pane would smear #1562).`);
         console.log(`      \x1b[90mforce split:      MAW_FORCE_SPLIT=1 maw bring ...\x1b[0m`);
         return;
@@ -177,13 +190,20 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
   }
 }
 
-async function openBackgroundTab(target: string, destinationSession?: string): Promise<void> {
+type BackgroundTabOptions = {
+  destinationSession?: string;
+  sourceAnchor?: string;
+};
+
+async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}): Promise<void> {
   const session = targetSession(target);
   const targetWindow = target.split(":").slice(1).join(":") || session;
   const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
   const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
-  const destination = destinationSession ? `-t ${shellArg(`${destinationSession}:`)} ` : "";
+  const destination = opts.destinationSession ? `-t ${shellArg(`${opts.destinationSession}:`)} ` : "";
+  await clearSourcePaneBeforeBackgroundAttach(opts.sourceAnchor);
   await hostExec(`tmux new-window -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
+  if (opts.sourceAnchor) await refreshSplitClient();
   console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
 }
 
