@@ -180,6 +180,8 @@ export async function getAggregatedSessions(localSessions: Session[]): Promise<(
  */
 export async function getFederationStatus(): Promise<{
   localUrl: string;
+  localReachable: boolean;
+  localLatency?: number;
   peers: PeerStatus[];
   totalPeers: number;
   reachablePeers: number;
@@ -191,13 +193,16 @@ export async function getFederationStatus(): Promise<{
 }> {
   const config = loadConfig();
   const peers = getPeers();
-  const port = loadConfig().port;
+  const port = loadConfig().port ?? 3456;
   const localUrl = `http://localhost:${port}`;
 
-  const rawStatuses = await Promise.all(peers.map(async (url) => {
-    const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
-    return { url, reachable, latency, node, agents, clockDeltaMs };
-  }));
+  const [localProbe, rawStatuses] = await Promise.all([
+    checkPeerReachable(localUrl),
+    Promise.all(peers.map(async (url) => {
+      const { reachable, latency, node, agents, clockDeltaMs } = await checkPeerReachable(url);
+      return { url, reachable, latency, node, agents, clockDeltaMs };
+    })),
+  ]);
 
   // Dedup by node identity (#190) — keep fastest URL per node
   const byNode = new Map<string, PeerStatus>();
@@ -214,6 +219,8 @@ export async function getFederationStatus(): Promise<{
 
   return {
     localUrl,
+    localReachable: localProbe.reachable,
+    localLatency: localProbe.latency,
     peers: statuses,
     totalPeers: peers.length,
     reachablePeers,
@@ -376,7 +383,8 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
       timeout: cfgTimeout("http"),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send via TransportManager
     });
-    if (!res.ok) {
+    const delivered = Boolean(res.ok && res.data?.ok);
+    if (!delivered) {
       const bodySnippet = res.data != null
         ? (typeof res.data === "string" ? res.data : JSON.stringify(res.data)).slice(0, 200)
         : "";
@@ -384,7 +392,7 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
         `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
       );
     }
-    return res.ok;
+    return delivered;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[peers] sendKeysToPeer ${peerUrl} → ${target}: ${msg}`);

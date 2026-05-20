@@ -668,10 +668,11 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
+      const state = res.data.state === "queued" ? "queued" : "delivered";
       logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
       emitMessageFeed({
         direction: "outbound",
-        state: res.data.state === "queued" ? "queued" : "delivered",
+        state,
         channel: "hey",
         route: "peer",
         from: `${config.node!}:${senderName}`,
@@ -682,7 +683,8 @@ export async function cmdSend(
         lastLine: res.data.lastLine || "",
         signed: true,
       }, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;
@@ -717,10 +719,11 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
+      const state = res.data.state === "queued" ? "queued" : "delivered";
       logMessage(senderName, query, outboundMessage, "discovery");
       emitMessageFeed({
         direction: "outbound",
-        state: res.data.state === "queued" ? "queued" : "delivered",
+        state,
         channel: "hey",
         route: "discovery",
         from: `${config.node ?? "local"}:${senderName}`,
@@ -731,7 +734,8 @@ export async function cmdSend(
         lastLine: res.data.lastLine || "",
         signed: true,
       }, config.port || 3456);
-      console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
+      const color = state === "queued" ? "\x1b[33m" : "\x1b[32m";
+      console.log(`${color}${state}\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${outboundMessage}`);
       if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message: outboundMessage });
       return;

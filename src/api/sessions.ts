@@ -95,6 +95,20 @@ export function messageSignedRequest(request: Request): boolean {
   return Boolean(request.headers.get("x-maw-from"));
 }
 
+function stripPaneIndex(target: string): string {
+  return target.replace(/\.[0-9]+$/, "");
+}
+
+export function sessionTargetExists(sessions: Session[], target: string): boolean {
+  const normalized = stripPaneIndex(target.trim());
+  if (!normalized) return false;
+  const [sessionName, windowName] = normalized.split(":", 2);
+  const session = sessions.find(s => s.name === sessionName);
+  if (!session) return false;
+  if (!windowName) return true;
+  return session.windows.some(w => String(w.index) === windowName || w.name === windowName);
+}
+
 export function emitMessageLifecycle(input: MessageLifecycleInput, deps: SessionsApiDeps = {}) {
   try {
     const build = deps.buildMessageLifecycleFeedEvent ?? buildMessageLifecycleFeedEvent;
@@ -211,7 +225,13 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       const messageFrom = requestMessageFrom(request, config);
       const messageTo = localMessageIdentity(config);
       const messageSigned = messageSignedRequest(request);
-      const local = await d.listSessions();
+      let local: Session[] = [];
+      let localListError: unknown = null;
+      try {
+        local = await d.listSessions();
+      } catch (error) {
+        localListError = error;
+      }
       const writeInboundInbox = async (tmuxTarget?: string): Promise<ReceiverInboxResult | null> => {
         if (!d.writeReceiverInbox) return null;
         try {
@@ -251,6 +271,40 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           reason,
         };
       };
+      const queueOrFail = async (tmuxTarget: string, reason: string, status = 502) => {
+        const inbox = await writeInboundInbox(tmuxTarget);
+        const queued = inbox ? queuedInboxResponse(inbox, tmuxTarget, reason) : null;
+        if (queued) return queued;
+        set.status = status;
+        emitLifecycle({
+          direction: "inbound",
+          state: "failed",
+          channel: "api-send",
+          route: "local",
+          from: messageFrom,
+          to: messageTo,
+          target: tmuxTarget,
+          text: message,
+          error: reason,
+          signed: messageSigned,
+        });
+        return { ok: false, error: reason, target: tmuxTarget };
+      };
+      const verifyDeliverableTarget = async (tmuxTarget: string) => {
+        if (localListError) {
+          const msg = localListError instanceof Error ? localListError.message : String(localListError);
+          return { ok: false as const, reason: `tmux unavailable: ${msg}` };
+        }
+        try {
+          const fresh = await d.listSessions();
+          return sessionTargetExists(fresh, tmuxTarget)
+            ? { ok: true as const }
+            : { ok: false as const, reason: `target not live in tmux: ${tmuxTarget}` };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return { ok: false as const, reason: `tmux unavailable: ${msg}` };
+        }
+      };
 
       // --- Unified resolution via resolveTarget (#201) ---
       const result = d.resolveTarget(target, config, local);
@@ -263,35 +317,42 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
       // Local or self-node → send via tmux
       if (resolved?.type === "local" || resolved?.type === "self-node") {
+        const live = await verifyDeliverableTarget(resolved.target);
+        if (!live.ok) return queueOrFail(resolved.target, live.reason);
         // #405: idle guard — reject if user has in-progress input on the prompt line
-        if (!force) {
-          let idleCheck = await d.checkPaneIdle(resolved.target);
-          if (!idleCheck.idle) {
-            await d.sleep(500);
-            idleCheck = await d.checkPaneIdle(resolved.target);
+        try {
+          if (!force) {
+            let idleCheck = await d.checkPaneIdle(resolved.target);
             if (!idleCheck.idle) {
-              const inbox = await writeInboundInbox(resolved.target);
-              const queued = inbox ? queuedInboxResponse(inbox, resolved.target, "pane not idle") : null;
-              if (queued) return queued;
-              set.status = 409;
-              emitLifecycle({
-                direction: "inbound",
-                state: "failed",
-                channel: "api-send",
-                route: resolved.type,
-                from: messageFrom,
-                to: messageTo,
-                target: resolved.target,
-                text: message,
-                error: "pane not idle",
-                lastLine: idleCheck.lastInput,
-                signed: messageSigned,
-              });
-              return { ok: false, error: "pane not idle", target: resolved.target, lastInput: idleCheck.lastInput };
+              await d.sleep(500);
+              idleCheck = await d.checkPaneIdle(resolved.target);
+              if (!idleCheck.idle) {
+                const inbox = await writeInboundInbox(resolved.target);
+                const queued = inbox ? queuedInboxResponse(inbox, resolved.target, "pane not idle") : null;
+                if (queued) return queued;
+                set.status = 409;
+                emitLifecycle({
+                  direction: "inbound",
+                  state: "failed",
+                  channel: "api-send",
+                  route: resolved.type,
+                  from: messageFrom,
+                  to: messageTo,
+                  target: resolved.target,
+                  text: message,
+                  error: "pane not idle",
+                  lastLine: idleCheck.lastInput,
+                  signed: messageSigned,
+                });
+                return { ok: false, error: "pane not idle", target: resolved.target, lastInput: idleCheck.lastInput };
+              }
             }
           }
+          await d.sendKeys(resolved.target, message);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return queueOrFail(resolved.target, `tmux delivery failed: ${msg}`);
         }
-        await d.sendKeys(resolved.target, message);
         const inbox = await writeInboundInbox(resolved.target);
         await d.sleep(150);
         let lastLine = "";
@@ -401,34 +462,42 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
             const refreshed = await d.listSessions();
             const retry = d.resolveTarget(target, config, refreshed);
             if (retry?.type === "local" || retry?.type === "self-node") {
-              if (!force) {
-                let idleCheck = await d.checkPaneIdle(retry.target);
-                if (!idleCheck.idle) {
-                  await d.sleep(500);
-                  idleCheck = await d.checkPaneIdle(retry.target);
+              if (!sessionTargetExists(refreshed, retry.target)) {
+                return queueOrFail(retry.target, `target not live in tmux after wake: ${retry.target}`);
+              }
+              try {
+                if (!force) {
+                  let idleCheck = await d.checkPaneIdle(retry.target);
                   if (!idleCheck.idle) {
-                    const inbox = await writeInboundInbox(retry.target);
-                    const queued = inbox ? queuedInboxResponse(inbox, retry.target, "pane not idle after wake") : null;
-                    if (queued) return queued;
-                    set.status = 409;
-                    emitLifecycle({
-                      direction: "inbound",
-                      state: "failed",
-                      channel: "api-send",
-                      route: "local",
-                      from: messageFrom,
-                      to: messageTo,
-                      target: retry.target,
-                      text: message,
-                      error: "pane not idle",
-                      lastLine: idleCheck.lastInput,
-                      signed: messageSigned,
-                    });
-                    return { ok: false, error: "pane not idle", target: retry.target, lastInput: idleCheck.lastInput };
+                    await d.sleep(500);
+                    idleCheck = await d.checkPaneIdle(retry.target);
+                    if (!idleCheck.idle) {
+                      const inbox = await writeInboundInbox(retry.target);
+                      const queued = inbox ? queuedInboxResponse(inbox, retry.target, "pane not idle after wake") : null;
+                      if (queued) return queued;
+                      set.status = 409;
+                      emitLifecycle({
+                        direction: "inbound",
+                        state: "failed",
+                        channel: "api-send",
+                        route: "local",
+                        from: messageFrom,
+                        to: messageTo,
+                        target: retry.target,
+                        text: message,
+                        error: "pane not idle",
+                        lastLine: idleCheck.lastInput,
+                        signed: messageSigned,
+                      });
+                      return { ok: false, error: "pane not idle", target: retry.target, lastInput: idleCheck.lastInput };
+                    }
                   }
                 }
+                await d.sendKeys(retry.target, message);
+              } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                return queueOrFail(retry.target, `tmux delivery failed after wake: ${msg}`);
               }
-              await d.sendKeys(retry.target, message);
               const inbox = await writeInboundInbox(retry.target);
               await d.sleep(150);
               let lastLine = "";

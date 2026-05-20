@@ -79,17 +79,19 @@ export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
   );
 
   // Fetch local + peer state in parallel
-  const [localCount, { peers: statuses, localUrl }] = await Promise.all([
+  const [localCount, { peers: statuses, localUrl, localReachable, localLatency }] = await Promise.all([
     countLocalAgents(deps.listSessions ?? listSessions),
     (deps.getFederationStatus ?? getFederationStatus)(),
   ]);
 
+  const effectiveLocalReachable = localReachable ?? true;
+  const localDot = effectiveLocalReachable ? "\x1b[32m●\x1b[0m" : "\x1b[31m●\x1b[0m";
+  const localStatus = effectiveLocalReachable
+    ? `\x1b[32monline\x1b[0m  \x1b[90m${localLatency ?? 0}ms · ${localCount} agent${localCount !== 1 ? "s" : ""}\x1b[0m`
+    : "\x1b[31moffline\x1b[0m  \x1b[90mno listener answered self-probe; try: maw federation start\x1b[0m";
+
   // Render local row FIRST — the triangle is only visible if local is in the table
-  log(
-    `  \x1b[32m●\x1b[0m  \x1b[37m${localLabel}\x1b[0m  ` +
-    `\x1b[32monline\x1b[0m  ` +
-    `\x1b[90m${localCount} agent${localCount !== 1 ? "s" : ""}\x1b[0m`
-  );
+  log(`  ${localDot}  \x1b[37m${localLabel}\x1b[0m  ${localStatus}`);
   log(`     \x1b[90m${localUrl}\x1b[0m`);
 
   // No peers? Still show helpful hint.
@@ -104,7 +106,7 @@ export async function cmdFederationStatus(deps: FederationStatusDeps = {}) {
     statuses.map(p => p.reachable ? fetchPeerAgentCount(p.url, deps.curlFetch ?? curlFetch) : Promise.resolve(0))
   );
 
-  let reachableCount = 1; // local is always reachable (we're executing in it)
+  let reachableCount = effectiveLocalReachable ? 1 : 0;
   for (let i = 0; i < statuses.length; i++) {
     const { url, reachable, latency } = statuses[i] as PeerStatus;
     const agentCount = counts[i];

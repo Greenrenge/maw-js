@@ -5,6 +5,7 @@ import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../con
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
+import { canonicalSessionName } from "../../core/fleet/session-name";
 import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
 import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
@@ -244,7 +245,8 @@ function validateForeignSessionName(name: string): void {
 }
 
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
-  const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || urlRepoName || oracle;
+  const mappedOrFleet = getSessionMap()[oracle] || resolveFleetSession(oracle);
+  const baseName = mappedOrFleet || canonicalSessionName(urlRepoName || oracle);
   if (/^\d+-/.test(baseName)) return baseName;
   // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
   // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.

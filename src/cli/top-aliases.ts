@@ -58,7 +58,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
 
 export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   // Argv-rewrite form — canonical handler lives in a core plugin
-  a: ["tmux", "attach"],
+  a: ["attach"],
   kill: ["tmux", "kill"],
   split: ["split"],
   open: ["tmux", "open"],
@@ -187,6 +187,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--active": Boolean,
     "--node": String,
     "--channels": Boolean,
+    "--verify": Boolean,
   }, 0);
 
   // #1613 — restore the original compact default. `-v/--verbose` opts into
@@ -207,6 +208,7 @@ export function parseLsAliasOpts(argv: string[]) {
     activeThresholdSec?: number;
     filter?: string;
     channels?: boolean;
+    verify?: boolean;
   } = {
     all: true,
     compact,
@@ -215,6 +217,7 @@ export function parseLsAliasOpts(argv: string[]) {
     json: !!flags["--json"],
   };
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
+  if (flags["--verify"]) opts.verify = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
   const filterPositionals = activeArg

@@ -184,6 +184,7 @@ describe("POST /send", () => {
         if (first) { first = false; return { type: "error", reason: "miss" }; }
         return { type: "self-node", target: `${target}:main` };
       }) as any,
+      listSessions: async () => [session("neo", [{ index: 0, name: "main", active: true }])] as any,
       capture: async () => "body\nPress up to edit queued messages\nqueued line",
     });
 
@@ -198,6 +199,7 @@ describe("POST /send", () => {
     const inboxCalls: any[] = [];
     const h = makeHarness({
       resolveTarget: (() => ({ type: "local", target: "54-digger:digger-oracle.0" })) as any,
+      listSessions: async () => [session("54-digger", [{ index: 0, name: "digger-oracle", active: true }])] as any,
       writeReceiverInbox: (input) => {
         inboxCalls.push(input);
         return {
@@ -288,6 +290,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++resolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       capture: async () => "after wake\nready",
     });
     expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" })))).toMatchObject({ ok: true, target: "54-neo:main", wokeFor: "neo" });
@@ -298,6 +301,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++busyResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       checkPaneIdle: async () => ({ idle: false, lastInput: "busy" }) as any,
     });
     const res = await busy.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
@@ -310,6 +314,7 @@ describe("POST /send", () => {
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++transientResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
+      listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
       checkPaneIdle: async (target: string) => { transient.calls.push(["idle", target]); return transientIdle.shift() as any; },
       capture: async () => "after wake\nready",
     });
@@ -317,7 +322,7 @@ describe("POST /send", () => {
     expect(transient.calls).toContainEqual(["sleep", 500]);
   });
 
-  test("falls through after wake errors and returns detailed 404s or outer 500s", async () => {
+  test("falls through after wake errors and returns detailed 404s", async () => {
     const wakeBoom = makeHarness({
       resolveFleetSession: () => "54-neo",
       shouldAutoWake: () => ({ wake: true }),
@@ -331,8 +336,48 @@ describe("POST /send", () => {
 
     const outer = makeHarness({ listSessions: async () => { throw new Error("list boom"); } });
     const res = await outer.app.handle(jsonRequest("/send", { target: "neo", text: "hi" }));
-    expect(res.status).toBe(500);
-    expect((await readJson(res)).error).toContain("list boom");
+    expect(res.status).toBe(404);
+    expect(await readJson(res)).toMatchObject({ error: "target not found: neo" });
+  });
+
+  test("queues instead of claiming delivered when tmux delivery cannot be proven", async () => {
+    const missingTarget = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("other", [{ index: 0, name: "main", active: true }])] as any,
+      writeReceiverInbox: () => ({
+        ok: true,
+        oracle: "ghost",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/ghost.md",
+        filename: "ghost.md",
+      }),
+    });
+    expect(await readJson(await missingTarget.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "inbox",
+      state: "queued",
+      reason: "target not live in tmux: 54-ghost:ghost-oracle",
+    });
+    expect(missingTarget.calls.some(c => c[0] === "sendKeys")).toBe(false);
+
+    const sendFails = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "54-ghost:ghost-oracle" })) as any,
+      listSessions: async () => [session("54-ghost", [{ index: 0, name: "ghost-oracle", active: true }])] as any,
+      sendKeys: async () => { throw new Error("can't find pane"); },
+      writeReceiverInbox: () => ({
+        ok: true,
+        oracle: "ghost",
+        inboxDir: "/repo/ψ/inbox",
+        path: "/repo/ψ/inbox/send-fail.md",
+        filename: "send-fail.md",
+      }),
+    });
+    expect(await readJson(await sendFails.app.handle(jsonRequest("/send", { target: "ghost", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "inbox",
+      state: "queued",
+      reason: "tmux delivery failed: can't find pane",
+    });
   });
 
   test("queues inbound /send to receiver inbox when target is offline", async () => {

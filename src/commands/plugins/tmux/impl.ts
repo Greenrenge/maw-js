@@ -181,6 +181,8 @@ export interface TmuxLsOpts {
   filter?: string;
   /** Include infrastructure channel sessions such as *-discord. */
   channels?: boolean;
+  /** Include expensive verification/noise such as worktree-bind rows. */
+  verify?: boolean;
 }
 
 export type PaneStatus = "frozen" | "active" | "idle" | "stale" | "unknown";
@@ -431,7 +433,9 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
       return "unknown";
     };
     let worktrees: Awaited<ReturnType<typeof scanWorktrees>> = [];
-    try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    if (opts.verify) {
+      try { worktrees = await scanWorktrees(); } catch { /* non-critical */ }
+    }
     const wtBySession = new Map<string, typeof worktrees>();
     for (const wt of worktrees) {
       const mainName = wt.mainRepo.split("/").pop() || "";

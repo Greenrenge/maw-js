@@ -401,11 +401,11 @@ describe("resolveTopAlias — RFC #954 verb aliases", () => {
     });
   });
 
-  test("`a neo` → argv rewrite to ['tmux', 'attach', 'neo']", () => {
+  test("`a neo` → argv rewrite to ['attach', 'neo']", () => {
     const out = resolveTopAlias(["a", "neo"]);
     expect(out).not.toBeNull();
     expect(out!.kind).toBe("argv");
-    if (out!.kind === "argv") expect(out!.argv).toEqual(["tmux", "attach", "neo"]);
+    if (out!.kind === "argv") expect(out!.argv).toEqual(["attach", "neo"]);
   });
 
   test("`peek` is not a tmux top-alias; top-level peek is handled by routeComm", () => {

@@ -444,6 +444,8 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logMessageCalls[0].route).toBe("peer:remote");
     expect(emitFeedCalls[0].data.route).toBe("peer");
     expect(emitFeedCalls[0].data.state).toBe("queued");
+    expect(logs.join("\n")).toContain("queued");
+    expect(logs.join("\n")).not.toContain("delivered");
     expect(runHookCalls[0].name).toBe("after_send");
   });
 

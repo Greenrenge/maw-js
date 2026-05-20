@@ -155,6 +155,8 @@ describe("federation status", () => {
       peers: ["http://slow:3456", "http://fast:3456", "http://other:3456", "http://down:3456"],
     };
     responses = [
+      { match: "localhost:4567/api/sessions", advanceMs: 3, res: { ok: true, status: 200, data: [] } },
+      { match: "localhost:4567/api/identity", res: { ok: true, status: 200, data: { node: "m5", agents: ["local"] } } },
       { match: "slow:3456/api/sessions", advanceMs: 40, res: { ok: true, status: 200, data: [] } },
       { match: "slow:3456/api/identity", res: { ok: true, status: 200, data: { node: "same", agents: ["slow"], clockUtc: new Date(now + 4 * 60_000).toISOString() } } },
       { match: "fast:3456/api/sessions", advanceMs: 5, res: { ok: true, status: 200, data: [] } },
@@ -167,6 +169,7 @@ describe("federation status", () => {
     const status = await getFederationStatus();
 
     expect(status.localUrl).toBe("http://localhost:4567");
+    expect(status.localReachable).toBe(true);
     expect(status.totalPeers).toBe(4);
     expect(status.reachablePeers).toBe(2); // fast same-node + other; down is unreachable and slow was deduped out
     expect(status.peers.map((p) => p.url).sort()).toEqual([
@@ -181,6 +184,7 @@ describe("federation status", () => {
   test("getFederationStatus warns only when sessions succeed but identity fails", async () => {
     config.peers = ["http://identity-404:3456", "http://identity-throw:3456", "http://fully-down:3456"];
     responses = [
+      { match: "localhost:3456/api/sessions", res: { ok: false, status: 0, data: null } },
       { match: "identity-404:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
       { match: "identity-404:3456/api/identity", res: { ok: false, status: 404, data: null } },
       { match: "identity-throw:3456/api/sessions", res: { ok: true, status: 200, data: [] } },
@@ -191,6 +195,7 @@ describe("federation status", () => {
 
     const status = await getFederationStatus();
 
+    expect(status.localReachable).toBe(false);
     expect(status.peers).toHaveLength(3);
     expect(warns.join("\n")).toContain("identity-404:3456/api/identity: status=404");
     expect(warns.join("\n")).toContain("identity-throw:3456/api/identity: bad identity");

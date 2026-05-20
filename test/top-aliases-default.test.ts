@@ -43,7 +43,7 @@ describe("top alias resolution table", () => {
 
   test("argv rewrite aliases preserve remaining argv", () => {
     const cases: Array<[string[], string[]]> = [
-      [["A", "neo"], ["tmux", "attach", "neo"]],
+      [["A", "neo"], ["attach", "neo"]],
       [["kill", "pane"], ["tmux", "kill", "pane"]],
       [["split", "target"], ["split", "target"]],
       [["open", "target"], ["tmux", "open", "target"]],
