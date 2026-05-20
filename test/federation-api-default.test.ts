@@ -155,14 +155,16 @@ describe("federation API messages route", () => {
   });
 
   test("falls back to legacy JSONL log with filters, invalid-line skip, and limit", async () => {
+    const readPaths: string[] = [];
     const app = makeApp({
-      homedir: () => "/home/test",
-      join: ((...parts: string[]) => parts.join("/")) as any,
+      messageLogPaths: () => ["/home/test/.maw/maw-log.jsonl", "/home/test/.oracle/maw-log.jsonl"],
       loadLedger: async () => ({
         listMessageLedgerEvents: () => [],
         messageLedgerDbPath: () => "/unused",
       }),
       readFileSync: ((path: string) => {
+        readPaths.push(path);
+        if (path === "/home/test/.maw/maw-log.jsonl") throw new Error("missing new log");
         expect(path).toBe("/home/test/.oracle/maw-log.jsonl");
         return [
           JSON.stringify({ ts: "1", from: "alice", to: "maw", msg: "old" }),
@@ -179,6 +181,7 @@ describe("federation API messages route", () => {
       messages: [{ ts: "2", from: "alice", to: "maw", msg: "newer" }],
       total: 2,
     });
+    expect(readPaths).toEqual(["/home/test/.maw/maw-log.jsonl", "/home/test/.oracle/maw-log.jsonl"]);
   });
 
   test("falls back to empty messages when sqlite and JSONL both fail", async () => {

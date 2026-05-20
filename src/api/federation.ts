@@ -9,6 +9,7 @@ import { homedir } from "os";
 import { FLEET_DIR } from "../core/paths";
 import { getPeerKey } from "../lib/peer-key";
 import { resolveNodeIdentity } from "../core/fleet/node-identity";
+import { mawMessageLogCandidatePaths } from "../core/xdg";
 
 /**
  * Endpoints advertised by /api/identity (#804 Step 1).
@@ -58,6 +59,7 @@ export interface FederationApiDeps {
   readdirSync?: typeof readdirSync;
   join?: typeof join;
   homedir?: typeof homedir;
+  messageLogPaths?: () => string[];
   fleetDir?: string;
 }
 
@@ -74,7 +76,7 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
   const readFile = deps.readFileSync ?? readFileSync;
   const readDir = deps.readdirSync ?? readdirSync;
   const pathJoin = deps.join ?? join;
-  const homeDir = deps.homedir ?? homedir;
+  const messageLogPaths = deps.messageLogPaths ?? mawMessageLogCandidatePaths;
   const fleetDir = deps.fleetDir ?? FLEET_DIR;
   const loadLedger = deps.loadLedger ?? (async () => await import("../vendor/mpr-plugins/messages/ledger"));
 
@@ -158,17 +160,19 @@ export function createFederationApi(deps: FederationApiDeps = {}) {
       // Keep legacy endpoint non-fatal; fall through to JSONL.
     }
 
-    const logFile = pathJoin(homeDir(), ".oracle", "maw-log.jsonl");
-    try {
-      const lines = readFile(logFile, "utf-8").trim().split("\n").filter(Boolean);
-      interface MawMessage { ts: string; from: string; to: string; msg: string; host?: string; route?: string }
-      let messages: MawMessage[] = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-      if (from) messages = messages.filter((m) => m.from?.includes(from));
-      if (to) messages = messages.filter((m) => m.to?.includes(to));
-      return { messages: messages.slice(-limit), total: messages.length };
-    } catch {
-      return { messages: [], total: 0 };
+    for (const logFile of messageLogPaths()) {
+      try {
+        const lines = readFile(logFile, "utf-8").trim().split("\n").filter(Boolean);
+        interface MawMessage { ts: string; from: string; to: string; msg: string; host?: string; route?: string }
+        let messages: MawMessage[] = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+        if (from) messages = messages.filter((m) => m.from?.includes(from));
+        if (to) messages = messages.filter((m) => m.to?.includes(to));
+        return { messages: messages.slice(-limit), total: messages.length };
+      } catch {
+        // Try the next migration candidate (XDG primary, then legacy ~/.oracle).
+      }
     }
+    return { messages: [], total: 0 };
   }, {
     query: t.Object({
       from: t.Optional(t.String()),

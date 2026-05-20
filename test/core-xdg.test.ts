@@ -9,6 +9,8 @@ import {
   mawConfigPath,
   mawDataDir,
   mawDataPath,
+  mawMessageLogCandidatePaths,
+  mawMessageLogPath,
   mawRuntimeHomeDir,
   mawStateDir,
   mawStatePath,
@@ -50,6 +52,11 @@ describe("maw XDG path resolver", () => {
     expect(mawCacheDir()).toBe(join(homedir(), ".maw"));
     expect(mawConfigDir()).toBe(join(homedir(), ".config", "maw"));
     expect(mawDataPath("plugins")).toBe(join(homedir(), ".maw", "plugins"));
+    expect(mawMessageLogPath()).toBe(join(homedir(), ".maw", "maw-log.jsonl"));
+    expect(mawMessageLogCandidatePaths()).toEqual([
+      join(homedir(), ".maw", "maw-log.jsonl"),
+      join(homedir(), ".oracle", "maw-log.jsonl"),
+    ]);
     expect(mawStatePath("peers.json")).toBe(join(homedir(), ".maw", "peers.json"));
     expect(mawCachePath("registry-cache.json")).toBe(join(homedir(), ".maw", "registry-cache.json"));
     expect(mawConfigPath("maw.config.json")).toBe(join(homedir(), ".config", "maw", "maw.config.json"));
@@ -81,6 +88,7 @@ describe("maw XDG path resolver", () => {
 
     expect(mawConfigDir()).toBe("/maw-config");
     expect(mawDataDir()).toBe("/maw-data");
+    expect(mawMessageLogPath()).toBe("/maw-data/maw-log.jsonl");
     expect(mawStateDir()).toBe("/maw-state");
     expect(mawCacheDir()).toBe("/maw-cache");
   });

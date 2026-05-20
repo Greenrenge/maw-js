@@ -69,6 +69,20 @@ export function mawDataPath(...parts: string[]): string {
   return join(mawDataDir(), ...parts);
 }
 
+export function mawMessageLogPath(): string {
+  return mawDataPath("maw-log.jsonl");
+}
+
+export function legacyOracleMessageLogPath(): string {
+  return join(homedir(), ".oracle", "maw-log.jsonl");
+}
+
+export function mawMessageLogCandidatePaths(): string[] {
+  const primary = mawMessageLogPath();
+  const legacy = legacyOracleMessageLogPath();
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 export function mawStatePath(...parts: string[]): string {
   return join(mawStateDir(), ...parts);
 }
