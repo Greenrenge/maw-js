@@ -140,6 +140,20 @@ describe("tile impl next coverage", () => {
     expect(commands).toContain("tmux select-layout -t '@win' even-horizontal");
   });
 
+
+  test("--cmd starts a shell pane first, then sends the command literally", async () => {
+    plainPaneList = "%lead\n%p1\n";
+
+    await cmdTile(1, { cmd: "claude --agent-id reader-a@team --model sonnet" });
+
+    const split = commands.find((cmd) => cmd.includes("tmux split-window"));
+    expect(split).toContain("exec zsh");
+    expect(split).not.toContain("claude --agent-id");
+    expect(commands).toContain("tmux send-keys -t '%p1' -l 'claude --agent-id reader-a@team --model sonnet'");
+    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("cmd"));
+  });
+
   test("clean reports no-op when there are no tile panes and git discovery fails", async () => {
     throwGitTop = true;
 

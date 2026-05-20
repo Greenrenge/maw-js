@@ -142,7 +142,10 @@ describe("tile plugin spawn metadata", () => {
     expect(splitCommand).toContain("MAW_TILE_INDEX='\\''1'\\''");
     expect(splitCommand).toContain("MAW_TILE_TOTAL='\\''1'\\''");
     expect(splitCommand).toContain("MAW_TILE_WINDOW='\\''sess:1'\\''");
-    expect(splitCommand).toContain("; claude; exec zsh");
+    expect(splitCommand).toContain("exec zsh");
+    expect(splitCommand).not.toContain("; claude;");
+    expect(commands).toContain("tmux send-keys -t '%p1' -l 'claude'");
+    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile '1'");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_parent 'sess:1.0'");
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_role 'sess-tile-1'");
@@ -158,9 +161,14 @@ describe("tile plugin spawn metadata", () => {
     for (const splitCommand of splitCommands) {
       expect(splitCommand).toContain("/tmp");
       expect(splitCommand).toContain("|| exit $?; export");
-      expect(splitCommand).toContain("; bun test; exec zsh");
+      expect(splitCommand).toContain("exec zsh");
+      expect(splitCommand).not.toContain("; bun test;");
       expect(splitCommand).toContain("MAW_TILE_PARENT='");
     }
+    expect(commands).toContain("tmux send-keys -t '%p1' -l 'bun test'");
+    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
+    expect(commands).toContain("tmux send-keys -t '%p2' -l 'bun test'");
+    expect(commands).toContain("tmux send-keys -t '%p2' Enter");
   });
 
 
