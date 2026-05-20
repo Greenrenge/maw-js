@@ -22,7 +22,7 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
-import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
+import { activeDurationArg, cmdTmuxLayout, cmdTmuxLs, parseActiveDurationSeconds } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
@@ -41,7 +41,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   open: "Bring back hidden panes (join-pane)",
   close: "Hide panes without killing (break-pane)",
   t: "Team — create, spawn, send, shutdown",
-  layout: "Apply team layout (main-vertical or tiled)",
+  layout: "Apply tmux layout to the current window",
   zoom: "Toggle zoom on a pane",
   panes: "List all panes across sessions",
   cleanup: "Kill zombie agent panes",
@@ -65,7 +65,7 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   open: ["tmux", "open"],
   close: ["tmux", "close"],
   t: ["team"],
-  layout: ["team", "layout"],
+  layout: { kind: "direct", handler: "cmdLayout" },
   zoom: ["tmux", "zoom"],
   panes: ["tmux", "ls", "--all", "--verbose"],
   cleanup: ["team", "cleanup", "--zombie-agents"],
@@ -146,6 +146,13 @@ export function parseBringArgs(
     if (target.window) opts.splitTarget = `${target.session}:${target.window}`;
   }
   return { oracle, opts };
+}
+
+function printLayoutUsage(write: (line: string) => void = console.log): void {
+  write("usage: maw layout <preset>");
+  write("  Re-apply a tmux layout preset to the current window.");
+  write("  presets: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled");
+  write("  For explicit targets, use: maw tmux layout <target> <preset>");
 }
 
 function printBringUsage(write: (line: string) => void = console.log): void {
@@ -260,6 +267,7 @@ type MaybePromise<T = unknown> = T | Promise<T>;
 
 export interface TopAliasHandlerDeps {
   cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
   cmdNew?: (argv: string[]) => MaybePromise;
   cmdPreflight?: (opts: { fix: boolean }) => MaybePromise;
@@ -279,6 +287,7 @@ export async function invokeDirectHandler(
   }
 
   const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directCmdTmuxLayout = deps.cmdTmuxLayout ?? cmdTmuxLayout;
   const directCmdWake = deps.cmdWake ?? cmdWake;
   const directCmdNew = deps.cmdNew ?? cmdNew;
   const directCmdPreflight = deps.cmdPreflight ?? cmdPreflight;
@@ -287,6 +296,21 @@ export async function invokeDirectHandler(
 
   if (exportName === "cmdLs") {
     await directCmdTmuxLs(parseLsAliasOpts(argv));
+    return;
+  }
+
+  if (exportName === "cmdLayout") {
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printLayoutUsage(log);
+      return;
+    }
+    const flags = parseFlags(argv, {}, 0);
+    const preset = (flags._ as string[])[0];
+    if (!preset) {
+      printLayoutUsage(error);
+      throw new UserError("layout: missing preset");
+    }
+    await directCmdTmuxLayout(".", preset);
     return;
   }
 

@@ -12,6 +12,7 @@ import { UserError } from "../src/core/util/user-error";
 function makeDeps() {
   const calls = {
     tmuxLs: [] as unknown[],
+    layout: [] as unknown[][],
     wake: [] as unknown[][],
     new: [] as unknown[][],
     preflight: [] as unknown[],
@@ -21,6 +22,7 @@ function makeDeps() {
   };
   const deps: TopAliasHandlerDeps = {
     cmdTmuxLs: async (opts) => { calls.tmuxLs.push(opts); },
+    cmdTmuxLayout: async (...args) => { calls.layout.push(args); },
     cmdWake: async (...args) => { calls.wake.push(args); },
     cmdNew: async (...args) => { calls.new.push(args); },
     cmdPreflight: async (opts) => { calls.preflight.push(opts); },
@@ -49,7 +51,6 @@ describe("top alias resolution table", () => {
       [["open", "target"], ["tmux", "open", "target"]],
       [["close", "target"], ["tmux", "close", "target"]],
       [["t", "send"], ["team", "send"]],
-      [["layout", "tiled"], ["team", "layout", "tiled"]],
       [["zoom", "42"], ["tmux", "zoom", "42"]],
       [["panes"], ["tmux", "ls", "--all", "--verbose"]],
       [["cleanup"], ["team", "cleanup", "--zombie-agents"]],
@@ -62,11 +63,13 @@ describe("top alias resolution table", () => {
       expect(resolveTopAlias(input)).toEqual({ kind: "argv", argv: expected });
     }
     expect(ALIAS_DESCRIPTIONS.cleanup).toContain("zombie");
+    expect(ALIAS_DESCRIPTIONS.layout).toContain("current window");
     expect(ALIAS_DESCRIPTIONS.bring).toContain("Bring");
   });
 
   test("direct aliases return handler specs and trimmed argv", () => {
     expect(resolveTopAlias(["ls", "-v"])).toEqual({ kind: "direct", handler: "cmdLs", argv: ["-v"] });
+    expect(resolveTopAlias(["layout", "tiled"])).toEqual({ kind: "direct", handler: "cmdLayout", argv: ["tiled"] });
     expect(resolveTopAlias(["bring", "neo"])).toEqual({
       kind: "direct",
       handler: "../commands/shared/wake-cmd:cmdBring",
@@ -187,6 +190,21 @@ describe("direct handler invocation", () => {
       active: true,
       activeThresholdSec: 3600,
     }]);
+  });
+
+  test("layout help owns the top-level verb and applies presets to the current window", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("cmdLayout", ["--help"], deps);
+    expect(calls.logs.join("\n")).toContain("usage: maw layout <preset>");
+    expect(calls.logs.join("\n")).toContain("maw tmux layout <target> <preset>");
+    expect(calls.layout).toEqual([]);
+
+    await invokeDirectHandler("cmdLayout", ["tiled"], deps);
+    expect(calls.layout).toEqual([[".", "tiled"]]);
+
+    await expect(invokeDirectHandler("cmdLayout", [], deps)).rejects.toThrow("layout: missing preset");
+    expect(calls.errors.join("\n")).toContain("usage: maw layout <preset>");
   });
 
   test("wake help prints usage without invoking wake", async () => {
