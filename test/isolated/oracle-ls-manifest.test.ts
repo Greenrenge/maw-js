@@ -63,7 +63,7 @@ const config = await import("../../src/config");
 const manifest = await import("../../src/lib/oracle-manifest");
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
-const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
+const ORACLES_JSON = join(TEST_CACHE_DIR, "oracles.json");
 const ORACLE_BIRTHS_JSON = join(TEST_CACHE_DIR, "oracle-births.json");
 
 afterAll(() => {

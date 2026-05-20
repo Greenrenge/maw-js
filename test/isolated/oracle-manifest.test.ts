@@ -6,7 +6,7 @@
  *   1. fleet windows         (FLEET_DIR/*.json)
  *   2. config.sessions       (Record<oracle, sessionId>)
  *   3. config.agents         (Record<oracle, node>)
- *   4. oracles-json cache    (CONFIG_DIR/oracles.json)
+ *   4. oracles-json cache    (MAW_CACHE_DIR/oracles.json)
  *   5. oracle-births cache  (MAW_CACHE_DIR/oracle-births.json)
  *   6. worktree scan         (deferred — covered by mergeOraclesJsonEntry shape)
  *
@@ -48,7 +48,7 @@ const {
 } = manifest;
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
-const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
+const ORACLES_JSON = join(TEST_CACHE_DIR, "oracles.json");
 const ORACLE_BIRTHS_JSON = join(TEST_CACHE_DIR, "oracle-births.json");
 
 afterAll(() => {
