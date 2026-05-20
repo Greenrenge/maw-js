@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { mockConfigModule } from "../helpers/mock-config";
 import type { DiscoveryError, DiscoveryResponse } from "../../src/vendor/mpr-plugins/peers/discovered";
+import type { LoadedPlugin } from "../../src/plugin/types";
 
 const configPath = import.meta.resolve("../../src/config");
 const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
 const sshPath = import.meta.resolve("../../src/core/transport/ssh");
+const registryPath = import.meta.resolve("../../src/plugin/registry");
 
 let configValue: Record<string, unknown> = {};
 let discoveryResult: DiscoveryResponse | DiscoveryError;
 let fetchCalls: Array<Record<string, unknown> | undefined> = [];
+let pluginRows: LoadedPlugin[] = [];
+let pluginError: Error | null = null;
 let sessions: Array<{
   name: string;
   windows: Array<{ index: number; name: string; active: boolean }>;
@@ -30,6 +34,13 @@ mock.module(sshPath, () => ({
   listSessions: async () => {
     if (sessionsError) throw sessionsError;
     return sessions;
+  },
+}));
+
+mock.module(registryPath, () => ({
+  discoverPackages: () => {
+    if (pluginError) throw pluginError;
+    return pluginRows;
   },
 }));
 
@@ -57,6 +68,26 @@ function discovery(url: string, node = "scout-node"): DiscoveryResponse {
   };
 }
 
+function plugin(name: string, overrides: Partial<LoadedPlugin> = {}): LoadedPlugin {
+  return {
+    manifest: {
+      name,
+      version: "1.2.3",
+      sdk: "^1.0.0",
+      tier: "standard",
+      weight: 12,
+      cli: { command: name, aliases: [`${name}-alias`] },
+      capabilities: ["sdk:identity"],
+      dependencies: { plugins: ["base"] },
+    },
+    dir: `/plugins/${name}`,
+    wasmPath: "",
+    entryPath: `/plugins/${name}/index.ts`,
+    kind: "ts",
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   configValue = {
     peers: ["http://config:3456"],
@@ -64,6 +95,8 @@ beforeEach(() => {
   };
   discoveryResult = discovery("http://scout:3456");
   fetchCalls = [];
+  pluginRows = [];
+  pluginError = null;
   sessions = [];
   sessionsError = null;
 });
@@ -104,6 +137,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
     const parsed = JSON.parse(result.output ?? "{}");
     expect(parsed.mode).toBe("config");
     expect(parsed.total).toBe(2);
+    expect(parsed.plugins).toEqual({
+      source: "plugin-registry",
+      total: 0,
+      records: [],
+    });
     expect(parsed.peers.map((peer: { url: string }) => peer.url)).toEqual(["http://config:3456", "http://named:3456"]);
   });
 
@@ -141,6 +179,42 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(writes.join("\n")).toContain("warning: scout unavailable");
   });
 
+  test("includes registered plugins in JSON output without changing peer totals", async () => {
+    pluginRows = [plugin("buddy")];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.total).toBe(2);
+    expect(parsed.plugins.records).toEqual([{
+      source: "plugin-registry",
+      type: "plugin",
+      name: "buddy",
+      version: "1.2.3",
+      kind: "ts",
+      tier: "standard",
+      weight: 12,
+      disabled: false,
+      dir: "/plugins/buddy",
+      command: "buddy",
+      aliases: ["buddy-alias"],
+      capabilities: ["sdk:identity"],
+      dependencies: ["base"],
+    }]);
+  });
+
+  test("renders plugin registry in text output", async () => {
+    pluginRows = [plugin("handover", { disabled: true })];
+
+    const result = await handler({ source: "cli", args: ["--peers=config"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("plugin registry");
+    expect(result.output).toContain("handover");
+    expect(result.output).toContain("disabled");
+  });
+
   test("renders discover tree with tmux live-state in JSON", async () => {
     sessions = [{
       name: "50-mawjs",
@@ -161,6 +235,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(parsed.mode).toBe("both");
     expect(parsed.awakeOnly).toBe(true);
     expect(parsed.total).toBe(4);
+    expect(parsed.plugins).toEqual({
+      source: "plugin-registry",
+      total: 0,
+      records: [],
+    });
     expect(parsed.live).toEqual({
       source: "tmux",
       total: 1,
@@ -209,5 +288,15 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(parsed.live.total).toBe(0);
     expect(parsed.live.sessions).toEqual([]);
     expect(parsed.warnings).toEqual(["tmux unavailable (tmux missing)"]);
+  });
+
+  test("renders plugin registry warnings in tree output without crashing", async () => {
+    pluginError = new Error("bad registry");
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("plugins (0 registered)");
+    expect(result.output).toContain("warning: plugin registry unavailable (bad registry)");
   });
 });

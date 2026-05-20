@@ -2,6 +2,8 @@ import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { loadConfig } from "../../../config";
 import { listSessions } from "../../../core/transport/ssh";
 import type { Session } from "../../../core/runtime/find-window";
+import { discoverPackages } from "../../../plugin/registry";
+import type { LoadedPlugin } from "../../../plugin/types";
 import {
   formatPeerSources,
   type PeerSourceResult,
@@ -71,6 +73,29 @@ interface LiveRuntimeState {
   warnings: string[];
 }
 
+interface PluginRecord {
+  source: "plugin-registry";
+  type: "plugin";
+  name: string;
+  version: string;
+  kind: LoadedPlugin["kind"];
+  tier: string;
+  weight: number;
+  disabled: boolean;
+  dir: string;
+  command?: string;
+  aliases: string[];
+  capabilities: string[];
+  dependencies: string[];
+}
+
+interface PluginRegistryState {
+  source: "plugin-registry";
+  total: number;
+  records: PluginRecord[];
+  warnings: string[];
+}
+
 function liveSession(session: Session): LiveSession {
   return {
     source: "tmux",
@@ -106,6 +131,68 @@ async function loadLiveRuntimeState(): Promise<LiveRuntimeState> {
   }
 }
 
+function pluginRecord(plugin: LoadedPlugin): PluginRecord {
+  const manifest = plugin.manifest;
+  return {
+    source: "plugin-registry",
+    type: "plugin",
+    name: manifest.name,
+    version: manifest.version,
+    kind: plugin.kind,
+    tier: manifest.tier ?? "core",
+    weight: manifest.weight ?? 50,
+    disabled: plugin.disabled === true,
+    dir: plugin.dir,
+    command: manifest.cli?.command,
+    aliases: manifest.cli?.aliases ?? [],
+    capabilities: manifest.capabilities ?? [],
+    dependencies: manifest.dependencies?.plugins ?? [],
+  };
+}
+
+function loadPluginRegistryState(): PluginRegistryState {
+  try {
+    const records = discoverPackages().map(pluginRecord);
+    return {
+      source: "plugin-registry",
+      total: records.length,
+      records,
+      warnings: [],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      source: "plugin-registry",
+      total: 0,
+      records: [],
+      warnings: [`plugin registry unavailable (${message})`],
+    };
+  }
+}
+
+function renderPluginRecords(plugins: PluginRegistryState): string {
+  if (plugins.records.length === 0) return "no registered plugins";
+  const header = ["name", "version", "kind", "tier", "command", "disabled"];
+  const rows = plugins.records.map((plugin) => [
+    plugin.name,
+    plugin.version,
+    plugin.kind,
+    plugin.tier,
+    plugin.command ?? "-",
+    plugin.disabled ? "yes" : "no",
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+  return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
+}
+
+function renderDiscoverTable(result: PeerSourceResult, plugins: PluginRegistryState): string {
+  const chunks = [formatPeerSources(result)];
+  if (plugins.records.length > 0) chunks.push(`plugin registry\n${renderPluginRecords(plugins)}`);
+  for (const warning of plugins.warnings) chunks.push(`warning: ${warning}`);
+  return chunks.join("\n\n");
+}
+
 function renderLiveSessions(live: LiveRuntimeState): string {
   if (live.sessions.length === 0) return "no live tmux sessions";
   const header = ["session", "windows"];
@@ -115,7 +202,7 @@ function renderLiveSessions(live: LiveRuntimeState): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState): string {
+function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, plugins: PluginRegistryState): string {
   const lines = ["discover"];
   lines.push(`  tmux (${live.sessions.length} live session${live.sessions.length === 1 ? "" : "s"})`);
   for (const session of live.sessions) {
@@ -130,7 +217,13 @@ function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState): s
     const label = peer.name ?? peer.node ?? peer.oracle ?? "-";
     lines.push(`    ${peer.source} ${label} -> ${peer.url}`);
   }
-  for (const warning of [...result.warnings, ...live.warnings]) lines.push(`warning: ${warning}`);
+  lines.push(`  plugins (${plugins.records.length} registered)`);
+  for (const plugin of plugins.records) {
+    const command = plugin.command ? ` command=${plugin.command}` : "";
+    const disabled = plugin.disabled ? " disabled" : "";
+    lines.push(`    ${plugin.name}@${plugin.version} ${plugin.kind}/${plugin.tier}${command}${disabled}`);
+  }
+  for (const warning of [...result.warnings, ...live.warnings, ...plugins.warnings]) lines.push(`warning: ${warning}`);
   return lines.join("\n");
 }
 
@@ -181,6 +274,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   }
 
   const result = await resolvePeerSources(loadConfig(), mode);
+  const plugins = loadPluginRegistryState();
 
   if (!tree && !awake) {
     emit(json ? JSON.stringify({
@@ -188,31 +282,41 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       mode: result.mode,
       total: result.peers.length,
       peers: result.peers,
-      warnings: result.warnings,
-    }, null, 2) : formatPeerSources(result));
+      plugins: {
+        source: plugins.source,
+        total: plugins.total,
+        records: plugins.records,
+      },
+      warnings: [...result.warnings, ...plugins.warnings],
+    }, null, 2) : renderDiscoverTable(result, plugins));
     return { ok: true, output: logs.join("\n") || undefined };
   }
 
   const live = await loadLiveRuntimeState();
-  const warnings = [...result.warnings, ...live.warnings];
+  const warnings = [...result.warnings, ...live.warnings, ...plugins.warnings];
 
   if (json) {
     emit(JSON.stringify({
       ok: true,
       mode: result.mode,
-      total: tree ? result.peers.length + live.sessions.length : live.sessions.length,
+      total: tree ? result.peers.length + live.sessions.length + plugins.records.length : live.sessions.length,
       awakeOnly: awake,
       peers: tree ? result.peers : [],
+      plugins: {
+        source: plugins.source,
+        total: plugins.total,
+        records: tree ? plugins.records : [],
+      },
       live: {
         source: live.source,
         total: live.total,
         sessions: live.sessions,
       },
-      ...(tree ? { tree: { live: live.sessions, peers: result.peers } } : {}),
+      ...(tree ? { tree: { live: live.sessions, peers: result.peers, plugins: plugins.records } } : {}),
       warnings,
     }, null, 2));
   } else {
-    emit(tree ? renderDiscoverTree(result, live) : renderLiveSessions(live));
+    emit(tree ? renderDiscoverTree(result, live, plugins) : renderLiveSessions(live));
   }
   return { ok: true, output: logs.join("\n") || undefined };
 }
