@@ -30,8 +30,8 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
-import { homedir } from "os";
 import { withPeersLock } from "./lock";
+import { mawStatePath } from "../../core/xdg";
 
 /**
  * Structured last-probe failure — opt-in field on Peer (#565).
@@ -103,7 +103,7 @@ export interface PeersFile {
 }
 
 export function peersPath(): string {
-  return process.env.PEERS_FILE || join(homedir(), ".maw", "peers.json");
+  return process.env.PEERS_FILE || mawStatePath("peers.json");
 }
 
 export function emptyStore(): PeersFile {
