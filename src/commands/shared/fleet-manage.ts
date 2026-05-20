@@ -1,11 +1,12 @@
 import { dirname, join } from "path";
 import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
-import { tmux, FLEET_DIR } from "../../sdk";
-import { loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";
+import { tmux } from "../../sdk";
+import { countDisabledFleetFiles, fleetDirForWrite, loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";
 
 export interface FleetManageDeps {
   loadFleetEntries: typeof loadFleetEntries;
   getSessionNames: typeof getSessionNames;
+  countDisabledFleetFiles: typeof countDisabledFleetFiles;
   readdirSync: typeof readdirSync;
   fleetDir: string;
   writeFile: (path: string, contents: string) => Promise<unknown>;
@@ -56,8 +57,9 @@ export function fleetManageDeps(overrides: Partial<FleetManageDeps> = {}): Fleet
   return {
     loadFleetEntries,
     getSessionNames,
+    countDisabledFleetFiles,
     readdirSync,
-    fleetDir: FLEET_DIR,
+    fleetDir: fleetDirForWrite(),
     writeFile: Bun.write.bind(Bun) as (path: string, contents: string) => Promise<unknown>,
     renameSync,
     existsSync,
@@ -127,7 +129,7 @@ export function renderFleetLs(entries: FleetEntry[], disabled: number, runningSe
 export async function cmdFleetLs(deps: Partial<FleetManageDeps> = {}) {
   const io = fleetManageDeps(deps);
   const entries = io.loadFleetEntries();
-  const disabled = io.readdirSync(io.fleetDir).filter(f => f.endsWith(".disabled")).length;
+  const disabled = io.countDisabledFleetFiles();
 
   const runningSessions = await io.getSessionNames();
   for (const line of renderFleetLs(entries, disabled, runningSessions)) io.log(line);

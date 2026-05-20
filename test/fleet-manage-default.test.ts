@@ -42,6 +42,7 @@ function makeDeps(entries: FleetEntry[], options: {
   const deps = fleetManageDeps({
     loadFleetEntries: () => entries,
     getSessionNames: async () => options.running ?? [],
+    countDisabledFleetFiles: () => (options.files ?? []).filter(f => f.endsWith(".disabled")).length,
     readdirSync: () => options.files ?? [],
     fleetDir: "/fleet",
     writeFile: async (path: string, contents: string) => {
@@ -71,6 +72,7 @@ describe("fleetManageDeps", () => {
 
     expect(deps.loadFleetEntries).toBe(loadFleetEntries);
     expect(typeof deps.getSessionNames).toBe("function");
+    expect(typeof deps.countDisabledFleetFiles).toBe("function");
     expect(typeof deps.readdirSync).toBe("function");
     expect(typeof deps.fleetDir).toBe("string");
     expect(typeof deps.writeFile).toBe("function");

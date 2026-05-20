@@ -58,6 +58,22 @@ export function loadFleet(dirs: string[] = fleetDirsForRead()): FleetSession[] {
   return readFleetFiles(dirs).map(({ path }) => JSON.parse(readFileSync(path, "utf-8")) as FleetSession);
 }
 
+
+export function countDisabledFleetFiles(dirs: string[] = fleetDirsForRead()): number {
+  const disabled = new Set<string>();
+  for (const dir of uniqueDirs(dirs)) {
+    if (!existsSync(dir)) continue;
+    try {
+      for (const file of readdirSync(dir)) {
+        if (file.endsWith(".disabled")) disabled.add(file);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return disabled.size;
+}
+
 export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntry[] {
   return readFleetFiles(dirs).map(({ file, path }) => {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
