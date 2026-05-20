@@ -119,12 +119,14 @@ describe("fleet-load coverage", () => {
     expect(fleetLoad.loadFleetEntries()).toEqual([
       {
         file: "007-bond.json",
+        path: join(fleetDir, "007-bond.json"),
         num: 7,
         groupName: "bond",
         session: { name: "bond", windows: [] },
       },
       {
         file: "loose.json",
+        path: join(fleetDir, "loose.json"),
         num: 0,
         groupName: "loose",
         session: { name: "loose", windows: [{ name: "loose-oracle" }] },
@@ -141,18 +143,21 @@ describe("fleet-load coverage", () => {
     expect(fleetLoad.loadFleetEntries()).toEqual([
       {
         file: "05-state-only.json",
+        path: join(stateFleetDir, "05-state-only.json"),
         num: 5,
         groupName: "state-only",
         session: { name: "state", windows: [{ name: "state-oracle" }] },
       },
       {
         file: "10-legacy-only.json",
+        path: join(fleetDir, "10-legacy-only.json"),
         num: 10,
         groupName: "legacy-only",
         session: { name: "legacy", windows: [] },
       },
       {
         file: "20-overlap.json",
+        path: join(stateFleetDir, "20-overlap.json"),
         num: 20,
         groupName: "overlap",
         session: { name: "state-overlap", windows: [{ name: "winner" }] },
