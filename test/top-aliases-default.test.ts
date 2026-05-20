@@ -265,6 +265,7 @@ describe("direct handler invocation", () => {
 
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["--help"], deps);
     expect(calls.logs.join("\n")).toContain("usage: maw bring");
+    expect(calls.logs.join("\n")).toContain("--pick prompts");
 
     calls.logs = [];
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--dry-run", "--main", "--task", "fix", "-e", "codex"], deps);

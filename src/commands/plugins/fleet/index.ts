@@ -106,7 +106,8 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
     } else if (sub === "restore") {
       const { loadSnapshot, latestSnapshot } = await import("../../../core/fleet/snapshot");
-      const snap = args[1] ? loadSnapshot(args[1]) : latestSnapshot();
+      const snapshotId = args.slice(1).find((arg) => !arg.startsWith("-"));
+      const snap = snapshotId && snapshotId !== "latest" ? loadSnapshot(snapshotId) : latestSnapshot();
       if (!snap) {
         return { ok: false, error: "no snapshot found" };
       }

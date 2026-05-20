@@ -537,7 +537,7 @@ mock.module(
   }),
 );
 
-const { cmdWake, _wtPicker } = await import("../src/commands/shared/wake-cmd");
+const { cmdWake, _wtPicker, promptAmbiguousBringPick } = await import("../src/commands/shared/wake-cmd");
 const originalWtPickerIsStdoutTTY = _wtPicker.isStdoutTTY;
 const originalWtPickerReadChoice = _wtPicker.readChoice;
 
@@ -612,6 +612,31 @@ afterEach(() => {
 });
 
 describe("cmdWake main-suite coverage", () => {
+  test("#1816 bring picker handles headless, empty, quit, invalid, and success choices", () => {
+    const candidate = { name: "mawjs-features", target: "54-mawjs:mawjs-features", detail: "tmux window" };
+
+    _wtPicker.isStdoutTTY = () => false;
+    expect(promptAmbiguousBringPick("features", [candidate])).toBeNull();
+
+    _wtPicker.isStdoutTTY = () => true;
+    expect(promptAmbiguousBringPick("features", [])).toBeNull();
+
+    _wtPicker.readChoice = () => "q";
+    expect(promptAmbiguousBringPick("features", [candidate])).toBeNull();
+
+    _wtPicker.readChoice = () => "quit";
+    expect(promptAmbiguousBringPick("features", [candidate])).toBeNull();
+
+    _wtPicker.readChoice = () => "abc";
+    expect(promptAmbiguousBringPick("features", [candidate])).toBeNull();
+
+    _wtPicker.readChoice = () => "2";
+    expect(promptAmbiguousBringPick("features", [candidate])).toBeNull();
+
+    _wtPicker.readChoice = () => "1";
+    expect(promptAmbiguousBringPick("features", [candidate])).toEqual(candidate);
+  });
+
   test("lists worktrees without detecting or mutating tmux", async () => {
     worktrees = [
       { name: "1-alpha", path: join(parentDir, `${repoName}.wt-1-alpha`) },
@@ -759,6 +784,108 @@ describe("cmdWake main-suite coverage", () => {
       else process.env.TMUX_PANE = originalPane;
     }
     expect(hostExecCalls).toContain("tmux display-message -p -t '%42' '#{session_name}'");
+  });
+
+  test("#1816 bring --pick can choose a fuzzy live tmux window before oracle fallback", async () => {
+    addWindow("54-mawjs", "mawjs-features");
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "1";
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("features", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-features");
+    expect(logs.join("\n")).toContain("'features' is ambiguous — bring which?");
+    expect(logs.join("\n")).toContain("mawjs-features");
+    expect(detectSessionCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "54-mawjs:mawjs-features",
+        opts: expect.objectContaining({
+          bringAlias: true,
+          split: true,
+          pick: true,
+          session: "54-mawjs",
+        }),
+      },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("#1816 bring --pick fails loudly for fuzzy live windows when headless", async () => {
+    addWindow("54-mawjs", "mawjs-features");
+    _wtPicker.isStdoutTTY = () => false;
+
+    await expect(captureLogs(() =>
+      cmdWake("features", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    )).rejects.toThrow("--pick requires an interactive bring selection for 'features'");
+
+    expect(detectSessionCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual([]);
+  });
+
+  test("#1816 bring --pick can disambiguate multiple fuzzy live tmux windows", async () => {
+    addWindow("54-mawjs", "mawjs-alpha");
+    addWindow("54-mawjs", "other-alpha");
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "2";
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("alpha", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    );
+
+    expect(result).toBe("54-mawjs:other-alpha");
+    expect(logs.join("\n")).toContain("'alpha' is ambiguous — bring which?");
+    expect(logs.join("\n")).toContain("mawjs-alpha");
+    expect(logs.join("\n")).toContain("other-alpha");
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "54-mawjs:other-alpha",
+        opts: expect.objectContaining({ bringAlias: true, split: true, pick: true }),
+      },
+    ]);
+  });
+
+  test("#1816 bring --pick with no live-window candidates preserves oracle fallback", async () => {
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "1";
+
+    const { result } = await captureLogs(() =>
+      cmdWake("totally-missing-window", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs");
+    expect(detectSessionCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "54-mawjs:mawjs",
+        opts: expect.objectContaining({ bringAlias: true, split: true, pick: true }),
+      },
+    ]);
   });
 
   test("#1816 bring falls back to legacy oracle resolution when caller session cannot be read", async () => {

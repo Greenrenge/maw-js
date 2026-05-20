@@ -193,6 +193,10 @@ function isBareLocalHeyTarget(query: string): boolean {
   return query.length > 0 && !query.includes(":") && !query.includes("/");
 }
 
+function isTmuxSessionIdTarget(target: string): boolean {
+  return /^\d+-[A-Za-z0-9_.-]+$/.test(target.trim());
+}
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -390,7 +394,7 @@ export async function cmdSend(
     const parts = query.split(":");
     const targetNode = parts.length >= 2 ? parts[0] : null;
     const bareAgent = parts.length >= 2 ? parts[1] : query;
-    const isCanonical = parts.length >= 3;
+    const isCanonical = parts.length >= 3 || (parts.length === 2 && isTmuxSessionIdTarget(bareAgent));
     const isLocalScope = !targetNode || targetNode === config.node || targetNode === "local";
     if (isLocalScope && bareAgent && !isCanonical) {
       const hasLocalSession = sessions.some(s =>

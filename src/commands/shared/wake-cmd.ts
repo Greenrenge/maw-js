@@ -2,7 +2,7 @@ import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCom
 import { resolve } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
-import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
+import { resolveByName, resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
@@ -98,6 +98,44 @@ export function promptAmbiguousWorktreePick<T extends { name: string; path: stri
   process.stdout.write(`  Select [1-${candidates.length}]: `);
   const raw = _wtPicker.readChoice();
   if (!raw) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const choice = Number(raw);
+  if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
+  return candidates[choice - 1]!;
+}
+
+
+type BringWindowCandidate = {
+  name: string;
+  target: string;
+  detail: string;
+};
+
+/**
+ * Show a numbered picker for `maw bring <target> --pick` when the target
+ * fuzzily matches live tmux windows in the destination session (#1816).
+ * Reuses the wake picker TTY hooks so headless/scripted callers fail loudly
+ * instead of silently choosing the legacy fuzzy oracle fallback.
+ *
+ * @internal — exported for tests.
+ */
+export function promptAmbiguousBringPick(
+  targetName: string,
+  candidates: BringWindowCandidate[],
+): BringWindowCandidate | null {
+  if (!_wtPicker.isStdoutTTY()) return null;
+  if (candidates.length === 0) return null;
+  console.log("");
+  console.log(`  '${targetName}' is ambiguous — bring which?`);
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]!;
+    console.log(`  \x1b[36m${i + 1}\x1b[0m) ${candidate.name}  \x1b[90m${candidate.detail}\x1b[0m`);
+  }
+  console.log("  \x1b[90mq) quit\x1b[0m");
+  console.log("");
+  process.stdout.write(`  Select [1-${candidates.length}]: `);
+  const raw = _wtPicker.readChoice()?.trim().toLowerCase();
+  if (!raw || raw === "q" || raw === "quit") return null;
   if (!/^\d+$/.test(raw)) return null;
   const choice = Number(raw);
   if (!Number.isFinite(choice) || choice < 1 || choice > candidates.length) return null;
@@ -284,9 +322,30 @@ async function resolveExistingWindowBringTarget(
 
   const windows = await tmux.listWindows(session).catch(() => [] as { name: string }[]);
   const exact = windows.find(w => w.name === targetName);
-  if (!exact) return null;
+  if (exact) return `${session}:${exact.name}`;
 
-  return `${session}:${exact.name}`;
+  if (opts.pick) {
+    const resolved = resolveByName(targetName, windows);
+    const candidates = resolved.kind === "fuzzy"
+      ? [resolved.match]
+      : resolved.kind === "ambiguous"
+        ? resolved.candidates
+        : [];
+    if (candidates.length > 0) {
+      const picked = promptAmbiguousBringPick(
+        targetName,
+        candidates.map(w => ({
+          name: w.name,
+          target: `${session}:${w.name}`,
+          detail: `tmux window in ${session}`,
+        })),
+      );
+      if (!picked) throw new Error(`--pick requires an interactive bring selection for '${targetName}'`);
+      return picked.target;
+    }
+  }
+
+  return null;
 }
 
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {

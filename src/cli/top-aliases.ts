@@ -145,6 +145,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
   write("  Thin alias: maw bring <oracle> ≡ maw wake <oracle> --split");
   write("  Supports the same flags as `maw wake`, including --task, --wt, --dry-run, and -e/--engine.");
   write("  --to <session[:window]> targets a workspace session, optionally splitting inside a specific tab (#1816).");
+  write("  --pick prompts when a fuzzy live window match needs an explicit bring target (#1816).");
   write("  Refuses to split-bring an oracle into its own pane (set MAW_ALLOW_SELF_BRING=1 to override).");
 }
 
