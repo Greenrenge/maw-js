@@ -15,8 +15,9 @@ import { fleetDirsForRead, uniqueDirs } from "../core/fleet/paths";
  *   (#215) — but that's a manual one-shot, and drift kept reopening.
  *
  * Fix:
- *   On every `loadConfig()` call, scan FLEET_DIR and inject `<window-name> → "local"`
- *   for every fleet window that isn't already in `config.agents`. Additive only —
+ *   On every `loadConfig()` call, scan state-first fleet directories and inject
+ *   `<window-name> → "local"` for every fleet window that isn't already in
+ *   `config.agents`. Additive only —
  *   never overwrites a hand-tuned mapping. Pure in-memory: does NOT write to
  *   maw.config.json. Persistence stays the responsibility of `maw fleet
  *   --init-agents` and `maw wake`.

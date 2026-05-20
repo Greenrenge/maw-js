@@ -2,8 +2,7 @@ import { hostExec, listSessions } from "../transport/ssh";
 import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../paths";
-import { fleetDirsForRead, uniqueDirs } from "./paths";
+import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "./paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";
 import type { Session } from "../runtime/find-window";
 
@@ -38,7 +37,7 @@ function scanDeps(overrides: Partial<ScanWorktreesDeps>): ScanWorktreesDeps {
     getGhqRoot: overrides.getGhqRoot ?? getGhqRoot,
     readdirSync: overrides.readdirSync ?? (readdirSync as unknown as ScanWorktreesDeps["readdirSync"]),
     readFileSync: overrides.readFileSync ?? (readFileSync as unknown as ScanWorktreesDeps["readFileSync"]),
-    fleetDir: overrides.fleetDir ?? FLEET_DIR,
+    fleetDir: overrides.fleetDir ?? fleetDirForWrite(),
     fleetDirs: overrides.fleetDirs ?? (overrides.fleetDir ? [overrides.fleetDir] : fleetDirsForRead()),
     error: overrides.error ?? console.error,
   };
