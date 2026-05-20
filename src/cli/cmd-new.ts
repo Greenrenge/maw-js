@@ -12,7 +12,7 @@
 
 import { homedir } from "os";
 import { stat } from "fs/promises";
-import { resolve } from "path";
+import { basename, resolve } from "path";
 import { parseFlags } from "./parse-args";
 import { buildCommandInDir } from "../config";
 import { UserError } from "../core/util/user-error";
@@ -67,7 +67,7 @@ export function validateWorkspaceSessionName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach]");
+  write("usage: maw new [session-name] [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach]");
   write("  Create a plain tmux workspace session with a lead shell window.");
   write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
@@ -110,6 +110,26 @@ function normalizeStartupCommand(rawCmd: unknown): string | undefined {
     throw new UserError("new: --cmd cannot be empty");
   }
   return rawCmd;
+}
+
+function slugSegment(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+function truncateWorkspaceName(input: string): string {
+  return input.slice(0, 80).replace(/[-_.]+$/g, "") || "workspace";
+}
+
+function autoWorkspaceSessionName(cwd: string, startupCommand: string | undefined, usedPathFlag: boolean): string | undefined {
+  const parts: string[] = [];
+  if (usedPathFlag) parts.push(slugSegment(basename(cwd)));
+  if (startupCommand) parts.push(slugSegment(startupCommand));
+  const raw = parts.filter(Boolean).join("-");
+  return raw ? truncateWorkspaceName(raw) : undefined;
 }
 
 function looksLikeClaudeCommand(command: string): boolean {
@@ -177,24 +197,31 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--json": Boolean,
   }, 0);
 
-  const name = (flags._ as string[])[0];
-  if (!name || name === "--help" || name === "-h") {
+  const explicitName = (flags._ as string[])[0];
+  if (explicitName === "--help" || explicitName === "-h") {
     printUsage(console.error);
     throw new UserError("new: missing session name");
   }
-  if (name.startsWith("-")) {
+  if (explicitName?.startsWith("-")) {
     printUsage(console.error);
-    throw new UserError(`new: invalid session name '${name}'`);
+    throw new UserError(`new: invalid session name '${explicitName}'`);
   }
-  validateWorkspaceSessionName(name);
 
   const cwd = await resolveWorkspacePath(flags["--path"]);
   if (flags["--claude"] && flags["--cmd"] !== undefined) {
     throw new UserError("new: use either --claude or --cmd, not both");
   }
+  const commandNameHint = explicitName ?? (slugSegment(basename(cwd)) || "workspace");
   const startupCommand = flags["--claude"]
-    ? buildClaudeStartupCommand(name, cwd)
+    ? buildClaudeStartupCommand(commandNameHint, cwd)
     : normalizeStartupCommand(flags["--cmd"]);
+  const autoNameCommand = flags["--claude"] ? "claude" : startupCommand;
+  const name = explicitName ?? autoWorkspaceSessionName(cwd, autoNameCommand, flags["--path"] !== undefined);
+  if (!name) {
+    printUsage(console.error);
+    throw new UserError("new: missing session name");
+  }
+  validateWorkspaceSessionName(name);
   const tmuxCommand = shellAfterCommand(startupCommand);
 
   const machineReadable = !!(flags["--print"] || flags["--json"]);

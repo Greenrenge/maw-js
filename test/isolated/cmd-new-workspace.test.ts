@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -129,6 +129,29 @@ describe("cmdNew workspace session factory", () => {
       expect(attached).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auto-generates a deterministic session name from path and command when omitted", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-new-"));
+    const dir = join(root, "foo-app");
+    mkdirSync(dir);
+    try {
+      await cmdNew(["--path", dir, "--cmd", "bun test", "--print", "--no-attach"]);
+
+      expect(newSessionCalls).toEqual([
+        {
+          name: "foo-app-bun-test",
+          opts: {
+            window: "lead",
+            cwd: dir,
+            command: `bun test; exec ${process.env.SHELL || "zsh"}`,
+            printFormat: "#{pane_id}",
+          },
+        },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
