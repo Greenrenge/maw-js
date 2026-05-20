@@ -26,9 +26,12 @@ export async function cmdCapture(target: string, opts: CaptureOpts = {}) {
     throw new Error("usage: maw capture <target> [--pane N] [--lines N] [--full]\n  e.g. maw capture mawjs\n       maw capture neo:0 --pane 1 --lines 100\n       maw capture mawjs --full");
   }
 
-  const [rawSession, explicitWindow] = target.includes(":")
+  const [left, right] = target.includes(":")
     ? target.split(":", 2)
     : [target, undefined];
+  const isTmuxWindowSuffix = right !== undefined && /^\d+(?:\.\d+)?$/.test(right);
+  const rawSession = right !== undefined && !isTmuxWindowSuffix ? right : left;
+  const explicitWindow = isTmuxWindowSuffix ? right : undefined;
   const sessions = await listSessions();
   const result = await resolveAttachTarget(rawSession, { listSessions: async () => sessions as any, loadFleet });
 

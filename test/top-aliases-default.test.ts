@@ -108,6 +108,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
     });
     expect(parseLsAliasOpts(["--json", "--all", "--recent", "12", "--compact", "--verbose"])).toEqual({
       all: true,
@@ -125,6 +126,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       recent: true,
     });
     expect(parseLsAliasOpts(["--active", "1h"])).toEqual({
@@ -133,6 +135,7 @@ describe("top alias option parsers", () => {
       verbose: false,
       roster: false,
       json: false,
+      oracleOnly: true,
       active: true,
       activeThresholdSec: 3600,
     });

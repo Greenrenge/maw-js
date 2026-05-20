@@ -219,4 +219,25 @@ describe("cmdTmuxLs — mocked pane listing", () => {
     out = await captureLogs(() => cmdTmuxLs({ all: true, json: true, filter: "alpha" }));
     expect(JSON.parse(out.logs).map((pane: { session: string }) => pane.session)).toEqual(["alpha-worker"]);
   });
+
+  test("compact oracle ls hides non-fleet junk sessions by default and --all roster shows them", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fleetFiles = ["50-mawjs.json"];
+    panes = [
+      { id: "%1", target: "50-mawjs:0.0", command: "claude", title: "fleet", lastActivity: now },
+      { id: "%2", target: "--help:0.0", command: "zsh", title: "junk", lastActivity: now - 999 },
+      { id: "%3", target: "foo:0.0", command: "zsh", title: "test", lastActivity: now - 999 },
+    ];
+
+    let out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, oracleOnly: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).not.toContain("--help");
+    expect(out.logs).not.toContain("foo");
+
+    out = await captureLogs(() => cmdTmuxLs({ all: true, compact: true, roster: true }));
+    expect(out.logs).toContain("50-mawjs");
+    expect(out.logs).toContain("--help");
+    expect(out.logs).toContain("foo");
+  });
+
 });

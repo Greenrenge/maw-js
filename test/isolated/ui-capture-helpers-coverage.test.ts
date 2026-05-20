@@ -325,4 +325,24 @@ describe("capture impl coverage", () => {
 
     expect(hostExecCalls).toEqual(["tmux-test capture-pane -t 'Neo:0' -p -S -50"]);
   });
+  test("cmdCapture treats node-qualified targets as oracle aliases", async () => {
+    resolveResults = [{ tier: 1, sessionName: "50-mawjs" }];
+    sessions = [{ name: "50-mawjs", windows: [{ index: 0, name: "mawjs-oracle" }] }];
+
+    await cmdCapture("m5:mawjs", { lines: 3 });
+
+    expect(resolveCalls.at(-1)?.target).toBe("mawjs");
+    expect(hostExecCalls.at(-1)).toContain("50-mawjs:0");
+  });
+
+  test("cmdCapture preserves numeric tmux window suffixes", async () => {
+    resolveResults = [{ tier: 1, sessionName: "neo" }];
+    sessions = [{ name: "neo", windows: [{ index: 0, name: "main" }] }];
+
+    await cmdCapture("neo:2", { pane: 1, full: true });
+
+    expect(resolveCalls.at(-1)?.target).toBe("neo");
+    expect(hostExecCalls.at(-1)).toContain("neo:2.1");
+  });
+
 });

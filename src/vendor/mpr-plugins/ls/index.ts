@@ -73,6 +73,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         json,
         active: true,
         activeThresholdSec: parseActiveDurationSeconds(activeArg),
+        oracleOnly: true,
       };
       if (localFilter) lsOpts.filter = localFilter;
       await cmdTmuxLs(lsOpts);

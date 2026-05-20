@@ -181,6 +181,8 @@ export interface TmuxLsOpts {
   filter?: string;
   /** Include infrastructure channel sessions such as *-discord. */
   channels?: boolean;
+  /** Hide non-oracle junk sessions in top-level maw ls compact views. */
+  oracleOnly?: boolean;
   /** Include expensive verification/noise such as worktree-bind rows. */
   verify?: boolean;
 }
@@ -275,6 +277,13 @@ function sessionNameFromPaneTarget(target: string): string {
   return target.split(":")[0] || target;
 }
 
+function isDefaultOracleListSession(sessionName: string, fleetSessions: ReadonlySet<string>): boolean {
+  // Top-level `maw ls` is an oracle roster, not a raw tmux dump. Hide junk
+  // sessions like `--help`, `foo`, and stale app names by default (#1796).
+  // `--all`/`--roster` and `maw tmux ls` remain available for raw inventory.
+  return /^\d+-/.test(sessionName) || fleetSessions.has(sessionName);
+}
+
 async function sessionCreatedTimes(): Promise<Map<string, number>> {
   const raw = await hostExec(`${tmuxCmd()} list-sessions -F '#{session_name}\t#{session_created}'`).catch(() => "");
   return parseSessionCreatedList(raw);
@@ -357,6 +366,10 @@ export async function cmdTmuxLs(opts: TmuxLsOpts = {}): Promise<void> {
   if (filter) {
     scope = scope.filter(p => [p.session, p.target, p.annotation, p.source]
       .some(value => String(value ?? "").toLowerCase().includes(filter)));
+  }
+
+  if (opts.oracleOnly && opts.compact && !opts.roster && !opts.channels) {
+    scope = scope.filter(p => isDefaultOracleListSession(p.session, fleetSessions));
   }
 
   const activeThresholdSec = opts.activeThresholdSec ?? DEFAULT_ACTIVE_THRESHOLD_SEC;

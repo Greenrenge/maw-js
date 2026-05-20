@@ -247,6 +247,7 @@ describe("ls plugin index coverage", () => {
       active: true,
       activeThresholdSec: 3600,
       filter: "mawjs",
+      oracleOnly: true,
     }]);
     expect(lsPeerCalls).toEqual([]);
     expect(cmdListCalls).toEqual([]);

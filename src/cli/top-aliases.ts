@@ -208,6 +208,7 @@ export function parseLsAliasOpts(argv: string[]) {
     activeThresholdSec?: number;
     filter?: string;
     channels?: boolean;
+    oracleOnly?: boolean;
     verify?: boolean;
   } = {
     all: true,
@@ -217,6 +218,7 @@ export function parseLsAliasOpts(argv: string[]) {
     json: !!flags["--json"],
   };
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
+  if (compact && !flags["--all"] && !flags["--channels"]) opts.oracleOnly = true;
   if (flags["--verify"]) opts.verify = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
