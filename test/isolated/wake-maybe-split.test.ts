@@ -7,10 +7,12 @@ let tileMarkerResponse = "";
 let paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
 let refreshClientThrows = false;
 let paneCommandResponse = "zsh";
+let paneSessionWindowResponse = "";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
+    if (cmd.includes("session_name") && cmd.includes("window_name")) return paneSessionWindowResponse;
     if (cmd.includes("pane_current_command")) return paneCommandResponse;
     if (cmd.includes("refresh-client")) {
       if (refreshClientThrows) throw new Error("refresh unsupported");
@@ -31,6 +33,7 @@ describe("wake maybeSplit", () => {
   const originalTmux = process.env.TMUX;
   const originalPane = process.env.TMUX_PANE;
   const originalAllowClaudeSplit = process.env.MAW_ALLOW_CLAUDE_SPLIT;
+  const originalAllowSelfBring = process.env.MAW_ALLOW_SELF_BRING;
 
   beforeEach(() => {
     hostExecCalls = [];
@@ -39,9 +42,11 @@ describe("wake maybeSplit", () => {
     paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
     refreshClientThrows = false;
     paneCommandResponse = "zsh";
+    paneSessionWindowResponse = "";
     process.env.TMUX = "/tmp/tmux-501/default,123,0";
     process.env.TMUX_PANE = "%42";
     delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
+    delete process.env.MAW_ALLOW_SELF_BRING;
   });
 
   test("does nothing when split is not requested", async () => {
@@ -52,17 +57,18 @@ describe("wake maybeSplit", () => {
   test("splits current pane and attaches target without importing removed split plugin", async () => {
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(6);
-    expect(hostExecCalls[0]).toContain("pane_current_command");
-    expect(hostExecCalls[1]).toContain("tmux split-window");
-    expect(hostExecCalls[1]).toContain("-t '%42'");
-    expect(hostExecCalls[1]).toContain("-h -l 50%");
-    expect(hostExecCalls[1]).toContain("TMUX= tmux attach-session -t");
-    expect(hostExecCalls[1]).toContain("20-homekeeper:homekeeper-oracle");
-    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
-    expect(hostExecCalls[3]).toContain("tmux list-panes -t '%42'");
-    expect(hostExecCalls[4]).toContain("tmux select-layout -t '%42' main-vertical");
-    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls).toHaveLength(7);
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toContain("tmux split-window");
+    expect(hostExecCalls[2]).toContain("-t '%42'");
+    expect(hostExecCalls[2]).toContain("-h -l 50%");
+    expect(hostExecCalls[2]).toContain("TMUX= tmux attach-session -t");
+    expect(hostExecCalls[2]).toContain("20-homekeeper:homekeeper-oracle");
+    expect(hostExecCalls[3]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[4]).toContain("tmux list-panes -t '%42'");
+    expect(hostExecCalls[5]).toContain("tmux select-layout -t '%42' main-vertical");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -S");
   });
 
   test("does not reset layout when split leaves only two panes", async () => {
@@ -70,12 +76,13 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(5);
-    expect(hostExecCalls[0]).toContain("pane_current_command");
-    expect(hostExecCalls[1]).toContain("tmux split-window");
-    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
-    expect(hostExecCalls[3]).toContain("tmux list-panes -t '%42'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls).toHaveLength(6);
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toContain("tmux split-window");
+    expect(hostExecCalls[3]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[4]).toContain("tmux list-panes -t '%42'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux select-layout"))).toBe(false);
   });
 
@@ -84,13 +91,14 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls).toHaveLength(4);
-    expect(hostExecCalls[0]).toContain("pane_current_command");
-    expect(hostExecCalls[1]).toContain("tmux split-window");
-    expect(hostExecCalls[1]).toContain("-t '%42'");
-    expect(hostExecCalls[1]).toContain("-h -l 50%");
-    expect(hostExecCalls[2]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
-    expect(hostExecCalls[3]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls).toHaveLength(5);
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toContain("tmux split-window");
+    expect(hostExecCalls[2]).toContain("-t '%42'");
+    expect(hostExecCalls[2]).toContain("-h -l 50%");
+    expect(hostExecCalls[3]).toContain("tmux show-options -p -t '%42' -v @maw_tile");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux select-layout"))).toBe(false);
   });
 
@@ -100,9 +108,10 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[0]).toContain("pane_current_command");
-    expect(hostExecCalls[1]).toContain("tmux split-window");
-    expect(hostExecCalls[1]).toContain("-t '%42'");
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toContain("tmux split-window");
+    expect(hostExecCalls[2]).toContain("-t '%42'");
   });
 
 
@@ -112,7 +121,8 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[0]).toContain("tmux split-window");
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("tmux split-window");
     expect(hostExecCalls.some(cmd => cmd.includes("pane_current_command"))).toBe(false);
   });
 
@@ -134,8 +144,8 @@ describe("wake maybeSplit", () => {
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
-    expect(hostExecCalls[4]).toContain("tmux select-layout -t '%42' tiled");
-    expect(hostExecCalls[5]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[5]).toContain("tmux select-layout -t '%42' tiled");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -S");
   });
 
   test("redraw nudge failure does not fail the split", async () => {
@@ -192,5 +202,7 @@ describe("wake maybeSplit", () => {
     else process.env.TMUX_PANE = originalPane;
     if (originalAllowClaudeSplit === undefined) delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
     else process.env.MAW_ALLOW_CLAUDE_SPLIT = originalAllowClaudeSplit;
+    if (originalAllowSelfBring === undefined) delete process.env.MAW_ALLOW_SELF_BRING;
+    else process.env.MAW_ALLOW_SELF_BRING = originalAllowSelfBring;
   });
 });

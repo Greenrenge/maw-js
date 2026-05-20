@@ -25,9 +25,9 @@ module.exports = {
       // bypassing the PM2 require hook entirely.
       // See scripts/maw-boot.launcher.cjs.
       script: 'scripts/maw-boot.launcher.cjs',
-      // #1811 — `wake all --resume` is deprecated; `fleet restore` reads
-      // the latest snapshot and re-wakes every oracle in it.
-      args: ['fleet', 'restore'],
+      // #1811 — `wake all --resume` is deprecated; `fleet restore --all`
+      // reads the latest snapshot and re-wakes every oracle in it.
+      args: ['fleet', 'restore', '--all'],
       interpreter: 'node',
       // One-shot: spawn fleet after server starts, don't restart
       autorestart: false,

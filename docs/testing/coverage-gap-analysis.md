@@ -1,26 +1,26 @@
 # Coverage gap analysis
 
-Generated: 2026-05-20T02:29:30.865Z
+Generated: 2026-05-20T03:03:29.655Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (30473/30473)
-Overall function coverage: **100.0%** (5064/5064)
+Overall line coverage: **100.0%** (30507/30507)
+Overall function coverage: **100.0%** (5068/5068)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 100.0% (5368/5368) | 100.0% (807/807) | n/a (0/0) |
+| cli/dispatch | 92 | 0 | 100.0% (5397/5397) | 100.0% (811/811) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (780/780) | 100.0% (135/135) | n/a (0/0) |
 | fleet | 19 | 0 | 100.0% (678/678) | 100.0% (108/108) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
 | other | 172 | 5 | 100.0% (8483/8483) | 100.0% (1457/1457) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 100.0% (677/677) | 100.0% (89/89) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 100.0% (423/423) | 100.0% (76/76) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 100.0% (428/428) | 100.0% (76/76) | n/a (0/0) |
 | transport | 28 | 0 | 100.0% (1678/1678) | 100.0% (448/448) | n/a (0/0) |
 | vendor plugins | 245 | 2 | 100.0% (12313/12313) | 100.0% (1926/1926) | n/a (0/0) |
 
@@ -64,6 +64,7 @@ Overall function coverage: **100.0%** (5064/5064)
 | cli/dispatch | `src/commands/shared/agents.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/artifacts.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/audit.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/bring-flags.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-list.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-log-feed.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-peek.ts` | 100.0% | 100.0% |
