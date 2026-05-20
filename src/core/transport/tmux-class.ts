@@ -272,8 +272,17 @@ export class Tmux {
     await this.tryRun("resize-window", "-t", target, "-x", c, "-y", r);
   }
 
-  async splitWindow(target: string): Promise<void> {
-    await this.run("split-window", "-t", target);
+  async splitWindow(target?: string, opts: {
+    cwd?: string;
+    command?: string;
+    printFormat?: string;
+  } = {}): Promise<string> {
+    const args: (string | number)[] = [];
+    if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
+    if (target) args.push("-t", target);
+    if (opts.cwd) args.push("-c", opts.cwd);
+    if (opts.command) args.push(opts.command);
+    return this.run("split-window", ...args);
   }
 
   async selectPane(target: string, opts: { title?: string } = {}): Promise<void> {

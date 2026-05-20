@@ -5,17 +5,33 @@ import { join } from "path";
 
 let sessions = new Set<string>();
 let newSessionCalls: Array<{ name: string; opts: any }> = [];
+let splitWindowCalls: Array<{ target?: string; opts: any }> = [];
+let selectPaneCalls: Array<{ target: string; opts: any }> = [];
 let attached: string[] = [];
 let firstPaneIds = new Map<string, string>();
 let commandForClaude = "claude --model sonnet";
+let currentSessionWindow = "work\tmain\n";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   tmux: {
+    run: async (subcommand: string, ...args: string[]) => {
+      if (subcommand === "display-message" && args.includes("#{session_name}\t#{window_name}")) {
+        return currentSessionWindow;
+      }
+      return "";
+    },
     hasSession: async (name: string) => sessions.has(name),
     newSession: async (name: string, opts: any = {}) => {
       sessions.add(name);
       newSessionCalls.push({ name, opts });
       return opts.printFormat ? "%99\n" : "";
+    },
+    splitWindow: async (target?: string, opts: any = {}) => {
+      splitWindowCalls.push({ target, opts });
+      return opts.printFormat ? "%77\n" : "";
+    },
+    selectPane: async (target: string, opts: any = {}) => {
+      selectPaneCalls.push({ target, opts });
     },
     firstPaneId: async (target: string) => firstPaneIds.get(target),
   },
@@ -37,9 +53,12 @@ const { cmdNew, decideNewWorkspaceAttach, isTruthyEnv, validateWorkspaceSessionN
 beforeEach(() => {
   sessions = new Set<string>();
   newSessionCalls = [];
+  splitWindowCalls = [];
+  selectPaneCalls = [];
   attached = [];
   firstPaneIds = new Map<string, string>();
   commandForClaude = "claude --model sonnet";
+  currentSessionWindow = "work\tmain\n";
 });
 
 describe("cmdNew workspace session factory", () => {
@@ -159,6 +178,42 @@ describe("cmdNew workspace session factory", () => {
     await expect(cmdNew(["conflict", "--claude", "--cmd", "bun dev", "--no-attach"]))
       .rejects.toThrow("either --claude or --cmd");
     expect(newSessionCalls).toEqual([]);
+  });
+
+  test("--split opens a named pane in the current tmux window and prints its pane id", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+      lines.push(String(line));
+    });
+    try {
+      await cmdNew(["agent-a", "-p", dir, "-c", "bun dev", "--split", "--print", "--no-attach"]);
+
+      expect(newSessionCalls).toEqual([]);
+      expect(splitWindowCalls).toEqual([
+        {
+          target: undefined,
+          opts: {
+            cwd: dir,
+            command: `bun dev; exec ${process.env.SHELL || "zsh"}`,
+            printFormat: "#{pane_id}",
+          },
+        },
+      ]);
+      expect(selectPaneCalls).toEqual([{ target: "%77", opts: { title: "agent-a" } }]);
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "work",
+        window: "main",
+        pane_id: "%77",
+        cwd: dir,
+        command: "bun dev",
+        reused: false,
+      });
+      expect(attached).toEqual([]);
+    } finally {
+      logSpy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("prints machine-readable payloads for new and existing lead panes", async () => {

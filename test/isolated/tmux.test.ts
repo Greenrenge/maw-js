@@ -237,6 +237,16 @@ describe("Tmux", () => {
       await t.splitWindow("oracles:page-1");
       expect(commands[0]).toBe("tmux split-window -t oracles:page-1");
     });
+
+    test("can print the new pane id while starting in a cwd with a command", async () => {
+      sshResult = "%77\n";
+      await expect(t.splitWindow(undefined, {
+        cwd: "/tmp/work",
+        command: "bun dev; exec zsh",
+        printFormat: "#{pane_id}",
+      })).resolves.toBe("%77\n");
+      expect(commands[0]).toBe("tmux split-window -P -F '#{pane_id}' -c /tmp/work 'bun dev; exec zsh'");
+    });
   });
 
   describe("selectPane", () => {

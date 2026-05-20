@@ -67,12 +67,13 @@ export function validateWorkspaceSessionName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--print|--json] [--attach|-a] [--no-attach]");
+  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach]");
   write("  Create a plain tmux workspace session with a lead shell window.");
   write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
   write("  --claude     Shortcut for Claude Code with maw team env enabled.");
+  write("  --split      Open as a split in the current tmux window instead of a new session.");
   write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
   write("  --json       Alias for --print.");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
@@ -143,6 +144,18 @@ async function leadPaneId(session: string): Promise<string | undefined> {
   return tmux.firstPaneId?.(`${session}:lead`) ?? undefined;
 }
 
+async function currentTmuxSessionWindow(): Promise<{ session: string; window: string }> {
+  let raw: string;
+  try {
+    raw = await tmux.run("display-message", "-p", "#{session_name}\t#{window_name}");
+  } catch {
+    throw new UserError("new: --split requires a current tmux client");
+  }
+  const [session, window] = raw.trim().split("\t");
+  if (!session || !window) throw new UserError("new: --split could not resolve the current tmux window");
+  return { session, window };
+}
+
 function printMachinePayload(payload: NewWorkspacePrintPayload): void {
   console.log(JSON.stringify(payload));
 }
@@ -159,6 +172,7 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "-c": "--cmd",
     "--shell": Boolean,
     "--claude": Boolean,
+    "--split": Boolean,
     "--print": Boolean,
     "--json": Boolean,
   }, 0);
@@ -184,6 +198,34 @@ export async function cmdNew(argv: string[]): Promise<void> {
   const tmuxCommand = shellAfterCommand(startupCommand);
 
   const machineReadable = !!(flags["--print"] || flags["--json"]);
+  const split = !!flags["--split"];
+
+  if (split) {
+    const { session, window } = await currentTmuxSessionWindow();
+    const rawPaneId = await tmux.splitWindow(undefined, {
+      cwd,
+      ...(tmuxCommand ? { command: tmuxCommand } : {}),
+      printFormat: "#{pane_id}",
+    });
+    const paneId = rawPaneId?.trim() || undefined;
+    if (paneId) await tmux.selectPane(paneId, { title: name });
+
+    if (machineReadable) {
+      printMachinePayload({
+        session,
+        window,
+        ...(paneId ? { pane_id: paneId } : {}),
+        cwd,
+        ...(startupCommand ? { command: startupCommand } : {}),
+        reused: false,
+      });
+    } else {
+      const mode = startupCommand ? "split shell + command" : "split shell";
+      console.log(`\x1b[32m✓\x1b[0m created ${mode} '${name}' in ${session}:${window}`);
+    }
+    return;
+  }
+
   const existed = await tmux.hasSession(name);
   let paneId: string | undefined;
   if (!existed) {
