@@ -11,8 +11,8 @@
  * passthrough branch doesn't point at our wrapper (see #375 pollution catalog).
  * Every passthrough wrapper forwards via (...args).
  * os.homedir() caching is avoided by setting process.env.MAW_CONFIG_DIR to a
- * mkdtempSync path BEFORE any workspace-* module is imported — workspace-store
- * reads that env var at module load (src/commands/shared/workspace-store.ts:7).
+ * mkdtempSync path before each workspace-store operation; workspace-store
+ * resolves paths through the shared XDG helper at call time.
  *
  * process.exit is stubbed into a throw so we can observe exit branches without
  * tearing the runner down.

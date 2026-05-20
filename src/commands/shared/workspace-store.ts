@@ -1,16 +1,17 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { loadConfig } from "../../config";
+import { mawConfigPath } from "../../core/xdg";
 
 // ── Workspace config directory ──────────────────────────────────────
-export const WORKSPACES_DIR = join(
-  process.env.MAW_CONFIG_DIR || join(homedir(), ".config", "maw"),
-  "workspaces"
-);
+export function workspacesDir(): string {
+  return mawConfigPath("workspaces");
+}
+
+export const WORKSPACES_DIR = workspacesDir();
 
 function ensureDir(): void {
-  mkdirSync(WORKSPACES_DIR, { recursive: true });
+  mkdirSync(workspacesDir(), { recursive: true });
 }
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ export interface WorkspaceConfig {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 export function configPath(id: string): string {
-  return join(WORKSPACES_DIR, `${id}.json`);
+  return join(workspacesDir(), `${id}.json`);
 }
 
 /**
@@ -95,11 +96,12 @@ export function saveWorkspace(ws: WorkspaceConfig): void {
 export function loadAllWorkspaces(): WorkspaceConfig[] {
   try {
     ensureDir();
-    const files = readdirSync(WORKSPACES_DIR).filter(f => f.endsWith(".json"));
+    const dir = workspacesDir();
+    const files = readdirSync(dir).filter(f => f.endsWith(".json"));
     return files
       .map(f => {
         try {
-          return normalizeWorkspace(JSON.parse(readFileSync(join(WORKSPACES_DIR, f), "utf-8")));
+          return normalizeWorkspace(JSON.parse(readFileSync(join(dir, f), "utf-8")));
         } catch {
           return null;
         }
