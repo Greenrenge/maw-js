@@ -61,16 +61,23 @@ async function refreshSplitClient(): Promise<void> {
 }
 
 async function refreshSourceClient(anchor?: string): Promise<void> {
-  try {
-    if (anchor) {
+  if (anchor) {
+    try {
       const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
       const client = String(raw).trim();
       if (client.length > 0) {
-        await hostExec(`tmux refresh-client -t ${shellArg(client)}`);
+        await hostExec(`tmux refresh-client -S -t ${shellArg(client)}`);
         return;
       }
+    } catch {
+      // Fall through to a global structural refresh. Some tmux versions or
+      // transient clients reject targeted refreshes even though the repaint is
+      // only cosmetic.
     }
-    await hostExec("tmux refresh-client");
+  }
+
+  try {
+    await hostExec("tmux refresh-client -S");
   } catch {
     // Best-effort full-client redraw only (#1816/#1562): the background tab
     // was created; never fail the user action because the source client
@@ -83,8 +90,18 @@ async function repaintSourcePane(anchor?: string): Promise<void> {
   try {
     await hostExec(`tmux send-keys -t ${shellArg(anchor)} C-l`);
   } catch {
-    // Best-effort repaint only: the background tab is still safer than
-    // split-attaching from Claude-like panes, so never fail delivery here.
+    // Keep going: the refresh-client -S nudge below is often the more
+    // important part of clearing stale lower-half redraw artifacts.
+  }
+  await refreshSourceClient(anchor);
+}
+
+async function clearNewTabPane(target: string): Promise<void> {
+  try {
+    await hostExec(`tmux send-keys -t ${shellArg(target)} C-l`);
+  } catch {
+    // Best-effort repaint only: a failed clear must not hide the newly opened
+    // background tab from the caller.
   }
 }
 
@@ -220,14 +237,15 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
   const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
   const destination = opts.destinationSession ? `-t ${shellArg(`${opts.destinationSession}:`)} ` : "";
   await repaintSourcePane(opts.sourceAnchor);
-  await hostExec(`tmux new-window -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
+  const opened = await hostExec(`tmux new-window -P -F '#{window_id}' -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
+  const openedWindow = String(opened).trim();
+  if (openedWindow.length > 0) await clearNewTabPane(openedWindow);
   if (opts.sourceAnchor) {
     // The detached nested attach can make tmux repaint the caller after our
-    // first C-l. Repaint again, then refresh the *client attached to that
-    // pane* (not merely the global status line) so Claude-like TUIs do not
-    // keep the lower-half dot smear observed at 957c41c1.
+    // first C-l. Repaint again, then structurally refresh the *client attached
+    // to that pane* (not merely the global status line) so Claude-like TUIs do
+    // not keep the lower-half dot smear observed at 957c41c1.
     await repaintSourcePane(opts.sourceAnchor);
-    await refreshSourceClient(opts.sourceAnchor);
   }
   console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
 }
