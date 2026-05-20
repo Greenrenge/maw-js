@@ -1,6 +1,6 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { tmux } from "../../sdk";
+import { FLEET_DIR, tmux } from "../../sdk";
 import { fleetDirForWrite as coreFleetDirForWrite, fleetDirsForRead as coreFleetDirsForRead, uniqueDirs } from "../../core/fleet/paths";
 
 export interface FleetWindow {
@@ -28,7 +28,7 @@ export interface FleetEntry {
 }
 
 export function fleetDirsForRead(): string[] {
-  return coreFleetDirsForRead();
+  return coreFleetDirsForRead({ legacyFleetDir: FLEET_DIR });
 }
 
 export function fleetDirForWrite(): string {
