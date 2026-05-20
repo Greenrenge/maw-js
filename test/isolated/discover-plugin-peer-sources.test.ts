@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { mockConfigModule } from "../helpers/mock-config";
 import type { DiscoveryError, DiscoveryResponse } from "../../src/vendor/mpr-plugins/peers/discovered";
 import type { LoadedPlugin } from "../../src/plugin/types";
+import type { FleetEntry } from "../../src/commands/shared/fleet-load";
 
 const configPath = import.meta.resolve("../../src/config");
 const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
 const sshPath = import.meta.resolve("../../src/core/transport/ssh");
 const registryPath = import.meta.resolve("../../src/plugin/registry");
 const repoDiscoveryPath = import.meta.resolve("../../src/core/repo-discovery");
+const fleetLoadPath = import.meta.resolve("../../src/commands/shared/fleet-load");
 
 let configValue: Record<string, unknown> = {};
 let discoveryResult: DiscoveryResponse | DiscoveryError;
@@ -16,6 +18,8 @@ let pluginRows: LoadedPlugin[] = [];
 let pluginError: Error | null = null;
 let ghqPaths: string[] = [];
 let ghqError: Error | null = null;
+let fleetEntries: FleetEntry[] = [];
+let fleetError: Error | null = null;
 let sessions: Array<{
   name: string;
   windows: Array<{ index: number; name: string; active: boolean }>;
@@ -58,6 +62,13 @@ mock.module(repoDiscoveryPath, () => ({
     findBySuffix: async () => null,
     findBySuffixSync: () => null,
   }),
+}));
+
+mock.module(fleetLoadPath, () => ({
+  loadFleetEntries: () => {
+    if (fleetError) throw fleetError;
+    return fleetEntries;
+  },
 }));
 
 const { command, default: handler } = await import("../../src/commands/plugins/discover/index.ts?discover-plugin-peer-sources");
@@ -104,6 +115,19 @@ function plugin(name: string, overrides: Partial<LoadedPlugin> = {}): LoadedPlug
   };
 }
 
+function fleetEntry(name: string, windows: FleetEntry["session"]["windows"], overrides: Partial<FleetEntry> = {}): FleetEntry {
+  return {
+    file: `50-${name}.json`,
+    num: 50,
+    groupName: name,
+    session: {
+      name: `50-${name}`,
+      windows,
+    },
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   configValue = {
     peers: ["http://config:3456"],
@@ -115,6 +139,8 @@ beforeEach(() => {
   pluginError = null;
   ghqPaths = [];
   ghqError = null;
+  fleetEntries = [];
+  fleetError = null;
   sessions = [];
   sessionsError = null;
 });
@@ -157,6 +183,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(parsed.total).toBe(2);
     expect(parsed.plugins).toEqual({
       source: "plugin-registry",
+      total: 0,
+      records: [],
+    });
+    expect(parsed.fleet).toEqual({
+      source: "fleet-config",
       total: 0,
       records: [],
     });
@@ -225,6 +256,80 @@ describe("discover plugin peer-source integration (#1808)", () => {
       capabilities: ["sdk:identity"],
       dependencies: ["base"],
     }]);
+  });
+
+  test("includes deduped fleet config workspaces in JSON and tree output", async () => {
+    configValue = {
+      namedPeers: [
+        { name: "m5", url: "http://m5:3456" },
+        { name: "white", url: "http://white:3456" },
+      ],
+      agents: {
+        "mawjs-oracle": "m5",
+        "white-oracle": "white",
+      },
+      node: "m5",
+    };
+    fleetEntries = [
+      fleetEntry("mawjs", [
+        { name: "mawjs-oracle", repo: "Soul-Brews-Studio/maw-js" },
+        { name: "white-oracle", repo: "Soul-Brews-Studio/white-oracle" },
+      ]),
+      fleetEntry("mawjs-dupe", [
+        { name: "mawjs-oracle", repo: "Soul-Brews-Studio/maw-js" },
+      ], { file: "51-mawjs-dupe.json", num: 51, groupName: "mawjs-dupe" }),
+    ];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.fleet.total).toBe(2);
+    expect(parsed.fleet.records).toEqual([
+      {
+        source: "fleet-config",
+        type: "workspace",
+        file: "50-mawjs.json",
+        slot: 50,
+        groupName: "mawjs",
+        session: "50-mawjs",
+        name: "mawjs-oracle",
+        repo: "Soul-Brews-Studio/maw-js",
+        node: "m5",
+        endpoint: "http://m5:3456",
+        peerMatched: true,
+      },
+      {
+        source: "fleet-config",
+        type: "workspace",
+        file: "50-mawjs.json",
+        slot: 50,
+        groupName: "mawjs",
+        session: "50-mawjs",
+        name: "white-oracle",
+        repo: "Soul-Brews-Studio/white-oracle",
+        node: "white",
+        endpoint: "http://white:3456",
+        peerMatched: true,
+      },
+    ]);
+    expect(parsed.tree.fleet.map((record: { name: string }) => record.name)).toEqual(["mawjs-oracle", "white-oracle"]);
+  });
+
+  test("renders fleet config text with configured-but-offline workspaces", async () => {
+    configValue = {
+      peers: [],
+      namedPeers: [],
+      agents: { "offline-oracle": "white" },
+    };
+    fleetEntries = [fleetEntry("offline", [{ name: "offline-oracle", repo: "Soul-Brews-Studio/offline-oracle" }])];
+
+    const result = await handler({ source: "cli", args: ["--peers=config"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet config");
+    expect(result.output).toContain("offline-oracle");
+    expect(result.output).toContain("offline");
   });
 
   test("renders plugin registry in text output", async () => {
@@ -314,6 +419,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
       total: 0,
       records: [],
     });
+    expect(parsed.fleet).toEqual({
+      source: "fleet-config",
+      total: 0,
+      records: [],
+    });
     expect(parsed.ghq).toEqual({
       source: "ghq",
       total: 0,
@@ -377,6 +487,16 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("plugins (0 registered)");
     expect(result.output).toContain("warning: plugin registry unavailable (bad registry)");
+  });
+
+  test("renders fleet config warnings in tree output without crashing", async () => {
+    fleetError = new Error("fleet missing");
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet config (0 configured)");
+    expect(result.output).toContain("warning: fleet config unavailable (fleet missing)");
   });
 
   test("renders ghq warnings in tree output without crashing", async () => {

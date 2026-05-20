@@ -5,12 +5,16 @@ import type { Session } from "../../../core/runtime/find-window";
 import { getRepos } from "../../../core/repo-discovery";
 import { discoverPackages } from "../../../plugin/registry";
 import type { LoadedPlugin } from "../../../plugin/types";
+import { loadFleetEntries } from "../../shared/fleet-load";
+import type { FleetEntry } from "../../shared/fleet-load";
 import {
   formatPeerSources,
+  type PeerTarget,
   type PeerSourceResult,
   parsePeerSourceMode,
   resolvePeerSources,
 } from "../../shared/peer-sources";
+import type { MawConfig } from "../../../config";
 
 export const command = {
   name: "discover",
@@ -115,6 +119,27 @@ interface GhqState {
   warnings: string[];
 }
 
+interface FleetConfigRecord {
+  source: "fleet-config";
+  type: "workspace";
+  file: string;
+  slot: number;
+  groupName: string;
+  session: string;
+  name: string;
+  repo?: string;
+  node: string;
+  endpoint?: string;
+  peerMatched: boolean;
+}
+
+interface FleetConfigState {
+  source: "fleet-config";
+  total: number;
+  records: FleetConfigRecord[];
+  warnings: string[];
+}
+
 function liveSession(session: Session): LiveSession {
   return {
     source: "tmux",
@@ -201,6 +226,68 @@ async function loadGhqState(): Promise<GhqState> {
   }
 }
 
+function peerIdentityKeys(peer: PeerTarget): string[] {
+  return [peer.name, peer.node, peer.oracle].filter((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function endpointForNode(node: string, peers: PeerTarget[]): PeerTarget | undefined {
+  return peers.find((peer) => peerIdentityKeys(peer).includes(node));
+}
+
+function fleetWindowNode(config: MawConfig, name: string): string {
+  return config.agents?.[name] ?? config.node ?? "local";
+}
+
+function fleetRecord(config: MawConfig, entry: FleetEntry, window: { name?: string; repo?: string }, peers: PeerTarget[]): FleetConfigRecord | null {
+  if (!window.name) return null;
+  const node = fleetWindowNode(config, window.name);
+  const peer = endpointForNode(node, peers);
+  return {
+    source: "fleet-config",
+    type: "workspace",
+    file: entry.file,
+    slot: entry.num,
+    groupName: entry.groupName,
+    session: entry.session.name,
+    name: window.name,
+    repo: window.repo,
+    node,
+    endpoint: peer?.url,
+    peerMatched: Boolean(peer),
+  };
+}
+
+function loadFleetConfigState(config: MawConfig, peers: PeerTarget[]): FleetConfigState {
+  try {
+    const seen = new Set<string>();
+    const records: FleetConfigRecord[] = [];
+    for (const entry of loadFleetEntries()) {
+      for (const window of entry.session.windows ?? []) {
+        const record = fleetRecord(config, entry, window, peers);
+        if (!record) continue;
+        const key = `${record.node}\0${record.name}\0${record.repo ?? ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        records.push(record);
+      }
+    }
+    return {
+      source: "fleet-config",
+      total: records.length,
+      records,
+      warnings: [],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      source: "fleet-config",
+      total: 0,
+      records: [],
+      warnings: [`fleet config unavailable (${message})`],
+    };
+  }
+}
+
 function pluginRecord(plugin: LoadedPlugin): PluginRecord {
   const manifest = plugin.manifest;
   return {
@@ -271,10 +358,27 @@ function renderGhqRepos(ghq: GhqState): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function renderDiscoverTable(result: PeerSourceResult, plugins: PluginRegistryState, ghq: GhqState): string {
+function renderFleetConfig(fleet: FleetConfigState): string {
+  if (fleet.records.length === 0) return "no configured fleet workspaces";
+  const header = ["node", "name", "session", "endpoint", "repo"];
+  const rows = fleet.records.map((record) => [
+    record.node,
+    record.name,
+    record.session,
+    record.endpoint ?? "offline",
+    record.repo ?? "-",
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+  return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
+}
+
+function renderDiscoverTable(result: PeerSourceResult, plugins: PluginRegistryState, ghq: GhqState, fleet: FleetConfigState): string {
   const chunks = [formatPeerSources(result)];
+  if (fleet.records.length > 0) chunks.push(`fleet config\n${renderFleetConfig(fleet)}`);
   if (plugins.records.length > 0) chunks.push(`plugin registry\n${renderPluginRecords(plugins)}`);
   if (ghq.repos.length > 0) chunks.push(`ghq repos\n${renderGhqRepos(ghq)}`);
+  for (const warning of fleet.warnings) chunks.push(`warning: ${warning}`);
   for (const warning of plugins.warnings) chunks.push(`warning: ${warning}`);
   for (const warning of ghq.warnings) chunks.push(`warning: ${warning}`);
   return chunks.join("\n\n");
@@ -289,7 +393,7 @@ function renderLiveSessions(live: LiveRuntimeState): string {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...rows.map(fmt)].join("\n");
 }
 
-function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, plugins: PluginRegistryState, ghq: GhqState): string {
+function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, plugins: PluginRegistryState, ghq: GhqState, fleet: FleetConfigState): string {
   const lines = ["discover"];
   lines.push(`  tmux (${live.sessions.length} live session${live.sessions.length === 1 ? "" : "s"})`);
   for (const session of live.sessions) {
@@ -304,6 +408,12 @@ function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, pl
     const label = peer.name ?? peer.node ?? peer.oracle ?? "-";
     lines.push(`    ${peer.source} ${label} -> ${peer.url}`);
   }
+  lines.push(`  fleet config (${fleet.records.length} configured)`);
+  for (const record of fleet.records) {
+    const endpoint = record.endpoint ? ` endpoint=${record.endpoint}` : " offline";
+    const repo = record.repo ? ` repo=${record.repo}` : "";
+    lines.push(`    ${record.node}/${record.name} ${record.session}${endpoint}${repo}`);
+  }
   lines.push(`  plugins (${plugins.records.length} registered)`);
   for (const plugin of plugins.records) {
     const command = plugin.command ? ` command=${plugin.command}` : "";
@@ -316,7 +426,7 @@ function renderDiscoverTree(result: PeerSourceResult, live: LiveRuntimeState, pl
     const worktree = repo.worktree ? " worktree" : "";
     lines.push(`    ${repo.name}${oracle}${worktree} -> ${repo.path}`);
   }
-  for (const warning of [...result.warnings, ...live.warnings, ...plugins.warnings, ...ghq.warnings]) lines.push(`warning: ${warning}`);
+  for (const warning of [...result.warnings, ...live.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings]) lines.push(`warning: ${warning}`);
   return lines.join("\n");
 }
 
@@ -366,7 +476,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     return { ok: true, output: logs.join("\n") || undefined };
   }
 
-  const result = await resolvePeerSources(loadConfig(), mode);
+  const config = loadConfig();
+  const result = await resolvePeerSources(config, mode);
+  const fleet = loadFleetConfigState(config, result.peers);
   const plugins = loadPluginRegistryState();
   const ghq = await loadGhqState();
 
@@ -381,28 +493,38 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         total: plugins.total,
         records: plugins.records,
       },
+      fleet: {
+        source: fleet.source,
+        total: fleet.total,
+        records: fleet.records,
+      },
       ghq: {
         source: ghq.source,
         total: ghq.total,
         repos: ghq.repos,
       },
-      warnings: [...result.warnings, ...plugins.warnings, ...ghq.warnings],
-    }, null, 2) : renderDiscoverTable(result, plugins, ghq));
+      warnings: [...result.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings],
+    }, null, 2) : renderDiscoverTable(result, plugins, ghq, fleet));
     return { ok: true, output: logs.join("\n") || undefined };
   }
 
   const live = await loadLiveRuntimeState();
-  const warnings = [...result.warnings, ...live.warnings, ...plugins.warnings, ...ghq.warnings];
+  const warnings = [...result.warnings, ...live.warnings, ...fleet.warnings, ...plugins.warnings, ...ghq.warnings];
 
   if (json) {
     emit(JSON.stringify({
       ok: true,
       mode: result.mode,
       total: tree
-        ? result.peers.length + live.sessions.length + plugins.records.length + ghq.repos.length
+        ? result.peers.length + live.sessions.length + fleet.records.length + plugins.records.length + ghq.repos.length
         : live.sessions.length,
       awakeOnly: awake,
       peers: tree ? result.peers : [],
+      fleet: {
+        source: fleet.source,
+        total: fleet.total,
+        records: tree ? fleet.records : [],
+      },
       plugins: {
         source: plugins.source,
         total: plugins.total,
@@ -418,11 +540,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         total: live.total,
         sessions: live.sessions,
       },
-      ...(tree ? { tree: { live: live.sessions, peers: result.peers, plugins: plugins.records, ghq: ghq.repos } } : {}),
+      ...(tree ? { tree: { live: live.sessions, peers: result.peers, fleet: fleet.records, plugins: plugins.records, ghq: ghq.repos } } : {}),
       warnings,
     }, null, 2));
   } else {
-    emit(tree ? renderDiscoverTree(result, live, plugins, ghq) : renderLiveSessions(live));
+    emit(tree ? renderDiscoverTree(result, live, plugins, ghq, fleet) : renderLiveSessions(live));
   }
   return { ok: true, output: logs.join("\n") || undefined };
 }
