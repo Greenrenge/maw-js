@@ -109,15 +109,27 @@ export class Tmux {
     cwd?: string;
     detached?: boolean;
     command?: string;
-  } = {}): Promise<void> {
+    printFormat?: string;
+  } = {}): Promise<string> {
     const args: (string | number)[] = [];
     if (opts.detached !== false) args.push("-d");
+    if (opts.printFormat) args.push("-P", "-F", opts.printFormat);
     args.push("-s", name);
     if (opts.window) args.push("-n", opts.window);
     if (opts.cwd) args.push("-c", opts.cwd);
     if (opts.command) args.push(opts.command);
-    await this.run("new-session", ...args);
+    const out = await this.run("new-session", ...args);
     await this.setOption(name, "renumber-windows", "on");
+    return out;
+  }
+
+  async firstPaneId(target: string): Promise<string | undefined> {
+    try {
+      const raw = await this.run("list-panes", "-t", target, "-F", "#{pane_id}");
+      return raw.split("\n").map(line => line.trim()).find(Boolean);
+    } catch {
+      return undefined;
+    }
   }
 
   /** Create a grouped session — shares windows with parent, independent sizing.

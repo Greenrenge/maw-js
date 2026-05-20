@@ -66,11 +66,13 @@ export function validateWorkspaceSessionName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>] [--shell] [--attach|-a] [--no-attach]");
+  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>] [--shell] [--print|--json] [--attach|-a] [--no-attach]");
   write("  Create a plain tmux workspace session with a lead shell window.");
   write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
+  write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
+  write("  --json       Alias for --print.");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
   write("  Oracle creation remains: maw awaken <name> (or maw bud <name>).");
 }
@@ -112,6 +114,23 @@ function shellAfterCommand(command: string | undefined): string | undefined {
   return `${command}; exec ${process.env.SHELL || "zsh"}`;
 }
 
+type NewWorkspacePrintPayload = {
+  session: string;
+  window: string;
+  pane_id?: string;
+  cwd: string;
+  command?: string;
+  reused: boolean;
+};
+
+async function leadPaneId(session: string): Promise<string | undefined> {
+  return tmux.firstPaneId?.(`${session}:lead`) ?? undefined;
+}
+
+function printMachinePayload(payload: NewWorkspacePrintPayload): void {
+  console.log(JSON.stringify(payload));
+}
+
 /** Implementation of `maw new <name>` as a workspace/session factory. */
 export async function cmdNew(argv: string[]): Promise<void> {
   const flags = parseFlags(argv, {
@@ -123,6 +142,8 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--cmd": String,
     "-c": "--cmd",
     "--shell": Boolean,
+    "--print": Boolean,
+    "--json": Boolean,
   }, 0);
 
   const name = (flags._ as string[])[0];
@@ -140,17 +161,35 @@ export async function cmdNew(argv: string[]): Promise<void> {
   const startupCommand = normalizeStartupCommand(flags["--cmd"]);
   const tmuxCommand = shellAfterCommand(startupCommand);
 
+  const machineReadable = !!(flags["--print"] || flags["--json"]);
   const existed = await tmux.hasSession(name);
+  let paneId: string | undefined;
   if (!existed) {
-    await tmux.newSession(name, {
+    const rawPaneId = await tmux.newSession(name, {
       window: "lead",
       cwd,
       ...(tmuxCommand ? { command: tmuxCommand } : {}),
+      ...(machineReadable ? { printFormat: "#{pane_id}" } : {}),
     });
-    const mode = startupCommand ? "lead shell + command" : "lead shell";
-    console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (${mode})`);
+    paneId = rawPaneId?.trim() || undefined;
+    if (!machineReadable) {
+      const mode = startupCommand ? "lead shell + command" : "lead shell";
+      console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (${mode})`);
+    }
   } else {
-    console.log(`\x1b[36m→\x1b[0m session exists: ${name}`);
+    paneId = machineReadable ? await leadPaneId(name) : undefined;
+    if (!machineReadable) console.log(`\x1b[36m→\x1b[0m session exists: ${name}`);
+  }
+
+  if (machineReadable) {
+    printMachinePayload({
+      session: name,
+      window: "lead",
+      ...(paneId ? { pane_id: paneId } : {}),
+      cwd,
+      ...(startupCommand ? { command: startupCommand } : {}),
+      reused: existed,
+    });
   }
 
   const decision = decideNewWorkspaceAttach({
@@ -166,6 +205,8 @@ export async function cmdNew(argv: string[]): Promise<void> {
     return;
   }
 
-  console.log(`\x1b[36mRun:\x1b[0m maw a ${name}`);
-  console.log(`\x1b[90m  next: maw team bring ${name}\x1b[0m`);
+  if (!machineReadable) {
+    console.log(`\x1b[36mRun:\x1b[0m maw a ${name}`);
+    console.log(`\x1b[90m  next: maw team bring ${name}\x1b[0m`);
+  }
 }

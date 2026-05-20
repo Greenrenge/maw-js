@@ -97,6 +97,18 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat 'bun dev; exec zsh'");
     });
 
+    test("prints a requested format", async () => {
+      sshResult = "%99\n";
+      await expect(t.newSession("s1", { printFormat: "#{pane_id}" })).resolves.toBe("%99\n");
+      expect(commands[0]).toBe("tmux new-session -d -P -F '#{pane_id}' -s s1");
+    });
+
+    test("looks up the first pane id for an existing target", async () => {
+      sshResult = "%42\n%43\n";
+      await expect(t.firstPaneId("s1:lead")).resolves.toBe("%42");
+      expect(commands[0]).toBe("tmux list-panes -t s1:lead -F '#{pane_id}'");
+    });
+
     test("non-detached", async () => {
       await t.newSession("s1", { detached: false });
       expect(commands[0]).toBe("tmux new-session -s s1");

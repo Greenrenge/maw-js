@@ -6,6 +6,7 @@ import { join } from "path";
 let sessions = new Set<string>();
 let newSessionCalls: Array<{ name: string; opts: any }> = [];
 let attached: string[] = [];
+let firstPaneIds = new Map<string, string>();
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   tmux: {
@@ -13,7 +14,9 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
     newSession: async (name: string, opts: any = {}) => {
       sessions.add(name);
       newSessionCalls.push({ name, opts });
+      return opts.printFormat ? "%99\n" : "";
     },
+    firstPaneId: async (target: string) => firstPaneIds.get(target),
   },
 }));
 
@@ -27,6 +30,7 @@ beforeEach(() => {
   sessions = new Set<string>();
   newSessionCalls = [];
   attached = [];
+  firstPaneIds = new Map<string, string>();
 });
 
 describe("cmdNew workspace session factory", () => {
@@ -115,6 +119,55 @@ describe("cmdNew workspace session factory", () => {
       expect(newSessionCalls).toEqual([]);
       expect(attached).toEqual([]);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prints machine-readable payloads for new and existing lead panes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+      lines.push(String(line));
+    });
+    try {
+      await cmdNew(["script", "--path", dir, "--cmd", "bun test", "--print", "--no-attach"]);
+
+      expect(newSessionCalls).toEqual([
+        {
+          name: "script",
+          opts: {
+            window: "lead",
+            cwd: dir,
+            command: `bun test; exec ${process.env.SHELL || "zsh"}`,
+            printFormat: "#{pane_id}",
+          },
+        },
+      ]);
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "script",
+        window: "lead",
+        pane_id: "%99",
+        cwd: dir,
+        command: "bun test",
+        reused: false,
+      });
+
+      lines.length = 0;
+      newSessionCalls = [];
+      sessions.add("script");
+      firstPaneIds.set("script:lead", "%42");
+      await cmdNew(["script", "--path", dir, "--json", "--no-attach"]);
+      expect(newSessionCalls).toEqual([]);
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "script",
+        window: "lead",
+        pane_id: "%42",
+        cwd: dir,
+        reused: true,
+      });
+    } finally {
+      logSpy.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
   });
