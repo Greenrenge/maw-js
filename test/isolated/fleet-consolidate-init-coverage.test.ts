@@ -38,6 +38,9 @@ let ghqListReturn: string[] = [];
 
 mock.module(sdkPath, () => ({
   FLEET_DIR,
+  tmux: {
+    run: async () => "",
+  },
   hostExec: async (command: string) => {
     hostExecCalls.push(command);
     return await hostExecHandler(command);

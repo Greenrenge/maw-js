@@ -137,13 +137,29 @@ describe("fleet-load coverage", () => {
   test("loadFleetEntries reads XDG state fleet first with legacy config fallback", () => {
     writeFileSync(join(fleetDir, "10-legacy-only.json"), JSON.stringify({ name: "legacy", windows: [] }));
     writeFileSync(join(fleetDir, "20-overlap.json"), JSON.stringify({ name: "legacy-overlap", windows: [] }));
-    writeFileSync(join(fleetDir, "40-legacy.disabled"), "{}");
+    writeFileSync(join(fleetDir, "40-legacy.json.disabled"), "{}");
     writeFileSync(join(stateFleetDir, "05-state-only.json"), JSON.stringify({ name: "state", windows: [{ name: "state-oracle" }] }));
     writeFileSync(join(stateFleetDir, "20-overlap.json"), JSON.stringify({ name: "state-overlap", windows: [{ name: "winner" }] }));
-    writeFileSync(join(stateFleetDir, "40-state.disabled"), "{}");
-    writeFileSync(join(stateFleetDir, "40-legacy.disabled"), "{}");
+    writeFileSync(join(stateFleetDir, "40-state.json.disabled"), "{}");
+    writeFileSync(join(stateFleetDir, "40-legacy.json.disabled"), "{}");
 
     expect(fleetLoad.countDisabledFleetFiles()).toBe(2);
+    expect(fleetLoad.loadDisabledFleetEntries().map(({ file, path, num, groupName, session }) => ({ file, path, num, groupName, session }))).toEqual([
+      {
+        file: "40-legacy.json.disabled",
+        path: join(stateFleetDir, "40-legacy.json.disabled"),
+        num: 40,
+        groupName: "legacy",
+        session: {},
+      },
+      {
+        file: "40-state.json.disabled",
+        path: join(stateFleetDir, "40-state.json.disabled"),
+        num: 40,
+        groupName: "state",
+        session: {},
+      },
+    ]);
     expect(fleetLoad.loadFleetEntries()).toEqual([
       {
         file: "05-state-only.json",

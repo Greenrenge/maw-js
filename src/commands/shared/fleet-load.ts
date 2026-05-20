@@ -27,6 +27,16 @@ export interface FleetEntry {
   session: FleetSession;
 }
 
+export interface DisabledFleetEntry {
+  file: string;
+  /** Absolute path of the disabled config file that supplied this entry. */
+  path: string;
+  num: number;
+  groupName: string;
+  session?: FleetSession;
+  error?: unknown;
+}
+
 export function fleetDirsForRead(): string[] {
   return coreFleetDirsForRead({ legacyFleetDir: FLEET_DIR });
 }
@@ -54,35 +64,63 @@ function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: stri
   return [...byName.values()].sort((a, b) => a.file.localeCompare(b.file));
 }
 
+function readDisabledFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string }> {
+  const byName = new Map<string, { file: string; path: string }>();
+  for (const dir of uniqueDirs(dirs)) {
+    if (!existsSync(dir)) continue;
+    let files: string[];
+    try {
+      files = readdirSync(dir)
+        .filter(f => f.endsWith(".disabled"))
+        .sort();
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!byName.has(file)) byName.set(file, { file, path: join(dir, file) });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.file.localeCompare(b.file));
+}
+
+function parseFleetFileInfo(file: string): { num: number; groupName: string } {
+  const activeName = file.replace(/\.disabled$/i, "");
+  const match = activeName.match(/^(\d+)-(.+)\.json$/);
+  return {
+    num: match ? parseInt(match[1], 10) : 0,
+    groupName: match ? match[2] : activeName.replace(/\.json$/i, ""),
+  };
+}
+
 export function loadFleet(dirs: string[] = fleetDirsForRead()): FleetSession[] {
   return readFleetFiles(dirs).map(({ path }) => JSON.parse(readFileSync(path, "utf-8")) as FleetSession);
 }
 
 
 export function countDisabledFleetFiles(dirs: string[] = fleetDirsForRead()): number {
-  const disabled = new Set<string>();
-  for (const dir of uniqueDirs(dirs)) {
-    if (!existsSync(dir)) continue;
+  return readDisabledFleetFiles(dirs).length;
+}
+
+export function loadDisabledFleetEntries(dirs: string[] = fleetDirsForRead()): DisabledFleetEntry[] {
+  return readDisabledFleetFiles(dirs).map(({ file, path }) => {
+    const { num, groupName } = parseFleetFileInfo(file);
     try {
-      for (const file of readdirSync(dir)) {
-        if (file.endsWith(".disabled")) disabled.add(file);
-      }
-    } catch {
-      continue;
+      return { file, path, num, groupName, session: JSON.parse(readFileSync(path, "utf-8")) as FleetSession };
+    } catch (error) {
+      return { file, path, num, groupName, error };
     }
-  }
-  return disabled.size;
+  });
 }
 
 export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntry[] {
   return readFleetFiles(dirs).map(({ file, path }) => {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
-    const match = file.match(/^(\d+)-(.+)\.json$/);
+    const { num, groupName } = parseFleetFileInfo(file);
     return {
       file,
       path,
-      num: match ? parseInt(match[1], 10) : 0,
-      groupName: match ? match[2] : file.replace(".json", ""),
+      num,
+      groupName,
       session: raw as FleetSession,
     };
   });
