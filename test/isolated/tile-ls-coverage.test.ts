@@ -133,8 +133,9 @@ describe("tile plugin index coverage", () => {
     const result = await tileHandler({ source: "cli", args: ["--help"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("usage: maw tile [N] [--path <dir>] [--cmd <cmd>]");
+    expect(result.output).toContain("usage: maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>]");
     expect(result.output).toContain("maw tile 3 -p /repo -c \"bun test\"");
+    expect(result.output).toContain("maw tile 3 --wt feat");
     expect(result.output).toContain("maw tile clean");
     expect(result.output).toContain("maw tile swap top bottom");
     expect(tileCalls).toEqual([]);
@@ -144,8 +145,11 @@ describe("tile plugin index coverage", () => {
     let result = await tileHandler({ source: "api", args: ["ignored"] } as any);
     expect(result).toEqual({ ok: true, output: "tile 0" });
 
-    result = await tileHandler({ source: "cli", args: ["3", "--wt", "-p", "/tmp", "-c", "bun test", "--shell", "-e", "claude"] } as any);
+    result = await tileHandler({ source: "cli", args: ["3", "--wt", "explore", "-p", "src", "-c", "bun test", "--shell", "-e", "claude"] } as any);
     expect(result).toEqual({ ok: true, output: "tile 3" });
+
+    result = await tileHandler({ source: "cli", args: ["2", "--wt"] } as any);
+    expect(result).toEqual({ ok: true, output: "tile 2" });
 
     result = await tileHandler({ source: "cli", args: ["clean"] } as any);
     expect(result).toEqual({ ok: true, output: "tile clean" });
@@ -155,7 +159,8 @@ describe("tile plugin index coverage", () => {
 
     expect(tileCalls).toEqual([
       { count: 0, opts: { wt: false, path: undefined, cmd: undefined, shell: false, engine: undefined } },
-      { count: 3, opts: { wt: true, path: "/tmp", cmd: "bun test", shell: true, engine: "claude" } },
+      { count: 3, opts: { wt: "explore", path: "src", cmd: "bun test", shell: true, engine: "claude" } },
+      { count: 2, opts: { wt: true, path: undefined, cmd: undefined, shell: false, engine: undefined } },
     ]);
     expect(tileCleanCalls).toBe(1);
     expect(tileSwapCalls).toEqual([{ a: "%1", b: "tile-2" }]);
