@@ -1,4 +1,4 @@
-/** Targeted isolated coverage for duplicated vendor split helper implementations. */
+/** Targeted isolated coverage for the canonical vendor split helper implementation. */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 type Session = {
@@ -18,6 +18,7 @@ type CmdSplit = (target: string, opts?: {
   lock?: boolean;
   settleMs?: number;
   anchorPane?: string;
+  claudePanePolicy?: string;
 }) => Promise<void>;
 
 let sessions: Session[] = [];
@@ -26,6 +27,10 @@ let resolveCalls: Array<{ target: string; sessions: Session[] }> = [];
 let listSessionsCalls = 0;
 let hostExecCalls: string[] = [];
 let hostExecFailure: unknown = null;
+let hostExecFailureNeedles: string[] = [];
+let paneCommandResponse = "";
+let anchorSessionResponse = "";
+let clientTtyResponse = "";
 let lockEvents: string[] = [];
 let normalizeCalls: string[] = [];
 let normalizeImpl: (target: string) => string = (target) => target;
@@ -37,6 +42,7 @@ const original = {
   error: console.error,
   tmux: process.env.TMUX,
   tmuxPane: process.env.TMUX_PANE,
+  forceSplit: process.env.MAW_FORCE_SPLIT,
 };
 
 mock.module("maw-js/sdk", () => ({
@@ -47,6 +53,10 @@ mock.module("maw-js/sdk", () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (hostExecFailure) throw hostExecFailure;
+    if (hostExecFailureNeedles.some((needle) => cmd.includes(needle))) throw new Error(`tmux probe failed: ${cmd}`);
+    if (cmd.includes("#{pane_current_command}")) return paneCommandResponse;
+    if (cmd.includes("#{session_name}")) return anchorSessionResponse;
+    if (cmd.includes("#{client_tty}")) return clientTtyResponse;
     return "";
   },
   withPaneLock: async (fn: () => Promise<void>) => {
@@ -73,14 +83,10 @@ mock.module("maw-js/core/matcher/normalize-target", () => ({
   },
 }));
 
-const budSplit = await import("../../src/vendor/mpr-plugins/bud/internal/split-impl.ts?vendor-split-helpers-coverage");
 const split = await import("../../src/vendor/mpr-plugins/split/impl.ts?vendor-split-helpers-coverage");
-const viewSplit = await import("../../src/vendor/mpr-plugins/view/internal/split-impl.ts?vendor-split-helpers-coverage");
 
 const helpers: Array<{ label: string; cmdSplit: CmdSplit }> = [
-  { label: "bud/internal/split-impl", cmdSplit: budSplit.cmdSplit },
   { label: "split/impl", cmdSplit: split.cmdSplit },
-  { label: "view/internal/split-impl", cmdSplit: viewSplit.cmdSplit },
 ];
 
 function stdout(): string {
@@ -105,9 +111,14 @@ beforeEach(() => {
   sessions = [];
   resolveResults = new Map();
   hostExecFailure = null;
+  hostExecFailureNeedles = [];
+  paneCommandResponse = "";
+  anchorSessionResponse = "";
+  clientTtyResponse = "";
   normalizeImpl = (target) => target;
   process.env.TMUX = "/tmp/tmux-test";
   process.env.TMUX_PANE = "%7";
+  delete process.env.MAW_FORCE_SPLIT;
   resetCalls();
   console.log = (...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
@@ -124,6 +135,8 @@ afterEach(() => {
   else process.env.TMUX = original.tmux;
   if (original.tmuxPane === undefined) delete process.env.TMUX_PANE;
   else process.env.TMUX_PANE = original.tmuxPane;
+  if (original.forceSplit === undefined) delete process.env.MAW_FORCE_SPLIT;
+  else process.env.MAW_FORCE_SPLIT = original.forceSplit;
 });
 
 for (const helper of helpers) {
@@ -170,6 +183,7 @@ for (const helper of helpers) {
       expect(listSessionsCalls).toBe(0);
       expect(resolveCalls).toEqual([]);
       expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
       ]);
       expect(stdout()).toContain("split beside — alpha:2 (50%)");
@@ -201,6 +215,7 @@ for (const helper of helpers) {
       expect(listSessionsCalls).toBe(1);
       expect(resolveCalls).toEqual([{ target: "alpha", sessions: seenSessions }]);
       expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t 01-alpha:4"`,
       ]);
       expect(stdout()).toContain("split beside — 01-alpha:4 (50%)");
@@ -263,6 +278,7 @@ for (const helper of helpers) {
 
       expect(lockEvents).toEqual(["lock:start", "lock:end"]);
       expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
       ]);
 
@@ -272,6 +288,7 @@ for (const helper of helpers) {
 
       expect(lockEvents).toEqual(["lock:start", "lock:end"]);
       expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
       ]);
     });
@@ -282,8 +299,116 @@ for (const helper of helpers) {
       await expect(helper.cmdSplit("alpha:2")).rejects.toThrow("split failed: tmux refused");
 
       expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
         `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
       ]);
+    });
+
+    test("defaults Claude-like source panes to a background tab", async () => {
+      paneCommandResponse = "claude";
+      anchorSessionResponse = "caller";
+      clientTtyResponse = "/dev/ttys001";
+
+      await helper.cmdSplit("alpha:2");
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux display-message -p -t '%7' '#{session_name}'`,
+        `tmux send-keys -t '%7' C-l`,
+        `tmux new-window -d -t 'caller:' -n 'split-2' 'TMUX= tmux attach-session -t alpha:2'`,
+        `tmux send-keys -t '%7' C-l`,
+        `tmux display-message -p -t '%7' '#{client_tty}'`,
+        `tmux refresh-client -t '/dev/ttys001'`,
+      ]);
+      expect(stdout()).toContain("opened background tab — alpha:2");
+    });
+
+    test("honors explicit Claude pane split policy and MAW_FORCE_SPLIT", async () => {
+      paneCommandResponse = "claude";
+
+      await helper.cmdSplit("alpha:2", { claudePanePolicy: "split" });
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
+      ]);
+
+      resetCalls();
+      paneCommandResponse = "claude";
+      process.env.MAW_FORCE_SPLIT = "1";
+
+      await helper.cmdSplit("alpha:2");
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux split-window -t '%7' -h -l 50% "TMUX= tmux attach-session -t alpha:2"`,
+      ]);
+    });
+
+    test("links a target window into the source session for Claude link-window policy", async () => {
+      paneCommandResponse = "claude";
+      anchorSessionResponse = "caller";
+      clientTtyResponse = "/dev/ttys002";
+
+      await helper.cmdSplit("alpha:2", { claudePanePolicy: "link-window" });
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux display-message -p -t '%7' '#{session_name}'`,
+        `tmux link-window -d -s 'alpha:2' -t 'caller:'`,
+        `tmux display-message -p -t '%7' '#{client_tty}'`,
+        `tmux refresh-client -t '/dev/ttys002'`,
+      ]);
+      expect(stdout()).toContain("linked background tab — alpha:2");
+    });
+
+    test("falls back when optional background-tab probes cannot be read", async () => {
+      paneCommandResponse = "claude";
+      hostExecFailureNeedles = ["#{session_name}"];
+
+      await helper.cmdSplit("alpha:2");
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux display-message -p -t '%7' '#{session_name}'`,
+        `tmux send-keys -t '%7' C-l`,
+        `tmux new-window -d -n 'split-2' 'TMUX= tmux attach-session -t alpha:2'`,
+        `tmux send-keys -t '%7' C-l`,
+        `tmux display-message -p -t '%7' '#{client_tty}'`,
+        "tmux refresh-client",
+      ]);
+    });
+
+    test("link-window policy requires a readable source session", async () => {
+      paneCommandResponse = "claude";
+
+      await expect(helper.cmdSplit("alpha:2", { claudePanePolicy: "link-window" })).rejects.toThrow(
+        "split failed: link-window policy requires an anchor pane with a tmux session",
+      );
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+        `tmux display-message -p -t '%7' '#{session_name}'`,
+      ]);
+    });
+
+    test("refuses or rejects invalid Claude pane policies without attaching", async () => {
+      paneCommandResponse = "claude";
+
+      await expect(helper.cmdSplit("alpha:2", { claudePanePolicy: "refuse" })).rejects.toThrow(
+        "split failed: refusing to split from Claude-like pane '%7'",
+      );
+
+      expect(hostExecCalls).toEqual([
+        `tmux display-message -p -t '%7' '#{pane_current_command}'`,
+      ]);
+
+      resetCalls();
+
+      await expect(helper.cmdSplit("alpha:2", { claudePanePolicy: "bogus" })).rejects.toThrow(
+        "--claude-pane-policy must be one of:",
+      );
+      expect(hostExecCalls).toEqual([]);
     });
   });
 }
