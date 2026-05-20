@@ -274,7 +274,7 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
   const innerCmd = backgroundAttachCommand(target);
   const destinationSession = opts.destinationSession || opts.sourceSession;
   if (opts.preferLinkWindow && destinationSession) {
-    if (!opts.destinationSession && sameSessionExistingWindow(target, destinationSession)) {
+    if (sameSessionExistingWindow(target, destinationSession)) {
       await repaintSourcePane(opts.sourceAnchor);
       console.log(`  \x1b[32m✓\x1b[0m target tab already in this session — ${target}`);
       return "existing";

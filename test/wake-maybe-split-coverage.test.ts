@@ -249,6 +249,27 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).toContain("target already in background tab (split skipped");
   });
 
+  test("#1827 Claude-like bring with explicit --to in the target session avoids duplicate tabs", async () => {
+    paneCommandResponse = "2.1.139";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+
+    await maybeSplit("50-mawjs:mawjs-features", {
+      split: true,
+      splitTarget: "50-mawjs:mawjs-oracle",
+    });
+
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{pane_current_command}'");
+    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '50-mawjs:mawjs-oracle' C-l");
+    expect(hostExecCalls[3]).toBe("tmux clear-history -t '50-mawjs:mawjs-oracle'");
+    expect(hostExecCalls[4]).toBe("tmux display-message -p -t '50-mawjs:mawjs-oracle' '#{client_name}|#{client_tty}'");
+    expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("link-window"))).toBe(false);
+    expect(output()).toContain("target tab already in this session — 50-mawjs:mawjs-features");
+    expect(output()).toContain("target already in background tab (split skipped");
+  });
+
   test("Claude-like bring links cross-session windows before falling back to nested attach tabs", async () => {
     paneCommandResponse = "2.1.139";
     paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
