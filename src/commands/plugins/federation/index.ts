@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const sub = args[0]?.toLowerCase();
     const { parsePeerSourceMode } = await import("../../shared/peer-sources");
     const peerSourceRaw = readOption(args, "--peers");
-    const peerSource = parsePeerSourceMode(peerSourceRaw, "both");
+    const peerSource = parsePeerSourceMode(peerSourceRaw, sub === "sync" ? "config" : "both");
     if (!peerSource) {
       return { ok: false, error: "usage: --peers config|scout|both" };
     }

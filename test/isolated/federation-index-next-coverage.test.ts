@@ -92,7 +92,7 @@ describe("federation plugin index dispatch", () => {
       prune: true,
       force: true,
       json: true,
-      peers: "both",
+      peers: "config",
     }]);
   });
 
