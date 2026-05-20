@@ -14,6 +14,7 @@ import { homedir } from "os";
 import { stat } from "fs/promises";
 import { resolve } from "path";
 import { parseFlags } from "./parse-args";
+import { buildCommandInDir } from "../config";
 import { UserError } from "../core/util/user-error";
 import { tmux } from "../sdk";
 import { attachToSession } from "../commands/shared/wake-session";
@@ -66,11 +67,12 @@ export function validateWorkspaceSessionName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>] [--shell] [--print|--json] [--attach|-a] [--no-attach]");
+  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--print|--json] [--attach|-a] [--no-attach]");
   write("  Create a plain tmux workspace session with a lead shell window.");
   write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
+  write("  --claude     Shortcut for Claude Code with maw team env enabled.");
   write("  --print      Print a JSON payload with session/window/pane_id for scripts.");
   write("  --json       Alias for --print.");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
@@ -109,6 +111,20 @@ function normalizeStartupCommand(rawCmd: unknown): string | undefined {
   return rawCmd;
 }
 
+function looksLikeClaudeCommand(command: string): boolean {
+  return /(^|[\s/])claude(?:\.exe)?(?:\s|$)/.test(command);
+}
+
+function withClaudeTeamEnv(command: string): string {
+  return `env CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 ${command}`;
+}
+
+function buildClaudeStartupCommand(name: string, cwd: string): string {
+  const configured = buildCommandInDir(name, cwd, "claude");
+  const command = looksLikeClaudeCommand(configured) ? configured : "claude";
+  return withClaudeTeamEnv(command);
+}
+
 function shellAfterCommand(command: string | undefined): string | undefined {
   if (!command) return undefined;
   return `${command}; exec ${process.env.SHELL || "zsh"}`;
@@ -142,6 +158,7 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--cmd": String,
     "-c": "--cmd",
     "--shell": Boolean,
+    "--claude": Boolean,
     "--print": Boolean,
     "--json": Boolean,
   }, 0);
@@ -158,7 +175,12 @@ export async function cmdNew(argv: string[]): Promise<void> {
   validateWorkspaceSessionName(name);
 
   const cwd = await resolveWorkspacePath(flags["--path"]);
-  const startupCommand = normalizeStartupCommand(flags["--cmd"]);
+  if (flags["--claude"] && flags["--cmd"] !== undefined) {
+    throw new UserError("new: use either --claude or --cmd, not both");
+  }
+  const startupCommand = flags["--claude"]
+    ? buildClaudeStartupCommand(name, cwd)
+    : normalizeStartupCommand(flags["--cmd"]);
   const tmuxCommand = shellAfterCommand(startupCommand);
 
   const machineReadable = !!(flags["--print"] || flags["--json"]);

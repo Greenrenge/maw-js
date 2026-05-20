@@ -7,6 +7,7 @@ let sessions = new Set<string>();
 let newSessionCalls: Array<{ name: string; opts: any }> = [];
 let attached: string[] = [];
 let firstPaneIds = new Map<string, string>();
+let commandForClaude = "claude --model sonnet";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   tmux: {
@@ -24,6 +25,13 @@ mock.module(join(import.meta.dir, "../../src/commands/shared/wake-session"), () 
   attachToSession: async (name: string) => { attached.push(name); },
 }));
 
+mock.module(join(import.meta.dir, "../../src/config"), () => ({
+  buildCommandInDir: (_name: string, _cwd: string, engine?: string) => {
+    if (engine === "claude") return commandForClaude;
+    return "not-claude";
+  },
+}));
+
 const { cmdNew, decideNewWorkspaceAttach, isTruthyEnv, validateWorkspaceSessionName } = await import("../../src/cli/cmd-new");
 
 beforeEach(() => {
@@ -31,6 +39,7 @@ beforeEach(() => {
   newSessionCalls = [];
   attached = [];
   firstPaneIds = new Map<string, string>();
+  commandForClaude = "claude --model sonnet";
 });
 
 describe("cmdNew workspace session factory", () => {
@@ -121,6 +130,35 @@ describe("cmdNew workspace session factory", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("--claude fills a configured Claude Code command with team env", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maw-new-"));
+    commandForClaude = "/Applications/Claude/claude.exe --model opus";
+    try {
+      await cmdNew(["claude-dev", "--path", dir, "--claude", "--print", "--no-attach"]);
+
+      const command = "env CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 /Applications/Claude/claude.exe --model opus";
+      expect(newSessionCalls).toEqual([
+        {
+          name: "claude-dev",
+          opts: {
+            window: "lead",
+            cwd: dir,
+            command: `${command}; exec ${process.env.SHELL || "zsh"}`,
+            printFormat: "#{pane_id}",
+          },
+        },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects conflicting --claude and --cmd flags", async () => {
+    await expect(cmdNew(["conflict", "--claude", "--cmd", "bun dev", "--no-attach"]))
+      .rejects.toThrow("either --claude or --cmd");
+    expect(newSessionCalls).toEqual([]);
   });
 
   test("prints machine-readable payloads for new and existing lead panes", async () => {
