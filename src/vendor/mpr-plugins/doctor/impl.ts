@@ -6,6 +6,7 @@ import { loadPeers } from "./internal/peers-store";
 import { findDuplicateIdentities, formatDuplicate } from "./internal/duplicate-detect";
 import { loadConfig } from "maw-js/config";
 import { C } from "maw-js/commands/shared/fleet-doctor-fixer";
+import { mawDataPath } from "../../../core/xdg";
 import { loadManifestCached, invalidateManifest } from "maw-js/lib/oracle-manifest";
 import { findGaps, summarizeGaps } from "./cross-source-detect";
 import { checkMawJsBranch } from "./internal/maw-js-branch-check";
@@ -372,10 +373,14 @@ async function smokeCmd(label: string, args: string[]): Promise<SmokeCheck> {
   }
 }
 
+function doctorPluginDir(): string {
+  return process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
+}
+
 function smokePluginCount(): SmokeCheck {
   const { readdirSync, lstatSync } = require("fs");
   const { join } = require("path");
-  const dir = join(homedir(), ".maw", "plugins");
+  const dir = doctorPluginDir();
   try {
     const entries = readdirSync(dir) as string[];
     const broken = entries.filter((e: string) => {
@@ -394,7 +399,7 @@ function smokePluginCount(): SmokeCheck {
 function smokeBrokenSymlinks(): SmokeCheck {
   const { readdirSync, lstatSync } = require("fs");
   const { join } = require("path");
-  const dir = join(homedir(), ".maw", "plugins");
+  const dir = doctorPluginDir();
   try {
     const entries = readdirSync(dir) as string[];
     const broken: string[] = [];
