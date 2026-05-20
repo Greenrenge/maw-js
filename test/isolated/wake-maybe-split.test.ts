@@ -9,6 +9,7 @@ let refreshClientThrows = false;
 let paneCommandResponse = "zsh";
 let paneSessionWindowResponse = "";
 let paneClientTtyResponse = "/dev/ttys001";
+let newWindowResponse = "";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
@@ -20,6 +21,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
       if (refreshClientThrows) throw new Error("refresh unsupported");
       return "";
     }
+    if (cmd.includes("new-window")) return newWindowResponse;
     if (cmd.includes("show-options") && cmd.includes("@maw_tile")) return tileMarkerResponse;
     if (cmd.includes("list-panes") && cmd.includes("#{pane_id}|#{pane_top}|#{pane_left}|#{@maw_tile}")) {
       return paneGeometryResponse;
@@ -47,6 +49,7 @@ describe("wake maybeSplit", () => {
     paneCommandResponse = "zsh";
     paneSessionWindowResponse = "";
     paneClientTtyResponse = "/dev/ttys001";
+    newWindowResponse = "";
     process.env.TMUX = "/tmp/tmux-501/default,123,0";
     process.env.TMUX_PANE = "%42";
     delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
@@ -110,17 +113,21 @@ describe("wake maybeSplit", () => {
 
   test("opens a background tab instead of smearing Claude-like caller panes (#1562)", async () => {
     paneCommandResponse = "claude";
+    newWindowResponse = "@88";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
-    expect(hostExecCalls[2]).toBe("tmux send-keys -t '%42' C-l");
-    expect(hostExecCalls[3]).toContain("tmux new-window -d");
-    expect(hostExecCalls[3]).toContain("-n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[4]).toBe("tmux send-keys -t '%42' C-l");
-    expect(hostExecCalls[5]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[6]).toBe("tmux refresh-client -t '/dev/ttys001'");
+    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
+    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
+    expect(hostExecCalls[5]).toContain("tmux new-window -P -F '#{window_id}' -d");
+    expect(hostExecCalls[5]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls[6]).toBe("tmux send-keys -R -t '@88' C-l");
+    expect(hostExecCalls[7]).toBe("tmux send-keys -R -t '%42' C-l");
+    expect(hostExecCalls[8]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[9]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 
@@ -200,7 +207,7 @@ describe("wake maybeSplit", () => {
 
     expect(hostExecCalls).toHaveLength(2);
     expect(hostExecCalls[0]).toContain("tmux list-panes -t '%42' -F");
-    expect(hostExecCalls[1]).toContain("tmux new-window -d");
+    expect(hostExecCalls[1]).toContain("tmux new-window -P -F '#{window_id}' -d");
     expect(hostExecCalls[1]).toContain("-n 'bring-homekeeper-oracle'");
   });
 
@@ -208,7 +215,7 @@ describe("wake maybeSplit", () => {
     await maybeOpenWindow("20-homekeeper:homekeeper-oracle", { bring: true, tab: true });
 
     expect(hostExecCalls).toHaveLength(1);
-    expect(hostExecCalls[0]).toContain("tmux new-window -d");
+    expect(hostExecCalls[0]).toContain("tmux new-window -P -F '#{window_id}' -d");
   });
 
   test("does not open a window when bring is not requested", async () => {

@@ -200,14 +200,14 @@ describe("wake maybe split/window coverage", () => {
     // #1816 — self-bring guard runs first (mock falls through, returns "" → null → proceed).
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
-    expect(hostExecCalls[2]).toBe("tmux send-keys -t '%42' C-l");
+    expect(hostExecCalls[2]).toBe("tmux send-keys -R -t '%42' C-l");
     expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
     expect(hostExecCalls[5]).toContain("tmux new-window -P -F '#{window_id}' -d -n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[6]).toBe("tmux send-keys -t '@88' C-l");
-    expect(hostExecCalls[7]).toBe("tmux send-keys -t '%42' C-l");
+    expect(hostExecCalls[6]).toBe("tmux send-keys -R -t '@88' C-l");
+    expect(hostExecCalls[7]).toBe("tmux send-keys -R -t '%42' C-l");
     expect(hostExecCalls[8]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[9]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls[9]).toBe("tmux refresh-client -c -t '/dev/ttys001'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
     expect(output()).toContain("opened as background tab (split skipped — Claude TUI pane would smear #1562)");
     expect(output()).toContain("MAW_FORCE_SPLIT=1");
@@ -221,9 +221,9 @@ describe("wake maybe split/window coverage", () => {
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
     expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -c");
     expect(hostExecCalls[7]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
-    expect(hostExecCalls[8]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[8]).toBe("tmux refresh-client -c");
     expect(output()).toContain("opened as background tab");
   });
 

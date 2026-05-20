@@ -66,7 +66,9 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
       const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
       const client = String(raw).trim();
       if (client.length > 0) {
-        await hostExec(`tmux refresh-client -S -t ${shellArg(client)}`);
+        // Full-client repaint, not `-S`: tmux documents `-S` as status-line
+        // only, which leaves the lower-half dot smear Nat saw at 957c41c1.
+        await hostExec(`tmux refresh-client -c -t ${shellArg(client)}`);
         return;
       }
     } catch {
@@ -77,7 +79,7 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
   }
 
   try {
-    await hostExec("tmux refresh-client -S");
+    await hostExec("tmux refresh-client -c");
   } catch {
     // Best-effort full-client redraw only (#1816/#1562): the background tab
     // was created; never fail the user action because the source client
@@ -88,9 +90,9 @@ async function refreshSourceClient(anchor?: string): Promise<void> {
 async function repaintSourcePane(anchor?: string): Promise<void> {
   if (!anchor) return;
   try {
-    await hostExec(`tmux send-keys -t ${shellArg(anchor)} C-l`);
+    await hostExec(`tmux send-keys -R -t ${shellArg(anchor)} C-l`);
   } catch {
-    // Keep going: the refresh-client -S nudge below is often the more
+    // Keep going: the full-client refresh below is often the more
     // important part of clearing stale lower-half redraw artifacts.
   }
   await refreshSourceClient(anchor);
@@ -98,7 +100,7 @@ async function repaintSourcePane(anchor?: string): Promise<void> {
 
 async function clearNewTabPane(target: string): Promise<void> {
   try {
-    await hostExec(`tmux send-keys -t ${shellArg(target)} C-l`);
+    await hostExec(`tmux send-keys -R -t ${shellArg(target)} C-l`);
   } catch {
     // Best-effort repaint only: a failed clear must not hide the newly opened
     // background tab from the caller.
