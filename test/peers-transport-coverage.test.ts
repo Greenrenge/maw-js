@@ -45,6 +45,7 @@ const {
   getFederationStatusSymmetric,
   getPeers,
   sendKeysToPeer,
+  sendKeysToPeerDetailed,
 } = await import("../src/core/transport/peers.ts?peers-transport-coverage");
 
 beforeEach(() => {
@@ -251,13 +252,26 @@ describe("peer target lookup and send", () => {
   });
 
   test("sendKeysToPeer signs send requests, reports body snippets, and catches thrown errors", async () => {
-    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true } } }];
-    await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(true);
+    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true, state: "queued", target: "remote:agent", lastLine: "stored" } } }];
+    await expect(sendKeysToPeerDetailed("http://peer:3456", "remote:agent", "hello")).resolves.toEqual({
+      ok: true,
+      state: "queued",
+      target: "remote:agent",
+      lastLine: "stored",
+    });
     expect(curlCalls[0]).toMatchObject({
       url: "http://peer:3456/api/send",
       opts: { method: "POST", timeout: 1234, from: "auto" },
     });
     expect(JSON.parse(curlCalls[0].opts.body)).toEqual({ target: "remote:agent", text: "hello" });
+
+    responses = [{ match: "/api/send", res: { ok: true, status: 200, data: { ok: true } } }];
+    await expect(sendKeysToPeerDetailed("http://peer:3456", "remote:agent", "hello")).resolves.toMatchObject({
+      ok: true,
+      state: "queued",
+      target: "remote:agent",
+    });
+    await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(true);
 
     responses = [{ match: "/api/send", res: { ok: false, status: 401, data: { error: "invalid hmac", detail: "x".repeat(260) } } }];
     await expect(sendKeysToPeer("http://peer:3456", "remote:agent", "hello")).resolves.toBe(false);

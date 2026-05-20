@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { listSessions, capture, sendKeys, selectWindow } from "../core/transport/ssh";
 import { checkPaneIdle } from "../commands/shared/comm-send";
 import { findWindow } from "../core/runtime/find-window";
-import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../core/transport/peers";
+import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer, sendKeysToPeerDetailed } from "../core/transport/peers";
 import { loadConfig } from "../config";
 import { curlFetch } from "../core/transport/curl-fetch";
 import { resolveTarget } from "../core/routing";
@@ -34,6 +34,7 @@ export interface SessionsApiDeps {
   getAggregatedSessions?: typeof getAggregatedSessions;
   findPeerForTarget?: typeof findPeerForTarget;
   sendKeysToPeer?: typeof sendKeysToPeer;
+  sendKeysToPeerDetailed?: typeof sendKeysToPeerDetailed;
   loadConfig?: typeof loadConfig;
   curlFetch?: typeof curlFetch;
   resolveTarget?: typeof resolveTarget;
@@ -61,6 +62,7 @@ function defaults(deps: SessionsApiDeps) {
     getAggregatedSessions: deps.getAggregatedSessions ?? getAggregatedSessions,
     findPeerForTarget: deps.findPeerForTarget ?? findPeerForTarget,
     sendKeysToPeer: deps.sendKeysToPeer ?? sendKeysToPeer,
+    sendKeysToPeerDetailed: deps.sendKeysToPeerDetailed ?? sendKeysToPeerDetailed,
     loadConfig: deps.loadConfig ?? loadConfig,
     curlFetch: deps.curlFetch ?? curlFetch,
     resolveTarget: deps.resolveTarget ?? resolveTarget,
@@ -391,9 +393,10 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
           from: "auto", // #804 Step 4 SIGN — sign cross-node forwarded /api/send
         });
         if (res.ok && res.data?.ok) {
+          const state = res.data.state === "delivered" ? "delivered" : "queued";
           emitLifecycle({
             direction: "forwarded",
-            state: res.data.state === "queued" ? "queued" : "delivered",
+            state,
             channel: "api-send",
             route: "peer",
             from: messageFrom,
@@ -404,7 +407,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
             lastLine: res.data.lastLine || "",
             signed: messageSigned,
           });
-          return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state: res.data.state ?? "delivered" };
+          return { ok: true, target: res.data.target || target, text, source: resolved.peerUrl, lastLine: res.data.lastLine || "", state };
         }
         emitLifecycle({
           direction: "forwarded",
@@ -425,22 +428,25 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       // Fallback: async peer discovery
       const peerUrl = await d.findPeerForTarget(target, local);
       if (peerUrl) {
-        const ok = await d.sendKeysToPeer(peerUrl, target, message);
+        const send = await d.sendKeysToPeerDetailed(peerUrl, target, message);
         emitLifecycle({
           direction: "forwarded",
-          state: ok ? "delivered" : "failed",
+          state: send.ok ? send.state : "failed",
           channel: "api-send",
           route: "discovery",
           from: messageFrom,
           to: target,
-          target,
+          target: send.target || target,
           peerUrl,
           text: message,
-          error: ok ? undefined : "Failed to send to peer",
+          lastLine: send.lastLine || "",
+          error: send.ok ? undefined : (send.error || "Failed to send to peer"),
           signed: messageSigned,
         });
-        if (ok) return { ok: true, target, text, source: peerUrl, state: "delivered" as const };
-        set.status = 502; return { error: "Failed to send to peer", target, source: peerUrl };
+        if (send.ok) {
+          return { ok: true, target: send.target || target, text, source: peerUrl, state: send.state, lastLine: send.lastLine || "" };
+        }
+        set.status = 502; return { error: send.error || "Failed to send to peer", target, source: peerUrl };
       }
 
       // #835 — consult shouldAutoWake for the "implicit wake on send" decision.

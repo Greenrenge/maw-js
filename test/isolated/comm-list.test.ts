@@ -876,7 +876,7 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
@@ -971,7 +971,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example\/api\/send/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "peer saw it", state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -1030,7 +1030,7 @@ describe("cmdSend — peer target (federation)", () => {
     };
     curlFetchResponses = [{
       match: /mba\.example/,
-      response: { ok: true, status: 200, data: { ok: true } },
+      response: { ok: true, status: 200, data: { ok: true, state: "delivered" } },
     }];
 
     await run(() => cmdSend("mba:mawjs", "ping"));
@@ -1047,7 +1047,7 @@ describe("cmdSend — async peer discovery fallback", () => {
     findPeerForTargetReturn = "https://discovered.example";
     curlFetchResponses = [{
       match: /discovered\.example/,
-      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo" } },
+      response: { ok: true, status: 200, data: { ok: true, target: "mawjs", lastLine: "echo", state: "delivered" } },
     }];
 
     await run(() => cmdSend("white:mawjs", "ping"));
@@ -1086,7 +1086,7 @@ describe("cmdSend — error paths (no match)", () => {
       hint: "maw wake mawjs",
     };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1098,7 +1098,7 @@ describe("cmdSend — error paths (no match)", () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "error", reason: "x", detail: "just a detail" };
 
-    await run(() => cmdSend("white:mawjs", "ping"));
+    await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("just a detail");
@@ -1109,7 +1109,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     const joined = errs.join("\n");
@@ -1124,7 +1124,7 @@ describe("cmdSend — error paths (no match)", () => {
     resolveTargetReturn = null;
     findPeerForTargetReturn = null;
 
-    await run(() => cmdSend("white:ghost", "ping"));
+    await run(() => cmdSend("white:ghost", "ping", false, { receiverInbox: false }));
 
     expect(exitCode).toBe(1);
     expect(errs.join("\n")).toContain("window not found: white:ghost");

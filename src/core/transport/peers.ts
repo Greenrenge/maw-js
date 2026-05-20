@@ -377,7 +377,29 @@ export async function findPeerForTarget(target: string, localSessions: Session[]
  * status/body (401 HMAC, timeout, etc.). Now we surface a structured warn
  * before returning false so federation diagnostics can find it (#385 site 2).
  */
-export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
+export interface PeerSendResult {
+  ok: boolean;
+  state: "delivered" | "queued" | "failed";
+  target?: string;
+  lastLine?: string;
+  error?: string;
+  status?: number;
+}
+
+function peerSendBodySnippet(data: unknown): string {
+  return data != null
+    ? (typeof data === "string" ? data : JSON.stringify(data)).slice(0, 200)
+    : "";
+}
+
+/**
+ * Send keys to a target on a peer and preserve receiver proof state (#1813).
+ *
+ * `ok:true,state:queued` means the peer accepted the message into a durable
+ * inbox after tmux delivery could not be proven. Callers that display user
+ * state must not collapse this into "delivered".
+ */
+export async function sendKeysToPeerDetailed(peerUrl: string, target: string, text: string): Promise<PeerSendResult> {
   try {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
@@ -385,19 +407,33 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
       timeout: cfgTimeout("http"),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send via TransportManager
     });
-    const delivered = Boolean(res.ok && res.data?.ok);
-    if (!delivered) {
-      const bodySnippet = res.data != null
-        ? (typeof res.data === "string" ? res.data : JSON.stringify(res.data)).slice(0, 200)
-        : "";
-      console.warn(
-        `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
-      );
+    if (res.ok && res.data?.ok) {
+      return {
+        ok: true,
+        state: res.data.state === "delivered" ? "delivered" : "queued",
+        target: typeof res.data.target === "string" ? res.data.target : target,
+        lastLine: typeof res.data.lastLine === "string" ? res.data.lastLine : "",
+      };
     }
-    return delivered;
+
+    const bodySnippet = peerSendBodySnippet(res.data);
+    console.warn(
+      `[peers] sendKeysToPeer ${peerUrl} → ${target}: status=${res.status}${bodySnippet ? ` body=${bodySnippet}` : ""}`,
+    );
+    return {
+      ok: false,
+      state: "failed",
+      target,
+      status: res.status,
+      error: res.data?.error || (res.status ? `HTTP ${res.status}` : "send failed"),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[peers] sendKeysToPeer ${peerUrl} → ${target}: ${msg}`);
-    return false;
+    return { ok: false, state: "failed", target, error: msg };
   }
+}
+
+export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
+  return (await sendKeysToPeerDetailed(peerUrl, target, text)).ok;
 }

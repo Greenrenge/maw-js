@@ -47,6 +47,10 @@ function makeHarness(overrides: SessionsApiDeps = {}) {
     ])] as any,
     findPeerForTarget: async () => null,
     sendKeysToPeer: async (peer: string, target: string, message: string) => { calls.push(["sendKeysToPeer", peer, target, message]); return true; },
+    sendKeysToPeerDetailed: async (peer: string, target: string, message: string) => {
+      calls.push(["sendKeysToPeerDetailed", peer, target, message]);
+      return { ok: true, state: "delivered", target, lastLine: "" } as any;
+    },
     loadConfig: (() => config) as any,
     curlFetch: async (url: string, opts: any) => { calls.push(["curlFetch", url, opts]); return { ok: true, status: 200, data: { ok: true } } as any; },
     resolveTarget: (() => ({ type: "error", reason: "missing", detail: "not found", hint: "try wake" })) as any,
@@ -257,6 +261,13 @@ describe("POST /send", () => {
     expect(await readJson(await success.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://peer", target: "actual", state: "queued" });
     expect(success.lifecycle[0]).toMatchObject({ route: "peer", state: "queued", to: "white:remote:main" });
 
+    const acceptedOnly = makeHarness({
+      resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
+      curlFetch: async () => ({ ok: true, status: 200, data: { ok: true, target: "actual" } }) as any,
+    });
+    expect(await readJson(await acceptedOnly.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ state: "queued" });
+    expect(acceptedOnly.lifecycle[0]).toMatchObject({ route: "peer", state: "queued" });
+
     const failure = makeHarness({
       resolveTarget: (() => ({ type: "peer", node: "white", peerUrl: "http://peer", target: "remote:main" })) as any,
       curlFetch: async () => ({ ok: false, status: 500, data: { ok: false } }) as any,
@@ -267,21 +278,38 @@ describe("POST /send", () => {
     expect(failure.lifecycle[0]).toMatchObject({ route: "peer", state: "failed" });
   });
 
-  test("falls back to peer discovery and reports discovered send failures", async () => {
+  test("falls back to peer discovery and preserves receiver delivery state", async () => {
     const ok = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeer: async () => true,
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "delivered", target: "remote:main", lastLine: "landed" }) as any,
     });
-    expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({ ok: true, source: "http://found", state: "delivered" });
+    expect(await readJson(await ok.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://found",
+      target: "remote:main",
+      state: "delivered",
+      lastLine: "landed",
+    });
+
+    const queued = makeHarness({
+      findPeerForTarget: async () => "http://found",
+      sendKeysToPeerDetailed: async () => ({ ok: true, state: "queued", target: "remote", lastLine: "" }) as any,
+    });
+    expect(await readJson(await queued.app.handle(jsonRequest("/send", { target: "remote", text: "hi" })))).toMatchObject({
+      ok: true,
+      source: "http://found",
+      state: "queued",
+    });
+    expect(queued.lifecycle[0]).toMatchObject({ route: "discovery", state: "queued" });
 
     const fail = makeHarness({
       findPeerForTarget: async () => "http://found",
-      sendKeysToPeer: async () => false,
+      sendKeysToPeerDetailed: async () => ({ ok: false, state: "failed", target: "remote", error: "receiver rejected delivery" }) as any,
     });
     const res = await fail.app.handle(jsonRequest("/send", { target: "remote", text: "hi" }));
     expect(res.status).toBe(502);
-    expect(await readJson(res)).toEqual({ error: "Failed to send to peer", target: "remote", source: "http://found" });
-    expect(fail.lifecycle[0]).toMatchObject({ route: "discovery", state: "failed" });
+    expect(await readJson(res)).toEqual({ error: "receiver rejected delivery", target: "remote", source: "http://found" });
+    expect(fail.lifecycle[0]).toMatchObject({ route: "discovery", state: "failed", error: "receiver rejected delivery" });
   });
 
   test("auto-wakes fleet-known targets, retries local resolution, and handles retry busy failure", async () => {

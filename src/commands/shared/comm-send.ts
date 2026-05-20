@@ -668,7 +668,7 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
-      const state = res.data.state === "queued" ? "queued" : "delivered";
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
       logMessage(senderName, query, outboundMessage, `peer:${result.node}`);
       emitMessageFeed({
         direction: "outbound",
@@ -719,7 +719,7 @@ export async function cmdSend(
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {
-      const state = res.data.state === "queued" ? "queued" : "delivered";
+      const state = res.data.state === "delivered" ? "delivered" : "queued";
       logMessage(senderName, query, outboundMessage, "discovery");
       emitMessageFeed({
         direction: "outbound",
