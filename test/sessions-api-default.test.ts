@@ -140,6 +140,20 @@ describe("sessions, capture, and mirror routes", () => {
     expect(aggregated.map((s: any) => [s.name, s.windows.length])).toEqual([["local", 1], ["remote", 1]]);
   });
 
+  test("GET /sessions surfaces tmux availability errors instead of silently returning []", async () => {
+    const h = makeHarness({
+      listSessions: async () => { throw new Error("[local:local] bash: tmux: command not found"); },
+    });
+
+    const res = await h.app.handle(new Request("http://local/sessions?local=true"));
+    expect(res.status).toBe(503);
+    const body = await readJson(res);
+    expect(body.error).toContain("tmux unavailable");
+    expect(body.error).toContain("tmux: command not found");
+    expect(body.hint).toContain("/opt/homebrew/bin");
+    expect(body.hint).toContain("pm2 restart maw --update-env");
+  });
+
   test("GET /capture validates target, resolves aliases, and reports capture errors", async () => {
     const h = makeHarness();
     h.config.sessions.neo = "local";

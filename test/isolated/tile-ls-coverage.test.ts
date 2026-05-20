@@ -232,7 +232,7 @@ describe("ls plugin index coverage", () => {
 
     expect(lsPeerCalls).toEqual([{ peer: "clinic", opts: { json: true } }]);
     expect(lsAllPeersCalls).toEqual([{ json: false }]);
-    expect(cmdListCalls).toEqual([{ fix: true }]);
+    expect(cmdListCalls).toEqual([{ fix: true, verify: false }]);
   });
 
   test("routes --active to local tmux activity filtering before peer positional handling", async () => {

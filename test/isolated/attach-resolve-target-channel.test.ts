@@ -154,6 +154,20 @@ describe("attach resolver channel-session filtering", () => {
     expect(result).toEqual({ tier: 1, sessionName: "50-mawjscodex" });
   });
 
+  test("prefers live canonical dash session over sleeping fleet ghosts", async () => {
+    const result = await resolveAttachTarget("codex", {
+      listSessions: async () => [
+        { name: "50-mawjs-codex", windows: [{ name: "mawjs-codex-oracle" }] },
+      ],
+      loadFleet: () => [
+        { name: "codexstark-oracle", windows: [{ name: "codexstark-oracle" }] },
+        { name: "mawjs-codex-oracle", windows: [{ name: "mawjs-codex-oracle" }] },
+      ],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjs-codex" });
+  });
+
   test("resolves custom session names through oracle window aliases", async () => {
     const result = await resolveAttachTarget("mawjs-codex", {
       listSessions: async () => [

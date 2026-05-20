@@ -71,6 +71,7 @@ let listSessionsThrows = false;
 let configOverride: Record<string, unknown> = {};
 let loadFleetEntriesReturn: Array<{ session: { name: string; windows: Array<{ repo?: string }> } }> = [];
 let loadFleetEntriesThrows = false;
+let rebootChecksReturn: Array<{ name: string; level: "pass" | "warn" | "fail"; message: string; fix?: string }> = [];
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,13 @@ mock.module(
   }),
 );
 
+mock.module(
+  join(import.meta.dir, "../../src/commands/shared/fleet-doctor-reboot"),
+  () => ({
+    checkRebootReadiness: () => rebootChecksReturn,
+  }),
+);
+
 // NB: import targets AFTER mocks so their import graph resolves through our stubs.
 const { checkStalePeers } = await import("../../src/commands/shared/fleet-doctor-stale-peers");
 const { cmdFleetDoctor } = await import("../../src/commands/shared/fleet-doctor");
@@ -165,6 +173,7 @@ beforeEach(() => {
   configOverride = {};
   loadFleetEntriesReturn = [];
   loadFleetEntriesThrows = false;
+  rebootChecksReturn = [];
   saveConfigCalls = [];
 });
 
@@ -711,6 +720,54 @@ describe("cmdFleetDoctor — stale peer + missing-agent integration", () => {
     expect(joined).toContain("version-skew");
     expect(joined).toContain("26.5.16-alpha.2126");
     expect(joined).toContain("wake Discord --channels auto-detect");
+  });
+});
+
+describe("cmdFleetDoctor — reboot doctor mode", () => {
+  test("json reboot mode returns fail/warn/pass checks with exit codes", async () => {
+    rebootChecksReturn = [
+      { name: "linger", level: "warn", message: "linger unknown", fix: "maw setup auto-wake" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(outs.join("\n"))).toEqual({ reboot: rebootChecksReturn });
+
+    rebootChecksReturn = [
+      { name: "linger", level: "fail", message: "linger disabled", fix: "maw setup auto-wake" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(outs.join("\n")).reboot[0]).toMatchObject({ name: "linger", level: "fail" });
+
+    rebootChecksReturn = [
+      { name: "linger", level: "pass", message: "linger enabled" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true, json: true }));
+
+    expect(exitCode).toBe(0);
+  });
+
+  test("text reboot mode renders checks, fixes, and summary", async () => {
+    rebootChecksReturn = [
+      { name: "linger", level: "pass", message: "linger enabled" },
+      { name: "pm2-service", level: "warn", message: "could not inspect", fix: "pm2 startup systemd" },
+      { name: "pm2-dump", level: "fail", message: "dump missing", fix: "pm2 save" },
+    ];
+
+    await run(() => cmdFleetDoctor({ reboot: true }));
+
+    expect(exitCode).toBe(2);
+    const joined = outs.join("\n");
+    expect(joined).toContain("Fleet Reboot Doctor");
+    expect(joined).toContain("linger enabled");
+    expect(joined).toContain("fix: pm2 startup systemd");
+    expect(joined).toContain("fix: pm2 save");
+    expect(joined).toContain("1 fail · 1 warning");
   });
 });
 

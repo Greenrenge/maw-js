@@ -37,6 +37,7 @@ const {
   loadManifest,
   findOracle,
   loadManifestCached,
+  loadOracleBirths,
   invalidateManifest,
   mergeOraclesJsonEntry,
   DEFAULT_TTL_MS,
@@ -44,6 +45,7 @@ const {
 
 const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
 const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
+const ORACLE_BIRTHS_JSON = join(TEST_CONFIG_DIR, "oracle-births.json");
 
 afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
@@ -52,7 +54,7 @@ afterAll(() => {
 beforeEach(() => {
   // Wipe all 4 file-backed registries between tests (the 5th — config.agents
   // pre-population — is recomputed on every loadConfig() call).
-  for (const f of [CONFIG_FILE, ORACLES_JSON]) {
+  for (const f of [CONFIG_FILE, ORACLES_JSON, ORACLE_BIRTHS_JSON]) {
     try { rmSync(f, { force: true }); } catch { /* missing is fine */ }
   }
   // Wipe fleet dir.
@@ -95,6 +97,10 @@ function writeOraclesJson(oracles: any[]) {
     ) + "\n",
     "utf-8",
   );
+}
+
+function writeOracleBirths(body: Record<string, unknown>) {
+  writeFileSync(ORACLE_BIRTHS_JSON, JSON.stringify(body, null, 2) + "\n", "utf-8");
 }
 
 function makeOraclesEntry(o: Partial<any> & { name: string }) {
@@ -179,6 +185,79 @@ describe("loadManifest — aggregates from all sources", () => {
     expect(e.hasPsi).toBe(true);
     expect(e.node).toBe("white");
     expect(e.sources).toContain("oracles-json");
+  });
+
+  test("oracle-births cache enriches existing manifest rows without creating birth-only rows", () => {
+    writeOraclesJson([
+      makeOraclesEntry({ name: "freshbud" }),
+    ]);
+    writeOracleBirths({
+      version: 1,
+      entries: {
+        freshbud: {
+          iso: "2026-05-09T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+        "birth-only": {
+          iso: "2026-05-10T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+
+    const m = loadManifest();
+
+    expect(m.map((e) => e.name)).toEqual(["freshbud"]);
+    expect(m[0].born).toEqual({
+      iso: "2026-05-09T10:17:24+07:00",
+      source: "git-claudemd",
+      cached_at: "2026-05-12T21:56:03.246Z",
+    });
+  });
+
+  test("loadOracleBirths accepts legacy top-level maps and current entries maps", () => {
+    writeOracleBirths({
+      version: 1,
+      entries: {
+        current: {
+          iso: "2026-05-09T10:17:24+07:00",
+          source: "git-claudemd",
+          cached_at: "2026-05-12T21:56:03.246Z",
+        },
+      },
+    });
+    expect(loadOracleBirths()).toEqual({
+      current: {
+        iso: "2026-05-09T10:17:24+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.246Z",
+      },
+    });
+
+    writeOracleBirths({
+      version: 1,
+      legacy: {
+        iso: "2026-04-17T16:45:01+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.873Z",
+      },
+      malformed: { iso: "missing-fields" },
+    });
+    expect(loadOracleBirths()).toEqual({
+      legacy: {
+        iso: "2026-04-17T16:45:01+07:00",
+        source: "git-claudemd",
+        cached_at: "2026-05-12T21:56:03.873Z",
+      },
+    });
+  });
+
+  test("loadOracleBirths ignores unreadable cache JSON", () => {
+    writeFileSync(ORACLE_BIRTHS_JSON, "{not-json", "utf-8");
+
+    expect(loadOracleBirths()).toEqual({});
   });
 
   test("all 4 file-backed sources for the same oracle merge into one entry", () => {

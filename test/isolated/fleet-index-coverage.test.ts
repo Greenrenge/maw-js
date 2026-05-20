@@ -178,7 +178,7 @@ describe("fleet plugin index", () => {
     expect(initCalls).toEqual([{}]);
     expect(initAgentsCalls).toEqual([{ dryRun: true }]);
     expect(healthCalls).toBe(1);
-    expect(doctorCalls).toEqual([{ fix: true, json: true }]);
+    expect(doctorCalls).toEqual([{ fix: true, json: true, reboot: false }]);
     expect(consolidateCalls).toEqual([{ dryRun: true, remove: true }]);
     expect(syncConfigsCalls).toBe(1);
     expect(syncWindowsCalls).toBe(1);

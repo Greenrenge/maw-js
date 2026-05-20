@@ -150,6 +150,15 @@ export function dedupeSessionWindows<T extends { windows: { name: string; active
   });
 }
 
+function sessionsUnavailablePayload(error: unknown): { error: string; hint?: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const payload: { error: string; hint?: string } = { error: `tmux unavailable: ${message}` };
+  if (/tmux: command not found/i.test(message) || /command not found: tmux/i.test(message) || /exit 127/.test(message)) {
+    payload.hint = "tmux command not found; when maw runs under pm2 on Apple Silicon, restart with PATH=/opt/homebrew/bin:/opt/homebrew/sbin:$PATH pm2 restart maw --update-env && pm2 save";
+  }
+  return payload;
+}
+
 /** Resolve oracle name → tmux target, same logic as local peek (#273). */
 export function resolveCapture(query: string, sessions: { name: string }[], deps: SessionsApiDeps = {}): string {
   const d = defaults(deps);
@@ -172,8 +181,14 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
   const emitLifecycle = d.emitMessageLifecycle ?? ((input: MessageLifecycleInput) => emitMessageLifecycle(input, d));
   const api = new Elysia();
 
-  api.get("/sessions", async ({ query }) => {
-    const local = await d.listSessions();
+  api.get("/sessions", async ({ query, set }) => {
+    let local: Session[];
+    try {
+      local = await d.listSessions();
+    } catch (error) {
+      set.status = 503;
+      return sessionsUnavailablePayload(error);
+    }
     if (query.local === "true") {
       return dedupeSessionWindows(local.map(s => ({ ...s, source: "local" })));
     }

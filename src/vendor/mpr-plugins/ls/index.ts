@@ -14,6 +14,7 @@ const HELP = [
   "  maw ls --all            aggregate sessions from all known peers",
   "  maw ls --json           emit JSON (combine with <peer> or --all)",
   "  maw ls --active [30m]   local sessions touched within a recent threshold",
+  "  maw ls --verify         include worktree-bind diagnostics",
   "  maw ls --fix            prune orphaned worktrees (local only)",
   "",
   "Peer aliases are resolved from ~/.maw/peers.json (see: maw peers list).",
@@ -51,6 +52,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--all": Boolean,
       "--json": Boolean,
       "--active": Boolean,
+      "--verify": Boolean,
       "--fix": Boolean,
       "--help": Boolean,
       "-h": "--help",
@@ -97,7 +99,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     }
 
     // Default: local sessions (existing behavior, including --fix).
-    await cmdList({ fix: Boolean(flags["--fix"]) });
+    await cmdList({ fix: Boolean(flags["--fix"]), verify: Boolean(flags["--verify"]) });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

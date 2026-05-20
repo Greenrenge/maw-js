@@ -24,6 +24,19 @@ const MAX_SUBMIT_ATTEMPTS = 4;
 /** ANSI escape stripper — matches checkPaneIdle in comm-send.ts (#405). */
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
+function isTmuxNoServerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /no server/i.test(message) || /failed to connect to server/i.test(message);
+}
+
+function isTmuxBinaryMissingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const exitCode = typeof error === "object" && error !== null && "exitCode" in error
+    ? (error as { exitCode?: unknown }).exitCode
+    : undefined;
+  return exitCode === 127 || /tmux: command not found/i.test(message) || /command not found: tmux/i.test(message);
+}
+
 /**
  * Typed wrapper around tmux CLI.
  * All methods build arg arrays and delegate to `run()`.
@@ -57,7 +70,11 @@ export class Tmux {
         sessions.push({ name: s, windows });
       }
       return sessions;
-    } catch { return []; } // no tmux server running
+    } catch (error) {
+      if (isTmuxBinaryMissingError(error)) throw error;
+      if (isTmuxNoServerError(error)) return [];
+      return [];
+    }
   }
 
   /** List all windows across all sessions in a single tmux call. */
@@ -71,7 +88,11 @@ export class Tmux {
         map.get(session)!.push({ index: +idx, name, active: active === "1", cwd: cwd || undefined });
       }
       return [...map.entries()].map(([name, windows]) => ({ name, windows }));
-    } catch { return []; } // no tmux server running
+    } catch (error) {
+      if (isTmuxBinaryMissingError(error)) throw error;
+      if (isTmuxNoServerError(error)) return [];
+      return [];
+    }
   }
 
   async hasSession(name: string): Promise<boolean> {

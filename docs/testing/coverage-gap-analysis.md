@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-20T04:46:37.638Z
+Generated: 2026-05-20T06:11:09.733Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (30661/30661)
-Overall function coverage: **100.0%** (5101/5101)
+Overall line coverage: **100.0%** (30862/30862)
+Overall function coverage: **100.0%** (5143/5143)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 92 | 0 | 100.0% (5545/5545) | 100.0% (843/843) | n/a (0/0) |
+| cli/dispatch | 93 | 0 | 100.0% (5641/5641) | 100.0% (863/863) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (780/780) | 100.0% (135/135) | n/a (0/0) |
 | fleet | 19 | 0 | 100.0% (678/678) | 100.0% (108/108) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 5 | 100.0% (8486/8486) | 100.0% (1458/1458) | n/a (0/0) |
+| other | 172 | 5 | 100.0% (8530/8530) | 100.0% (1464/1464) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 100.0% (677/677) | 100.0% (89/89) | n/a (0/0) |
 | routing/aliases | 4 | 0 | 100.0% (431/431) | 100.0% (76/76) | n/a (0/0) |
-| transport | 28 | 0 | 100.0% (1678/1678) | 100.0% (448/448) | n/a (0/0) |
-| vendor plugins | 245 | 2 | 100.0% (12313/12313) | 100.0% (1926/1926) | n/a (0/0) |
+| transport | 28 | 0 | 100.0% (1695/1695) | 100.0% (452/452) | n/a (0/0) |
+| vendor plugins | 247 | 2 | 100.0% (12357/12357) | 100.0% (1938/1938) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -82,6 +82,7 @@ Overall function coverage: **100.0%** (5101/5101)
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/fleet-doctor-reboot.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-stale-peers.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-load.ts` | 100.0% | 100.0% |
