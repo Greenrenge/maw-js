@@ -91,7 +91,7 @@ export function readFleetDir(dir: string): FleetSessionLite[] {
 }
 
 export function readFleetDirs(dirs: string[] = fleetAgentDirsForRead()): FleetSessionLite[] {
-  const byName = new Map<string, string>();
+  const byName = new Map<string, FleetSessionLite>();
   for (const dir of uniqueDirs(dirs)) {
     if (!existsSync(dir)) continue;
     let files: string[];
@@ -103,19 +103,19 @@ export function readFleetDirs(dirs: string[] = fleetAgentDirsForRead()): FleetSe
       continue;
     }
     for (const file of files) {
-      if (!byName.has(file)) byName.set(file, join(dir, file));
+      if (byName.has(file)) continue;
+      try {
+        byName.set(file, JSON.parse(readFileSync(join(dir, file), "utf-8")) as FleetSessionLite);
+      } catch {
+        // Keep looking in later fallback dirs. A malformed state-first file
+        // should not shadow a valid legacy fleet entry during migration.
+      }
     }
   }
 
-  const out: FleetSessionLite[] = [];
-  for (const path of [...byName.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, path]) => path)) {
-    try {
-      out.push(JSON.parse(readFileSync(path, "utf-8")) as FleetSessionLite);
-    } catch {
-      // Skip malformed file — don't break config load over one bad fleet entry.
-    }
-  }
-  return out;
+  return [...byName.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, session]) => session);
 }
 
 /**

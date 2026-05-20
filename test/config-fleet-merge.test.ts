@@ -151,6 +151,22 @@ describe("readFleetDirs XDG fallback (#1818/#1819)", () => {
       "legacy-beta-oracle": "m5",
     });
   });
+
+  test("malformed state fleet files do not shadow valid legacy fallbacks", () => {
+    writeFileSync(join(legacyDir, "01-alpha.json"), JSON.stringify({
+      windows: [{ name: "legacy-alpha-oracle" }],
+    }));
+    writeFileSync(join(stateDir, "01-alpha.json"), "{not json");
+    writeFileSync(join(stateDir, "02-beta.json"), JSON.stringify({
+      windows: [{ name: "state-beta-oracle" }],
+    }));
+
+    const agents = mergeFleetIntoAgents({}, readFleetDirs([stateDir, legacyDir]), "m5");
+    expect(agents).toEqual({
+      "legacy-alpha-oracle": "m5",
+      "state-beta-oracle": "m5",
+    });
+  });
 });
 
 // ---- End-to-end loadFleetAgents (reader + merge) -----------------------
