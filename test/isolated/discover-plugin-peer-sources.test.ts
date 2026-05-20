@@ -7,12 +7,15 @@ const configPath = import.meta.resolve("../../src/config");
 const discoveredPath = import.meta.resolve("../../src/vendor/mpr-plugins/peers/discovered");
 const sshPath = import.meta.resolve("../../src/core/transport/ssh");
 const registryPath = import.meta.resolve("../../src/plugin/registry");
+const repoDiscoveryPath = import.meta.resolve("../../src/core/repo-discovery");
 
 let configValue: Record<string, unknown> = {};
 let discoveryResult: DiscoveryResponse | DiscoveryError;
 let fetchCalls: Array<Record<string, unknown> | undefined> = [];
 let pluginRows: LoadedPlugin[] = [];
 let pluginError: Error | null = null;
+let ghqPaths: string[] = [];
+let ghqError: Error | null = null;
 let sessions: Array<{
   name: string;
   windows: Array<{ index: number; name: string; active: boolean }>;
@@ -42,6 +45,19 @@ mock.module(registryPath, () => ({
     if (pluginError) throw pluginError;
     return pluginRows;
   },
+}));
+
+mock.module(repoDiscoveryPath, () => ({
+  getRepos: () => ({
+    name: "ghq",
+    list: async () => {
+      if (ghqError) throw ghqError;
+      return ghqPaths;
+    },
+    listSync: () => ghqPaths,
+    findBySuffix: async () => null,
+    findBySuffixSync: () => null,
+  }),
 }));
 
 const { command, default: handler } = await import("../../src/commands/plugins/discover/index.ts?discover-plugin-peer-sources");
@@ -97,6 +113,8 @@ beforeEach(() => {
   fetchCalls = [];
   pluginRows = [];
   pluginError = null;
+  ghqPaths = [];
+  ghqError = null;
   sessions = [];
   sessionsError = null;
 });
@@ -141,6 +159,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
       source: "plugin-registry",
       total: 0,
       records: [],
+    });
+    expect(parsed.ghq).toEqual({
+      source: "ghq",
+      total: 0,
+      repos: [],
     });
     expect(parsed.peers.map((peer: { url: string }) => peer.url)).toEqual(["http://config:3456", "http://named:3456"]);
   });
@@ -215,6 +238,57 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.output).toContain("disabled");
   });
 
+  test("includes deduped ghq repos in JSON and tree output", async () => {
+    ghqPaths = [
+      "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+      "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+      "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-features",
+    ];
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree", "--json"] } as any);
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.output ?? "{}");
+    expect(parsed.ghq.total).toBe(2);
+    expect(parsed.ghq.repos).toEqual([
+      {
+        source: "ghq",
+        type: "repo",
+        path: "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+        name: "maw-js",
+        owner: "Soul-Brews-Studio",
+        host: "github.com",
+        oracleLike: false,
+        worktree: false,
+      },
+      {
+        source: "ghq",
+        type: "repo",
+        path: "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-features",
+        name: "maw-js.wt-features",
+        owner: "Soul-Brews-Studio",
+        host: "github.com",
+        oracleLike: false,
+        worktree: true,
+      },
+    ]);
+    expect(parsed.tree.ghq.map((repo: { path: string }) => repo.path)).toEqual([
+      "/opt/Code/github.com/Soul-Brews-Studio/maw-js",
+      "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-features",
+    ]);
+  });
+
+  test("renders ghq repos in text output", async () => {
+    ghqPaths = ["/opt/Code/github.com/Soul-Brews-Studio/mother-oracle"];
+
+    const result = await handler({ source: "cli", args: ["--peers=config"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("ghq repos");
+    expect(result.output).toContain("mother-oracle");
+    expect(result.output).toContain("yes");
+  });
+
   test("renders discover tree with tmux live-state in JSON", async () => {
     sessions = [{
       name: "50-mawjs",
@@ -239,6 +313,11 @@ describe("discover plugin peer-source integration (#1808)", () => {
       source: "plugin-registry",
       total: 0,
       records: [],
+    });
+    expect(parsed.ghq).toEqual({
+      source: "ghq",
+      total: 0,
+      repos: [],
     });
     expect(parsed.live).toEqual({
       source: "tmux",
@@ -298,5 +377,15 @@ describe("discover plugin peer-source integration (#1808)", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("plugins (0 registered)");
     expect(result.output).toContain("warning: plugin registry unavailable (bad registry)");
+  });
+
+  test("renders ghq warnings in tree output without crashing", async () => {
+    ghqError = new Error("ghq missing");
+
+    const result = await handler({ source: "cli", args: ["--peers", "config", "--tree"] } as any);
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("ghq (0 repos)");
+    expect(result.output).toContain("warning: ghq unavailable (ghq missing)");
   });
 });
