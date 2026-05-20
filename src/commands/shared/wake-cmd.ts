@@ -14,6 +14,7 @@ import { parseWakeTarget, ensureCloned } from "./wake-target";
 import { assertAgentCapacity } from "./wake-concurrency";
 import { latestSnapshot, loadSnapshot, type Snapshot, type SnapshotSession } from "../../core/fleet/snapshot";
 import { listClaudeSessions, type ClaudeSession } from "../../core/fleet/claude-sessions";
+import { UserError } from "../../core/util/user-error";
 import {
   type RehydrateWorktreePlan,
   type SnapshotRestorePlan,
@@ -109,6 +110,12 @@ type BringWindowCandidate = {
   name: string;
   target: string;
   detail: string;
+};
+
+type LiveWindowMatch = {
+  session: string;
+  window: string;
+  target: string;
 };
 
 type BringWindowLookupCandidate = BringWindowCandidate & {
@@ -322,6 +329,8 @@ export interface WakeOptions {
   splitTarget?: string;
   /** Hidden marker set by `maw bring` so wake can prefer live tmux windows (#1816 Part 4). */
   bringAlias?: boolean;
+  /** Internal marker: `maw bring --to <window>` was resolved to session:window (#1824). */
+  resolvedBringDestinationWindow?: LiveWindowMatch;
   bring?: boolean;
   tab?: boolean;
   bud?: boolean;
@@ -385,6 +394,69 @@ async function currentTmuxSessionFromPane(): Promise<string | null> {
   }
 }
 
+async function findLiveWindowsByName(windowName: string): Promise<LiveWindowMatch[]> {
+  const wanted = windowName.trim();
+  if (!wanted) return [];
+  const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+  const matches: LiveWindowMatch[] = [];
+  for (const session of sessions) {
+    const windows = await tmux.listWindows(session.name).catch(() => [] as { name: string }[]);
+    for (const window of windows) {
+      if (window.name !== wanted) continue;
+      matches.push({
+        session: session.name,
+        window: window.name,
+        target: `${session.name}:${window.name}`,
+      });
+    }
+  }
+  return matches;
+}
+
+function formatBringWindowTargets(matches: LiveWindowMatch[]): string {
+  return matches.map(match => `    ${match.target}`).join("\n");
+}
+
+function bringUserError(message: string): UserError {
+  console.error(`error: ${message}`);
+  return new UserError(message);
+}
+
+function buildAmbiguousBringDestinationError(
+  source: string,
+  destination: string,
+  matches: LiveWindowMatch[],
+): UserError {
+  return bringUserError(
+    [
+      `target session '${destination}' not found, but '${destination}' matches multiple live tmux windows.`,
+      "",
+      "  Use an explicit session:window destination:",
+      formatBringWindowTargets(matches),
+      "",
+      `  Example: maw bring ${source} --to ${matches[0]?.target ?? "<session>:<window>"}`,
+    ].join("\n"),
+  );
+}
+
+async function normalizeBringDestinationWindow(source: string, opts: WakeOptions): Promise<void> {
+  if (!opts.bringAlias) return;
+  if (!opts.session || opts.splitTarget) return;
+  const destination = opts.session.trim();
+  if (!destination || destination.includes(":")) return;
+  const sessionExists = await tmux.hasSession(destination).catch(() => false);
+  if (sessionExists) return;
+
+  const matches = await findLiveWindowsByName(destination);
+  if (matches.length === 0) return;
+  if (matches.length > 1) throw buildAmbiguousBringDestinationError(source, destination, matches);
+
+  const match = matches[0]!;
+  opts.session = match.session;
+  opts.splitTarget = match.target;
+  opts.resolvedBringDestinationWindow = match;
+}
+
 async function resolveExistingWindowBringTarget(
   targetName: string,
   opts: WakeOptions,
@@ -404,11 +476,25 @@ async function resolveExistingWindowBringTarget(
   const exact = windows.find(w => w.name === targetName);
   if (exact) return `${session}:${exact.name}`;
 
-  if (opts.pick) {
-    const candidates = resolveBringWindowCandidates(
-      targetName,
-      await buildBringWindowCandidates(session, windows),
+  const candidates = resolveBringWindowCandidates(
+    targetName,
+    await buildBringWindowCandidates(session, windows),
+  );
+  if (opts.resolvedBringDestinationWindow && !opts.pick && candidates.length > 0) {
+    const suggestion = candidates[0]!;
+    throw bringUserError(
+      [
+        `bring target '${targetName}' is not an exact live window in ${session}.`,
+        "",
+        `  Did you mean to target the window '${opts.resolvedBringDestinationWindow.window}' in an existing session?`,
+        `  Try: maw bring ${suggestion.name} --to ${opts.resolvedBringDestinationWindow.target}`,
+        "",
+        "  Or add --pick to choose from live window candidates.",
+      ].join("\n"),
     );
+  }
+
+  if (opts.pick) {
     if (candidates.length > 0) {
       const picked = promptAmbiguousBringPick(targetName, candidates);
       if (!picked) throw new Error(`--pick requires an interactive bring selection for '${targetName}'`);
@@ -472,6 +558,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       oracle = numericFleetTarget[1]!;
     }
   }
+  await normalizeBringDestinationWindow(oracle, opts);
   const requestedForeignSession = opts.session?.trim();
   if (requestedForeignSession) validateForeignSessionName(requestedForeignSession);
 

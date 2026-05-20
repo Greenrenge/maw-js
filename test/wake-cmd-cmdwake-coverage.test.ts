@@ -770,6 +770,87 @@ describe("cmdWake main-suite coverage", () => {
     expect(takeSnapshotCalls).toEqual([]);
   });
 
+  test("#1824 bring --to window-name resolves from non-tmux shells", async () => {
+    const originalPane = process.env.TMUX_PANE;
+    delete process.env.TMUX_PANE;
+    addWindow("54-mawjs", "mawjs-features");
+    try {
+      const { result, logs } = await captureLogs(() =>
+        cmdWake("mawjs-features", {
+          bringAlias: true,
+          split: true,
+          session: "mawjs-oracle",
+        }),
+      );
+
+      expect(result).toBe("54-mawjs:mawjs-features");
+      expect(logs.join("\n")).toContain("live tmux window: 54-mawjs:mawjs-features");
+      expect(maybeSplitCalls).toEqual([
+        {
+          target: "54-mawjs:mawjs-features",
+          opts: expect.objectContaining({
+            bringAlias: true,
+            split: true,
+            session: "54-mawjs",
+            splitTarget: "54-mawjs:mawjs-oracle",
+            resolvedBringDestinationWindow: expect.objectContaining({
+              target: "54-mawjs:mawjs-oracle",
+            }),
+          }),
+        },
+      ]);
+    } finally {
+      if (originalPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = originalPane;
+    }
+    expect(detectSessionCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("#1824 bring --to window-name suggests session:window for fuzzy source names", async () => {
+    const originalPane = process.env.TMUX_PANE;
+    delete process.env.TMUX_PANE;
+    addWindow("54-mawjs", "mawjs-features");
+    try {
+      await expect(captureLogs(() =>
+        cmdWake("features", {
+          bringAlias: true,
+          split: true,
+          session: "mawjs-oracle",
+        }),
+      )).rejects.toThrow("Try: maw bring mawjs-features --to 54-mawjs:mawjs-oracle");
+    } finally {
+      if (originalPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = originalPane;
+    }
+    expect(detectSessionCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual([]);
+  });
+
+  test("#1824 bring --to window-name reports ambiguous destination windows", async () => {
+    sessions.push({ name: "55-mawjs" });
+    hasSessions.add("55-mawjs");
+    addWindow("54-mawjs", "mawjs-features");
+    addWindow("55-mawjs", "mawjs-oracle");
+
+    await expect(captureLogs(() =>
+      cmdWake("mawjs-features", {
+        bringAlias: true,
+        split: true,
+        session: "mawjs-oracle",
+      }),
+    )).rejects.toThrow("matches multiple live tmux windows");
+
+    await expect(captureLogs(() =>
+      cmdWake("mawjs-features", {
+        bringAlias: true,
+        split: true,
+        session: "mawjs-oracle",
+      }),
+    )).rejects.toThrow("54-mawjs:mawjs-oracle");
+  });
+
   test("#1816 bring can resolve exact windows from the caller tmux session", async () => {
     const originalPane = process.env.TMUX_PANE;
     process.env.TMUX_PANE = "%42";
