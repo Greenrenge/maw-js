@@ -35,7 +35,7 @@ export type AliasResolution =
   | { kind: "direct"; handler: string; argv: string[] };
 
 export const ALIAS_DESCRIPTIONS: Record<string, string> = {
-  a: "Attach to a tmux session",
+  a: "Attach to a tmux session; use --shell for a repo shell pane",
   kill: "Kill a tmux pane or session",
   split: "Split pane and attach to a session",
   open: "Bring back hidden panes (join-pane)",
