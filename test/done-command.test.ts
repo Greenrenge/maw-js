@@ -372,6 +372,31 @@ describe("done worktree cleanup helpers", () => {
     ]);
   });
 
+  test("removeWorktreeViaConfig reads state fleet configs before duplicate legacy configs", async () => {
+    const h = createHarness({
+      files: {
+        "/state/fleet/team.json": JSON.stringify({
+          windows: [{ name: "tile-1", repo: "StateOrg/state-repo.wt-tile-1" }],
+        }),
+        "/fleet/team.json": JSON.stringify({
+          windows: [{ name: "tile-1", repo: "LegacyOrg/legacy-repo.wt-tile-1" }],
+        }),
+      },
+      hostExec: (command) => {
+        if (command.includes("rev-parse")) return "main\n";
+        return "";
+      },
+    });
+    h.deps.fleetDirs = ["/state/fleet", "/fleet"];
+
+    await expect(removeWorktreeViaConfig("tile-1", "/repos/github.com", h.deps)).resolves.toBe(true);
+
+    expect(h.commands).toContain(
+      "git -C '/repos/github.com/StateOrg/state-repo.wt-tile-1' rev-parse --abbrev-ref HEAD",
+    );
+    expect(h.commands.join("\n")).not.toContain("LegacyOrg/legacy-repo");
+  });
+
   test("removeWorktreeViaConfig returns false for non-worktrees, remove failures, and fleet scan errors", async () => {
     const nonWorktree = createHarness({
       files: {
@@ -486,5 +511,31 @@ describe("done worktree cleanup helpers", () => {
 
     const missing = createHarness({ fsFailReaddir: true });
     expect(removeFromFleetConfig("tile-1", missing.deps)).toBe(false);
+  });
+
+  test("removeFromFleetConfig rewrites the state config before duplicate legacy files", () => {
+    const h = createHarness({
+      files: {
+        "/state/fleet/team.json": JSON.stringify({
+          windows: [
+            { name: "tile-1", repo: "state/repo.wt-tile-1" },
+            { name: "lead", repo: "state/repo" },
+          ],
+        }),
+        "/fleet/team.json": JSON.stringify({
+          windows: [{ name: "tile-1", repo: "legacy/repo.wt-tile-1" }],
+        }),
+      },
+    });
+    h.deps.fleetDirs = ["/state/fleet", "/fleet"];
+
+    expect(removeFromFleetConfig("tile-1", h.deps)).toBe(true);
+
+    expect(JSON.parse(h.files.get("/state/fleet/team.json")!)).toEqual({
+      windows: [{ name: "lead", repo: "state/repo" }],
+    });
+    expect(JSON.parse(h.files.get("/fleet/team.json")!)).toEqual({
+      windows: [{ name: "tile-1", repo: "legacy/repo.wt-tile-1" }],
+    });
   });
 });
