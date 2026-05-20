@@ -34,6 +34,7 @@ describe("wake maybeSplit", () => {
   const originalPane = process.env.TMUX_PANE;
   const originalAllowClaudeSplit = process.env.MAW_ALLOW_CLAUDE_SPLIT;
   const originalAllowSelfBring = process.env.MAW_ALLOW_SELF_BRING;
+  const originalForceSplit = process.env.MAW_FORCE_SPLIT;
 
   beforeEach(() => {
     hostExecCalls = [];
@@ -47,6 +48,7 @@ describe("wake maybeSplit", () => {
     process.env.TMUX_PANE = "%42";
     delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
     delete process.env.MAW_ALLOW_SELF_BRING;
+    delete process.env.MAW_FORCE_SPLIT;
   });
 
   test("does nothing when split is not requested", async () => {
@@ -103,15 +105,27 @@ describe("wake maybeSplit", () => {
   });
 
 
-  test("warns but continues split from Claude-like caller panes when explicitly requested (#1562)", async () => {
+  test("opens a background tab instead of smearing Claude-like caller panes (#1562)", async () => {
     paneCommandResponse = "claude";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
 
     expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
     expect(hostExecCalls[1]).toContain("pane_current_command");
-    expect(hostExecCalls[2]).toContain("tmux split-window");
-    expect(hostExecCalls[2]).toContain("-t '%42'");
+    expect(hostExecCalls[2]).toContain("tmux new-window -d");
+    expect(hostExecCalls[2]).toContain("-n 'bring-homekeeper-oracle'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
+  });
+
+  test("uses a specific split target when --to contains a session:window", async () => {
+    await maybeSplit("50-mawjs:mawjs-features", {
+      split: true,
+      splitTarget: "50-mawjs:maw-js-1816",
+    });
+
+    expect(hostExecCalls[0]).toContain("-t '50-mawjs:maw-js-1816'");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toContain("tmux split-window -t '50-mawjs:maw-js-1816' -h -l 50%");
   });
 
 
@@ -204,5 +218,7 @@ describe("wake maybeSplit", () => {
     else process.env.MAW_ALLOW_CLAUDE_SPLIT = originalAllowClaudeSplit;
     if (originalAllowSelfBring === undefined) delete process.env.MAW_ALLOW_SELF_BRING;
     else process.env.MAW_ALLOW_SELF_BRING = originalAllowSelfBring;
+    if (originalForceSplit === undefined) delete process.env.MAW_FORCE_SPLIT;
+    else process.env.MAW_FORCE_SPLIT = originalForceSplit;
   });
 });

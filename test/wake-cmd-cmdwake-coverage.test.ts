@@ -146,6 +146,7 @@ let ensureSessionRunningReturn: number;
 let restoreTabOrderReturn: number;
 let listWindowsCalls: string[];
 let listWindowsThrowOnCall: number | null;
+let throwCurrentSessionProbe: boolean;
 
 let logs: string[];
 let hostExecCalls: string[];
@@ -240,6 +241,10 @@ mock.module(join(import.meta.dir, "../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     if (!mockActive) return realSdk.hostExec(cmd);
     hostExecCalls.push(cmd);
+    if (cmd.includes("display-message") && cmd.includes("#{session_name}") && !cmd.includes("window_name")) {
+      if (throwCurrentSessionProbe) throw new Error("no caller session");
+      return "54-mawjs\n";
+    }
     if (cmd.includes("list-panes")) return liveTileRoles.join("\n");
     if (cmd.includes("branch --show-current")) return `${branchName}\n`;
     return "";
@@ -571,6 +576,7 @@ beforeEach(() => {
   restoreTabOrderReturn = 0;
   listWindowsCalls = [];
   listWindowsThrowOnCall = null;
+  throwCurrentSessionProbe = false;
 
   logs = [];
   hostExecCalls = [];
@@ -687,6 +693,88 @@ describe("cmdWake main-suite coverage", () => {
     expect(newSessionCalls).toHaveLength(0);
     expect(newWindowCalls).toHaveLength(0);
     expect(sendTextCalls).toHaveLength(0);
+  });
+
+  test("#1816 bring resolves an exact live tmux window before fuzzy oracle lookup", async () => {
+    addWindow("54-mawjs", "mawjs-features");
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs-features", {
+        bringAlias: true,
+        split: true,
+        session: "54-mawjs",
+        splitTarget: "54-mawjs:maw-js-1816",
+      }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-features");
+    expect(logs.join("\n")).toContain("live tmux window: 54-mawjs:mawjs-features");
+    expect(detectSessionCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "54-mawjs:mawjs-features",
+        opts: expect.objectContaining({
+          bringAlias: true,
+          split: true,
+          session: "54-mawjs",
+          splitTarget: "54-mawjs:maw-js-1816",
+        }),
+      },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("#1816 bring dry-run resolves exact windows from --to session:window", async () => {
+    addWindow("54-mawjs", "mawjs-features");
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("mawjs-features", {
+        bringAlias: true,
+        split: true,
+        splitTarget: "54-mawjs:maw-js-1816",
+        dryRun: true,
+      }),
+    );
+
+    expect(result).toBe("54-mawjs:mawjs-features");
+    expect(logs.join("\n")).toContain("dry-run — no tmux sessions/windows will be changed");
+    expect(detectSessionCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([]);
+    expect(takeSnapshotCalls).toEqual([]);
+  });
+
+  test("#1816 bring can resolve exact windows from the caller tmux session", async () => {
+    const originalPane = process.env.TMUX_PANE;
+    process.env.TMUX_PANE = "%42";
+    addWindow("54-mawjs", "mawjs-features");
+    try {
+      const { result } = await captureLogs(() =>
+        cmdWake("mawjs-features", { bringAlias: true, split: true }),
+      );
+      expect(result).toBe("54-mawjs:mawjs-features");
+    } finally {
+      if (originalPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = originalPane;
+    }
+    expect(hostExecCalls).toContain("tmux display-message -p -t '%42' '#{session_name}'");
+  });
+
+  test("#1816 bring falls back to legacy oracle resolution when caller session cannot be read", async () => {
+    const originalPane = process.env.TMUX_PANE;
+    process.env.TMUX_PANE = "%42";
+    throwCurrentSessionProbe = true;
+    try {
+      const { result } = await captureLogs(() =>
+        cmdWake("mawjs-features", { bringAlias: true, split: true }),
+      );
+      expect(result).toBe("54-mawjs:mawjs-oracle");
+    } finally {
+      if (originalPane === undefined) delete process.env.TMUX_PANE;
+      else process.env.TMUX_PANE = originalPane;
+    }
+    expect(detectSessionCalls).toEqual([{ oracle: "mawjs", urlRepoName: undefined }]);
   });
 
 

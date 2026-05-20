@@ -268,7 +268,16 @@ describe("direct handler invocation", () => {
 
     calls.logs = [];
     await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--dry-run", "--main", "--task", "fix", "-e", "codex"], deps);
-    expect(calls.wake).toEqual([["neo", { task: "fix", dryRun: true, noRehydrate: true, split: true, engine: "codex" }]]);
+    expect(calls.wake).toEqual([["neo", { task: "fix", dryRun: true, noRehydrate: true, split: true, bringAlias: true, engine: "codex" }]]);
+
+    calls.wake = [];
+    await invokeDirectHandler("../commands/shared/wake-cmd:cmdBring", ["neo", "--to", "50-mawjs:maw-js-1816"], deps);
+    expect(calls.wake).toEqual([["neo", {
+      session: "50-mawjs",
+      splitTarget: "50-mawjs:maw-js-1816",
+      split: true,
+      bringAlias: true,
+    }]]);
   });
 
   test("new and preflight handlers dispatch to their static imports", async () => {

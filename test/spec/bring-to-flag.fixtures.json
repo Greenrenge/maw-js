@@ -5,6 +5,11 @@
     "expected": ["mawjs-codex-oracle", "--session", "50-mawjs"]
   },
   {
+    "name": "translates --to <session:window> to session plus split target",
+    "input": ["mawjs-features", "--to", "50-mawjs:maw-js-1816"],
+    "expected": ["mawjs-features", "--session", "50-mawjs", "--split-target", "50-mawjs:maw-js-1816"]
+  },
+  {
     "name": "leaves --session untouched",
     "input": ["mawjs-codex-oracle", "--session", "50-mawjs"],
     "expected": ["mawjs-codex-oracle", "--session", "50-mawjs"]

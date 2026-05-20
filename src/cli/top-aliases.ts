@@ -140,11 +140,11 @@ export function parseBringArgs(
 }
 
 function printBringUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw bring <oracle> [--to <session>] [wake flags...]");
-  write("       maw b <oracle> [--to <session>] [wake flags...]");
+  write("usage: maw bring <oracle> [--to <session[:window]>] [wake flags...]");
+  write("       maw b <oracle> [--to <session[:window]>] [wake flags...]");
   write("  Thin alias: maw bring <oracle> ≡ maw wake <oracle> --split");
   write("  Supports the same flags as `maw wake`, including --task, --wt, --dry-run, and -e/--engine.");
-  write("  --to <session> is an alias for --session that reads naturally with the bring verb (#1816).");
+  write("  --to <session[:window]> targets a workspace session, optionally splitting inside a specific tab (#1816).");
   write("  Refuses to split-bring an oracle into its own pane (set MAW_ALLOW_SELF_BRING=1 to override).");
 }
 
@@ -305,6 +305,8 @@ export async function invokeDirectHandler(
       "--snapshot": String,
       "--main": Boolean, "--solo": "--main", "--no-rehydrate": "--main",
       "--split": Boolean,
+      "--split-target": String,
+      "--bring-alias": Boolean,
       "--all-local": Boolean,
       "--engine": String, "-e": "--engine",
     }, 0);
@@ -330,6 +332,8 @@ export async function invokeDirectHandler(
       dryRun?: boolean;
       noRehydrate?: boolean;
       split?: boolean;
+      splitTarget?: string;
+      bringAlias?: boolean;
       bud?: boolean;
       signalOnBirth?: boolean;
       allLocal?: boolean;
@@ -357,6 +361,8 @@ export async function invokeDirectHandler(
     }
     if (flags["--main"]) opts.noRehydrate = true;
     if (flags["--split"]) opts.split = true;
+    if (flags["--split-target"]) opts.splitTarget = flags["--split-target"];
+    if (flags["--bring-alias"]) opts.bringAlias = true;
     if (flags["--all-local"]) opts.allLocal = true;
     if (flags["--engine"]) opts.engine = flags["--engine"];
 
@@ -388,7 +394,7 @@ export async function invokeDirectHandler(
     const { translateBringToFlag } = await import("../commands/shared/bring-flags");
     await invokeDirectHandler(
       "../commands/shared/wake-cmd:cmdWake",
-      [...translateBringToFlag(argv), "--split"],
+      [...translateBringToFlag(argv), "--split", "--bring-alias"],
       deps,
     );
     return;

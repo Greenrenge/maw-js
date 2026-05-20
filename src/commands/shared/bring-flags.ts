@@ -13,9 +13,10 @@
  */
 
 /**
- * Translate `--to <session>` to `--session <session>` so the bring verb
+ * Translate `--to <session[:window]>` to wake-shaped flags so the bring verb
  * reads as English ("bring foo TO 50-mawjs") while the underlying wake
- * dispatcher keeps using its existing `--session` flag.
+ * dispatcher keeps using its existing `--session` flag. When a window is
+ * present, the hidden `--split-target` tells the split layer where to split.
  *
  * Returns a NEW array. Does not mutate. `--to` without a following arg is
  * left intact so the downstream parser surfaces its own error.
@@ -25,12 +26,34 @@ export function translateBringToFlag(argv: string[]): string[] {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--to" && i + 1 < argv.length) {
-      out.push("--session", argv[++i]!);
+      const target = parseBringToTarget(argv[++i]!);
+      out.push("--session", target.session);
+      if (target.window) out.push("--split-target", `${target.session}:${target.window}`);
       continue;
     }
     if (arg !== undefined) out.push(arg);
   }
   return out;
+}
+
+/**
+ * #1816 Part 3 — parse a `--to` value that may contain a destination window.
+ *
+ *   "--to 50-mawjs"              → { session: "50-mawjs" }
+ *   "--to 50-mawjs:maw-js-1816"  → { session: "50-mawjs", window: "maw-js-1816" }
+ *
+ * The session remains the wake workspace target. The optional window becomes
+ * the split anchor, so `maw bring source --to session:window` splits *inside*
+ * that destination tab instead of smearing the caller's current pane.
+ */
+export type BringToTarget = { session: string; window?: string };
+
+export function parseBringToTarget(value: string): BringToTarget {
+  const colon = value.indexOf(":");
+  if (colon === -1) return { session: value };
+  const session = value.slice(0, colon);
+  const window = value.slice(colon + 1);
+  return window ? { session, window } : { session };
 }
 
 /**

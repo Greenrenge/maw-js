@@ -65,6 +65,7 @@ const { findTopRightPane, maybeOpenWindow, maybeSplit, probeTmuxServer } =
 
 const originalTmux = process.env.TMUX;
 const originalPane = process.env.TMUX_PANE;
+const originalForceSplit = process.env.MAW_FORCE_SPLIT;
 const originalLog = console.log;
 let logs: string[] = [];
 
@@ -96,6 +97,7 @@ describe("wake maybe split/window coverage", () => {
     paneCommandResponse = "zsh";
     paneSessionWindowResponse = "";
     delete process.env.MAW_ALLOW_SELF_BRING;
+    delete process.env.MAW_FORCE_SPLIT;
     resetEnv(true);
     console.log = (...args: unknown[]) => logs.push(args.join(" "));
   });
@@ -107,6 +109,8 @@ describe("wake maybe split/window coverage", () => {
     else process.env.TMUX = originalTmux;
     if (originalPane === undefined) delete process.env.TMUX_PANE;
     else process.env.TMUX_PANE = originalPane;
+    if (originalForceSplit === undefined) delete process.env.MAW_FORCE_SPLIT;
+    else process.env.MAW_FORCE_SPLIT = originalForceSplit;
   });
 
   test("probeTmuxServer reports true and false", async () => {
@@ -170,7 +174,19 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).toContain("✓ split beside");
   });
 
-  test("split warns but continues from Claude-like caller panes when explicitly requested (#1562)", async () => {
+  test("#1816 — splitTarget anchors the split in a destination session:window", async () => {
+    await maybeSplit("50-mawjs:mawjs-features", {
+      split: true,
+      splitTarget: "50-mawjs:maw-js-1816",
+    });
+
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '50-mawjs:maw-js-1816' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '50-mawjs:maw-js-1816' '#{pane_current_command}'");
+    expect(hostExecCalls[2]).toContain("tmux split-window -t '50-mawjs:maw-js-1816' -h -l 50%");
+    expect(output()).toContain("✓ split beside — 50-mawjs:mawjs-features (50%)");
+  });
+
+  test("split avoids Claude-like caller pane smear by opening a background tab (#1562)", async () => {
     paneCommandResponse = "2.1.139";
 
     await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
@@ -178,10 +194,22 @@ describe("wake maybe split/window coverage", () => {
     // #1816 — self-bring guard runs first (mock falls through, returns "" → null → proceed).
     expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
     expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
-    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window -t '%42' -h -l 50%"))).toBe(true);
-    expect(output()).toContain("--split requested from a Claude Code pane; continuing despite possible redraw smear");
-    expect(output()).toContain("✓ split beside — 20-homekeeper:homekeeper-oracle (50%)");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux new-window -d -n 'bring-homekeeper-oracle'"))).toBe(true);
+    expect(output()).toContain("opened as background tab (split skipped — Claude TUI pane would smear #1562)");
+    expect(output()).toContain("MAW_FORCE_SPLIT=1");
     expect(output()).not.toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
+  });
+
+  test("MAW_FORCE_SPLIT keeps explicit split behavior from Claude-like caller panes", async () => {
+    paneCommandResponse = "2.1.139";
+    process.env.MAW_FORCE_SPLIT = "1";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window -t '%42' -h -l 50%"))).toBe(true);
+    expect(output()).toContain("✓ split beside — 20-homekeeper:homekeeper-oracle (50%)");
+    expect(output()).not.toContain("opened as background tab");
   });
 
   test("split skips layout for two panes, tile anchors, invalid counts, and layout probe failures", async () => {

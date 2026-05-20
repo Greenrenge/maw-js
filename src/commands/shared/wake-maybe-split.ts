@@ -119,11 +119,15 @@ export async function findTopRightPane(anchor?: string): Promise<string | null> 
   return candidates[0]?.id ?? null;
 }
 
-export async function maybeSplit(target: string, opts: { split?: boolean }): Promise<void> {
+function targetSession(target: string): string {
+  return target.split(":")[0] || target;
+}
+
+export async function maybeSplit(target: string, opts: { split?: boolean; splitTarget?: string }): Promise<void> {
   if (!opts.split) return;
-  if (process.env.TMUX) {
+  if (process.env.TMUX || opts.splitTarget) {
     try {
-      const anchor = process.env.TMUX_PANE;
+      const anchor = opts.splitTarget || process.env.TMUX_PANE;
       // #1816 — refuse to split-bring an oracle into its own pane. A child
       // pane that attach-sessions back to its own parent session creates
       // nested-attach + amplifies the #1562 redraw smear into a persistent
@@ -138,8 +142,11 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
           return;
         }
       }
-      if (await isClaudeLikeCallerPane(anchor)) {
-        console.log(`  \x1b[33m⚠\x1b[0m --split requested from a Claude Code pane; continuing despite possible redraw smear (#1562).`);
+      if (await isClaudeLikeCallerPane(anchor) && process.env.MAW_FORCE_SPLIT !== "1") {
+        await openBackgroundTab(target, opts.splitTarget ? targetSession(opts.splitTarget) : undefined);
+        console.log(`  \x1b[36m→\x1b[0m opened as background tab (split skipped — Claude TUI pane would smear #1562).`);
+        console.log(`      \x1b[90mforce split:      MAW_FORCE_SPLIT=1 maw bring ...\x1b[0m`);
+        return;
       }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
       const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
@@ -156,7 +163,7 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
     return;
   }
   const serverUp = await probeTmuxServer();
-  const session = target.split(":")[0] || target;
+  const session = targetSession(target);
   if (serverUp) {
     console.log(`  \x1b[33m⚠\x1b[0m --split skipped — shell is not attached to a tmux pane.`);
     console.log(`      \x1b[90mstate created:    ${target}\x1b[0m`);
@@ -170,12 +177,13 @@ export async function maybeSplit(target: string, opts: { split?: boolean }): Pro
   }
 }
 
-async function openBackgroundTab(target: string): Promise<void> {
-  const session = target.split(":")[0] || target;
+async function openBackgroundTab(target: string, destinationSession?: string): Promise<void> {
+  const session = targetSession(target);
   const targetWindow = target.split(":").slice(1).join(":") || session;
   const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
   const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
-  await hostExec(`tmux new-window -d -n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
+  const destination = destinationSession ? `-t ${shellArg(`${destinationSession}:`)} ` : "";
+  await hostExec(`tmux new-window -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
   console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
 }
 

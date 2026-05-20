@@ -200,6 +200,10 @@ export interface WakeOptions {
   dryRun?: boolean;
   noRehydrate?: boolean;
   split?: boolean;
+  /** Hidden bring alias split anchor. Shape: "session:window" (#1816 Part 3). */
+  splitTarget?: string;
+  /** Hidden marker set by `maw bring` so wake can prefer live tmux windows (#1816 Part 4). */
+  bringAlias?: boolean;
   bring?: boolean;
   tab?: boolean;
   bud?: boolean;
@@ -242,6 +246,47 @@ function validateForeignSessionName(name: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(name)) {
     throw new Error(`invalid target session '${name}' — use letters, numbers, dot, underscore, or dash`);
   }
+}
+
+function sessionFromTmuxTarget(target: string | undefined): string | null {
+  if (!target) return null;
+  const session = target.split(":")[0]?.trim();
+  return session || null;
+}
+
+async function currentTmuxSessionFromPane(): Promise<string | null> {
+  const pane = process.env.TMUX_PANE;
+  if (!pane) return null;
+  try {
+    const safePane = pane.replace(/'/g, "'\\''");
+    const raw = await hostExec(`tmux display-message -p -t '${safePane}' '#{session_name}'`);
+    const out = String(raw).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveExistingWindowBringTarget(
+  targetName: string,
+  opts: WakeOptions,
+  preResolvedSession: string | null,
+): Promise<string | null> {
+  if (!opts.bringAlias) return null;
+  if (opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) return null;
+
+  const session =
+    opts.session?.trim() ||
+    sessionFromTmuxTarget(opts.splitTarget) ||
+    preResolvedSession ||
+    await currentTmuxSessionFromPane();
+  if (!session) return null;
+
+  const windows = await tmux.listWindows(session).catch(() => [] as { name: string }[]);
+  const exact = windows.find(w => w.name === targetName);
+  if (!exact) return null;
+
+  return `${session}:${exact.name}`;
 }
 
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
@@ -297,7 +342,23 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       oracle = numericFleetTarget[1]!;
     }
   }
+  const requestedForeignSession = opts.session?.trim();
+  if (requestedForeignSession) validateForeignSessionName(requestedForeignSession);
+
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
+
+  const existingWindowBringTarget = await resolveExistingWindowBringTarget(oracle, opts, preResolvedSession);
+  if (existingWindowBringTarget) {
+    console.log(`\x1b[36m→\x1b[0m live tmux window: ${existingWindowBringTarget}`);
+    if (opts.dryRun) {
+      console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
+      return existingWindowBringTarget;
+    }
+    await maybeSplit(existingWindowBringTarget, opts);
+    await recordWakeSnapshot();
+    return existingWindowBringTarget;
+  }
+
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
   if (opts.repoPath) {
@@ -369,8 +430,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
     return `${oracle}:list`;
   }
 
-  const foreignSession = opts.session?.trim();
-  if (foreignSession) validateForeignSessionName(foreignSession);
+  const foreignSession = requestedForeignSession;
   let session = foreignSession || preResolvedSession || await detectSession(oracle, opts.urlRepoName);
   if (foreignSession) {
     const exists = opts.dryRun || await tmux.hasSession(foreignSession);
