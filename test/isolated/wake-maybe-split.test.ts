@@ -8,11 +8,13 @@ let paneGeometryResponse = "%42|0|0|\n%43|0|81|1\n%44|26|81|1\n";
 let refreshClientThrows = false;
 let paneCommandResponse = "zsh";
 let paneSessionWindowResponse = "";
+let paneClientTtyResponse = "/dev/ttys001";
 
 mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
   hostExec: async (cmd: string) => {
     hostExecCalls.push(cmd);
     if (cmd.includes("session_name") && cmd.includes("window_name")) return paneSessionWindowResponse;
+    if (cmd.includes("client_tty")) return paneClientTtyResponse;
     if (cmd.includes("pane_current_command")) return paneCommandResponse;
     if (cmd.includes("refresh-client")) {
       if (refreshClientThrows) throw new Error("refresh unsupported");
@@ -44,6 +46,7 @@ describe("wake maybeSplit", () => {
     refreshClientThrows = false;
     paneCommandResponse = "zsh";
     paneSessionWindowResponse = "";
+    paneClientTtyResponse = "/dev/ttys001";
     process.env.TMUX = "/tmp/tmux-501/default,123,0";
     process.env.TMUX_PANE = "%42";
     delete process.env.MAW_ALLOW_CLAUDE_SPLIT;
@@ -115,7 +118,9 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls[2]).toBe("tmux send-keys -t '%42' C-l");
     expect(hostExecCalls[3]).toContain("tmux new-window -d");
     expect(hostExecCalls[3]).toContain("-n 'bring-homekeeper-oracle'");
-    expect(hostExecCalls[4]).toBe("tmux refresh-client -S");
+    expect(hostExecCalls[4]).toBe("tmux send-keys -t '%42' C-l");
+    expect(hostExecCalls[5]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client -t '/dev/ttys001'");
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 

@@ -60,7 +60,25 @@ async function refreshSplitClient(): Promise<void> {
   }
 }
 
-async function clearSourcePaneBeforeBackgroundAttach(anchor?: string): Promise<void> {
+async function refreshSourceClient(anchor?: string): Promise<void> {
+  try {
+    if (anchor) {
+      const raw = await hostExec(`tmux display-message -p -t ${shellArg(anchor)} '#{client_tty}'`);
+      const client = String(raw).trim();
+      if (client.length > 0) {
+        await hostExec(`tmux refresh-client -t ${shellArg(client)}`);
+        return;
+      }
+    }
+    await hostExec("tmux refresh-client");
+  } catch {
+    // Best-effort full-client redraw only (#1816/#1562): the background tab
+    // was created; never fail the user action because the source client
+    // cannot be targeted/refreshed.
+  }
+}
+
+async function repaintSourcePane(anchor?: string): Promise<void> {
   if (!anchor) return;
   try {
     await hostExec(`tmux send-keys -t ${shellArg(anchor)} C-l`);
@@ -201,9 +219,16 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
   const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
   const innerCmd = `TMUX= tmux attach-session -t ${shellArg(target)}`;
   const destination = opts.destinationSession ? `-t ${shellArg(`${opts.destinationSession}:`)} ` : "";
-  await clearSourcePaneBeforeBackgroundAttach(opts.sourceAnchor);
+  await repaintSourcePane(opts.sourceAnchor);
   await hostExec(`tmux new-window -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
-  if (opts.sourceAnchor) await refreshSplitClient();
+  if (opts.sourceAnchor) {
+    // The detached nested attach can make tmux repaint the caller after our
+    // first C-l. Repaint again, then refresh the *client attached to that
+    // pane* (not merely the global status line) so Claude-like TUIs do not
+    // keep the lower-half dot smear observed at 957c41c1.
+    await repaintSourcePane(opts.sourceAnchor);
+    await refreshSourceClient(opts.sourceAnchor);
+  }
   console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
 }
 
