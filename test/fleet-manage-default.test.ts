@@ -17,8 +17,9 @@ const session = (name: string, windows: Array<{ name: string; repo?: string }> =
   windows: windows.map(w => ({ name: w.name, repo: w.repo ?? "Soul-Brews-Studio/example" })),
 });
 
-const entry = (file: string, num: number, groupName: string, fleetSession: FleetSession): FleetEntry => ({
+const entry = (file: string, num: number, groupName: string, fleetSession: FleetSession, path?: string): FleetEntry => ({
   file,
+  ...(path ? { path } : {}),
   num,
   groupName,
   session: fleetSession,
@@ -146,6 +147,27 @@ describe("cmdFleetRename", () => {
     expect(h.tmuxRuns).toEqual([]);
     expect(text(h.logs)).toContain("23-discord-admin.json");
     expect(text(h.logs)).toContain("23-discord.json");
+  });
+
+  test("renames a fleet config in the XDG state directory that supplied it", async () => {
+    const h = makeDeps([
+      entry(
+        "23-discord-admin.json",
+        23,
+        "discord-admin",
+        session("23-discord-admin", [{ name: "discord-oracle" }]),
+        "/state/fleet/23-discord-admin.json",
+      ),
+    ], {
+      exists: path => !path.endsWith("23-discord.json"),
+      running: [],
+    });
+
+    await cmdFleetRename({ oldName: "23-discord-admin", newName: "23-discord" }, h.deps);
+
+    expect(h.writes.map(w => w.path)).toEqual(["/state/fleet/.tmp-23-discord.json"]);
+    expect(h.renames).toEqual([{ from: "/state/fleet/.tmp-23-discord.json", to: "/state/fleet/23-discord.json" }]);
+    expect(h.unlinks).toEqual(["/state/fleet/23-discord-admin.json"]);
   });
 
   test("renames a live fleet session and keeps config plus tmux in lockstep", async () => {
@@ -277,5 +299,27 @@ describe("cmdFleetRenumber", () => {
     expect(h.writes.map(w => w.path)).toEqual(["/fleet/.tmp-01-alpha.json", "/fleet/.tmp-02-beta.json"]);
     expect(h.unlinks).toEqual(["/fleet/05-beta.json"]);
     expect(text(h.logs)).toContain("02-beta.json");
+  });
+
+  test("renumbers configs in the source directory that supplied each entry", async () => {
+    const h = makeDeps([
+      entry("05-alpha.json", 5, "alpha", session("05-alpha"), "/state/fleet/05-alpha.json"),
+      entry("05-beta.json", 5, "beta", session("05-beta"), "/legacy/fleet/05-beta.json"),
+    ]);
+
+    await cmdFleetRenumber(h.deps);
+
+    expect(h.writes.map(w => w.path)).toEqual([
+      "/state/fleet/.tmp-01-alpha.json",
+      "/legacy/fleet/.tmp-02-beta.json",
+    ]);
+    expect(h.renames).toEqual([
+      { from: "/state/fleet/.tmp-01-alpha.json", to: "/state/fleet/01-alpha.json" },
+      { from: "/legacy/fleet/.tmp-02-beta.json", to: "/legacy/fleet/02-beta.json" },
+    ]);
+    expect(h.unlinks).toEqual([
+      "/state/fleet/05-alpha.json",
+      "/legacy/fleet/05-beta.json",
+    ]);
   });
 });

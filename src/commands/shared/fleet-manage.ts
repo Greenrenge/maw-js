@@ -1,4 +1,4 @@
-import { join } from "path";
+import { dirname, join } from "path";
 import { existsSync, renameSync, unlinkSync, readdirSync } from "fs";
 import { tmux, FLEET_DIR } from "../../sdk";
 import { loadFleetEntries, getSessionNames, type FleetEntry } from "./fleet-load";
@@ -42,6 +42,14 @@ function peerAliases(name: string): Set<string> {
   const clean = stripJson(name);
   const stem = stripNumberPrefix(clean);
   return new Set([clean, stem]);
+}
+
+function entryPath(io: FleetManageDeps, entry: FleetEntry): string {
+  return entry.path ?? io.join(io.fleetDir, entry.file);
+}
+
+function entryDir(io: FleetManageDeps, entry: FleetEntry): string {
+  return dirname(entryPath(io, entry));
 }
 
 export function fleetManageDeps(overrides: Partial<FleetManageDeps> = {}): FleetManageDeps {
@@ -151,8 +159,9 @@ export async function cmdFleetRename(
     e.groupName === newName
   ));
   const newFile = `${newName}.json`;
-  const oldPath = io.join(io.fleetDir, target.file);
-  const newPath = io.join(io.fleetDir, newFile);
+  const targetDir = entryDir(io, target);
+  const oldPath = entryPath(io, target);
+  const newPath = io.join(targetDir, newFile);
   if (existing || (newPath !== oldPath && io.existsSync(newPath))) throw new Error(`target fleet already exists: ${newName}`);
 
   const aliases = peerAliases(oldName);
@@ -186,7 +195,7 @@ export async function cmdFleetRename(
     return;
   }
 
-  const tmpPath = io.join(io.fleetDir, `.tmp-${newFile}`);
+  const tmpPath = io.join(targetDir, `.tmp-${newFile}`);
   await io.writeFile(tmpPath, JSON.stringify(newSession, null, 2) + "\n");
   io.renameSync(tmpPath, newPath);
   if (target.file !== newFile && io.existsSync(oldPath)) io.unlinkSync(oldPath);
@@ -239,12 +248,13 @@ export async function cmdFleetRenumber(deps: Partial<FleetManageDeps> = {}) {
     if (newFile !== e.file) {
       // Update config.name in JSON — write to temp file then atomically rename
       e.session.name = newName;
-      const tmpPath = io.join(io.fleetDir, `.tmp-${newFile}`);
+      const sourceDir = entryDir(io, e);
+      const tmpPath = io.join(sourceDir, `.tmp-${newFile}`);
       await io.writeFile(tmpPath, JSON.stringify(e.session, null, 2) + "\n");
-      io.renameSync(tmpPath, io.join(io.fleetDir, newFile));
+      io.renameSync(tmpPath, io.join(sourceDir, newFile));
 
       // Remove old file (only if name changed)
-      const oldPath = io.join(io.fleetDir, e.file);
+      const oldPath = entryPath(io, e);
       if (io.existsSync(oldPath) && newFile !== e.file) {
         io.unlinkSync(oldPath);
       }
