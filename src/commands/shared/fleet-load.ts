@@ -45,8 +45,8 @@ export function fleetDirForWrite(): string {
   return coreFleetDirForWrite();
 }
 
-function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string }> {
-  const byName = new Map<string, { file: string; path: string }>();
+function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: string; path: string; session: FleetSession }> {
+  const byName = new Map<string, { file: string; path: string; session: FleetSession }>();
   for (const dir of uniqueDirs(dirs)) {
     if (!existsSync(dir)) continue;
     let files: string[];
@@ -58,7 +58,14 @@ function readFleetFiles(dirs: string[] = fleetDirsForRead()): Array<{ file: stri
       continue;
     }
     for (const file of files) {
-      if (!byName.has(file)) byName.set(file, { file, path: join(dir, file) });
+      if (byName.has(file)) continue;
+      const path = join(dir, file);
+      try {
+        byName.set(file, { file, path, session: JSON.parse(readFileSync(path, "utf-8")) as FleetSession });
+      } catch {
+        // Keep looking in fallback dirs. A malformed state-first fleet file
+        // should not shadow a valid legacy config with the same filename.
+      }
     }
   }
   return [...byName.values()].sort((a, b) => a.file.localeCompare(b.file));
@@ -93,7 +100,7 @@ function parseFleetFileInfo(file: string): { num: number; groupName: string } {
 }
 
 export function loadFleet(dirs: string[] = fleetDirsForRead()): FleetSession[] {
-  return readFleetFiles(dirs).map(({ path }) => JSON.parse(readFileSync(path, "utf-8")) as FleetSession);
+  return readFleetFiles(dirs).map(({ session }) => session);
 }
 
 
@@ -113,15 +120,14 @@ export function loadDisabledFleetEntries(dirs: string[] = fleetDirsForRead()): D
 }
 
 export function loadFleetEntries(dirs: string[] = fleetDirsForRead()): FleetEntry[] {
-  return readFleetFiles(dirs).map(({ file, path }) => {
-    const raw = JSON.parse(readFileSync(path, "utf-8"));
+  return readFleetFiles(dirs).map(({ file, path, session }) => {
     const { num, groupName } = parseFleetFileInfo(file);
     return {
       file,
       path,
       num,
       groupName,
-      session: raw as FleetSession,
+      session,
     };
   });
 }

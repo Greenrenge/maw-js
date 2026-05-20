@@ -185,6 +185,31 @@ describe("fleet-load coverage", () => {
     ]);
   });
 
+  test("loadFleetEntries falls back past malformed XDG state fleet files", () => {
+    writeFileSync(join(fleetDir, "20-overlap.json"), JSON.stringify({
+      name: "legacy-overlap",
+      windows: [{ name: "legacy-recovers" }],
+    }));
+    writeFileSync(join(stateFleetDir, "10-state-only.json"), JSON.stringify({
+      name: "state",
+      windows: [{ name: "state-oracle" }],
+    }));
+    writeFileSync(join(stateFleetDir, "20-overlap.json"), "{not json");
+
+    expect(fleetLoad.loadFleetEntries().map(({ file, path, session }) => ({ file, path, session }))).toEqual([
+      {
+        file: "10-state-only.json",
+        path: join(stateFleetDir, "10-state-only.json"),
+        session: { name: "state", windows: [{ name: "state-oracle" }] },
+      },
+      {
+        file: "20-overlap.json",
+        path: join(fleetDir, "20-overlap.json"),
+        session: { name: "legacy-overlap", windows: [{ name: "legacy-recovers" }] },
+      },
+    ]);
+  });
+
   test("getSessionNames returns trimmed tmux session names and [] on tmux errors", async () => {
     tmuxOutput = "alpha\n\nbeta\n";
 
