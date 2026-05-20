@@ -92,6 +92,11 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat");
     });
 
+    test("with a startup command", async () => {
+      await t.newSession("s1", { window: "main", cwd: "/home/nat", command: "bun dev; exec zsh" });
+      expect(commands[0]).toBe("tmux new-session -d -s s1 -n main -c /home/nat 'bun dev; exec zsh'");
+    });
+
     test("non-detached", async () => {
       await t.newSession("s1", { detached: false });
       expect(commands[0]).toBe("tmux new-session -s s1");

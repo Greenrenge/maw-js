@@ -108,12 +108,14 @@ export class Tmux {
     window?: string;
     cwd?: string;
     detached?: boolean;
+    command?: string;
   } = {}): Promise<void> {
     const args: (string | number)[] = [];
     if (opts.detached !== false) args.push("-d");
     args.push("-s", name);
     if (opts.window) args.push("-n", opts.window);
     if (opts.cwd) args.push("-c", opts.cwd);
+    if (opts.command) args.push(opts.command);
     await this.run("new-session", ...args);
     await this.setOption(name, "renumber-windows", "on");
   }

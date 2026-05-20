@@ -10,6 +10,9 @@
  *   maw team bring my-project
  */
 
+import { homedir } from "os";
+import { stat } from "fs/promises";
+import { resolve } from "path";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { tmux } from "../sdk";
@@ -63,10 +66,50 @@ export function validateWorkspaceSessionName(name: string): void {
 }
 
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new <session-name> [--attach|-a] [--no-attach]");
+  write("usage: maw new <session-name> [--path|-p <dir>] [--cmd|-c <cmd>] [--shell] [--attach|-a] [--no-attach]");
   write("  Create a plain tmux workspace session with a lead shell window.");
+  write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
+  write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
+  write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
   write("  Then bring oracles in with: maw team bring <team> [--session <session>]");
   write("  Oracle creation remains: maw awaken <name> (or maw bud <name>).");
+}
+
+function expandHomePath(input: string): string {
+  if (input === "~") return homedir();
+  if (input.startsWith("~/")) return resolve(homedir(), input.slice(2));
+  return input;
+}
+
+async function resolveWorkspacePath(rawPath: unknown): Promise<string> {
+  if (rawPath === undefined) return process.cwd();
+  if (typeof rawPath !== "string" || rawPath.trim() === "") {
+    throw new UserError("new: --path requires a non-empty directory");
+  }
+  const cwd = resolve(process.cwd(), expandHomePath(rawPath));
+  let info;
+  try {
+    info = await stat(cwd);
+  } catch {
+    throw new UserError(`new: path does not exist: ${rawPath}`);
+  }
+  if (!info.isDirectory()) {
+    throw new UserError(`new: path is not a directory: ${rawPath}`);
+  }
+  return cwd;
+}
+
+function normalizeStartupCommand(rawCmd: unknown): string | undefined {
+  if (rawCmd === undefined) return undefined;
+  if (typeof rawCmd !== "string" || rawCmd.trim() === "") {
+    throw new UserError("new: --cmd cannot be empty");
+  }
+  return rawCmd;
+}
+
+function shellAfterCommand(command: string | undefined): string | undefined {
+  if (!command) return undefined;
+  return `${command}; exec ${process.env.SHELL || "zsh"}`;
 }
 
 /** Implementation of `maw new <name>` as a workspace/session factory. */
@@ -75,6 +118,11 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--attach": Boolean,
     "-a": "--attach",
     "--no-attach": Boolean,
+    "--path": String,
+    "-p": "--path",
+    "--cmd": String,
+    "-c": "--cmd",
+    "--shell": Boolean,
   }, 0);
 
   const name = (flags._ as string[])[0];
@@ -88,10 +136,19 @@ export async function cmdNew(argv: string[]): Promise<void> {
   }
   validateWorkspaceSessionName(name);
 
+  const cwd = await resolveWorkspacePath(flags["--path"]);
+  const startupCommand = normalizeStartupCommand(flags["--cmd"]);
+  const tmuxCommand = shellAfterCommand(startupCommand);
+
   const existed = await tmux.hasSession(name);
   if (!existed) {
-    await tmux.newSession(name, { window: "lead", cwd: process.cwd() });
-    console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (lead shell)`);
+    await tmux.newSession(name, {
+      window: "lead",
+      cwd,
+      ...(tmuxCommand ? { command: tmuxCommand } : {}),
+    });
+    const mode = startupCommand ? "lead shell + command" : "lead shell";
+    console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (${mode})`);
   } else {
     console.log(`\x1b[36m→\x1b[0m session exists: ${name}`);
   }
