@@ -1,5 +1,8 @@
 /** Targeted runtime coverage for src/vendor/mpr-plugins/doctor/impl.ts. */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const C = { green: "", red: "", yellow: "", gray: "", reset: "" };
 
@@ -123,9 +126,16 @@ describe("doctor impl runtime coverage", () => {
   });
 
   test("xdg check prints config, state, data, and cache roots", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-doctor-xdg-"));
+    const home = join(root, "home");
+    const xdgConfig = join(root, "xdg-config");
+    const xdgState = join(root, "xdg-state");
+    const xdgData = join(root, "xdg-data");
+    const xdgCache = join(root, "xdg-cache");
     const original = {
       mawHome: process.env.MAW_HOME,
       mawXdg: process.env.MAW_XDG,
+      home: process.env.HOME,
       xdgConfig: process.env.XDG_CONFIG_HOME,
       xdgState: process.env.XDG_STATE_HOME,
       xdgData: process.env.XDG_DATA_HOME,
@@ -133,11 +143,16 @@ describe("doctor impl runtime coverage", () => {
     };
     try {
       delete process.env.MAW_HOME;
+      process.env.HOME = home;
       process.env.MAW_XDG = "1";
-      process.env.XDG_CONFIG_HOME = "/tmp/maw-doctor-xdg-config";
-      process.env.XDG_STATE_HOME = "/tmp/maw-doctor-xdg-state";
-      process.env.XDG_DATA_HOME = "/tmp/maw-doctor-xdg-data";
-      process.env.XDG_CACHE_HOME = "/tmp/maw-doctor-xdg-cache";
+      process.env.XDG_CONFIG_HOME = xdgConfig;
+      process.env.XDG_STATE_HOME = xdgState;
+      process.env.XDG_DATA_HOME = xdgData;
+      process.env.XDG_CACHE_HOME = xdgCache;
+      mkdirSync(join(xdgConfig, "maw", "snapshots"), { recursive: true });
+      writeFileSync(join(xdgConfig, "maw", "audit.jsonl"), "{}\n");
+      mkdirSync(join(home, ".maw"), { recursive: true });
+      writeFileSync(join(home, ".maw", "peers.json"), "{}\n");
 
       const result = await cmdDoctor(["xdg"]);
 
@@ -145,15 +160,20 @@ describe("doctor impl runtime coverage", () => {
       expect(result.checks).toHaveLength(1);
       expect(result.checks[0]?.name).toBe("xdg:paths");
       expect(result.checks[0]?.message).toContain("MAW_XDG=on");
-      expect(result.checks[0]?.message).toContain("config=/tmp/maw-doctor-xdg-config/maw");
-      expect(result.checks[0]?.message).toContain("state=/tmp/maw-doctor-xdg-state/maw");
-      expect(result.checks[0]?.message).toContain("data=/tmp/maw-doctor-xdg-data/maw");
-      expect(result.checks[0]?.message).toContain("cache=/tmp/maw-doctor-xdg-cache/maw");
+      expect(result.checks[0]?.message).toContain(`config=${join(xdgConfig, "maw")}`);
+      expect(result.checks[0]?.message).toContain(`state=${join(xdgState, "maw")}`);
+      expect(result.checks[0]?.message).toContain(`data=${join(xdgData, "maw")}`);
+      expect(result.checks[0]?.message).toContain(`cache=${join(xdgCache, "maw")}`);
+      expect(result.checks[0]?.message).toContain("config-runtime=2 [audit.jsonl,snapshots]");
+      expect(result.checks[0]?.message).toContain("legacy-runtime=1 [peers.json]");
     } finally {
+      rmSync(root, { recursive: true, force: true });
       if (original.mawHome === undefined) delete process.env.MAW_HOME;
       else process.env.MAW_HOME = original.mawHome;
       if (original.mawXdg === undefined) delete process.env.MAW_XDG;
       else process.env.MAW_XDG = original.mawXdg;
+      if (original.home === undefined) delete process.env.HOME;
+      else process.env.HOME = original.home;
       if (original.xdgConfig === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = original.xdgConfig;
       if (original.xdgState === undefined) delete process.env.XDG_STATE_HOME;

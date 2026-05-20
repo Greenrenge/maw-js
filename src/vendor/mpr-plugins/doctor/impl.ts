@@ -125,6 +125,8 @@ async function checkInstall(): Promise<{ name: string; ok: boolean; message: str
 function checkXdgLayout(): DoctorResult["checks"][number] {
   const legacyRuntime = legacyMawPath();
   const legacyRuntimeState = existsSync(legacyRuntime) ? "present" : "missing";
+  const configRuntimeArtifacts = existingXdgArtifacts(mawConfigDir(), CONFIG_RUNTIME_ARTIFACTS);
+  const legacyRuntimeArtifacts = existingXdgArtifacts(legacyRuntime, LEGACY_RUNTIME_ARTIFACTS);
   const mode = process.env.MAW_HOME
     ? `MAW_HOME=${process.env.MAW_HOME}`
     : isMawXdgEnabled()
@@ -141,8 +143,58 @@ function checkXdgLayout(): DoctorResult["checks"][number] {
       `data=${mawDataDir()}`,
       `cache=${mawCacheDir()}`,
       `legacy ~/.maw ${legacyRuntimeState}`,
+      artifactSummary("config-runtime", configRuntimeArtifacts),
+      artifactSummary("legacy-runtime", legacyRuntimeArtifacts),
     ].join("; "),
   };
+}
+
+const CONFIG_RUNTIME_ARTIFACTS = [
+  "audit.jsonl",
+  "fleet-resume.log",
+  "snapshots",
+  "fleet",
+  "teams",
+  "workspaces",
+  "tab-order",
+  "message-ledger.sqlite",
+  "oracle-births.json",
+  "oracles.json",
+  "peer-key",
+  "auth-secret",
+  "session-warnings.state",
+  "pending",
+  "parked",
+  "trust.json",
+  "consent-pending",
+] as const;
+
+const LEGACY_RUNTIME_ARTIFACTS = [
+  "plugins",
+  "node_modules",
+  "sessions",
+  "state",
+  "inbox",
+  "schedules",
+  "teams",
+  "peers.json",
+  "audit.jsonl",
+  "artifacts",
+  "inst",
+  "ui",
+  "message-ledger.sqlite",
+  "nicknames.json",
+] as const;
+
+function existingXdgArtifacts(base: string, names: readonly string[]): string[] {
+  return names.filter((name) => existsSync(join(base, name)));
+}
+
+function artifactSummary(label: string, names: string[]): string {
+  if (names.length === 0) return `${label}=0`;
+  const preview = names.slice(0, 8).join(",");
+  const suffix = names.length > 8 ? `,+${names.length - 8}` : "";
+  return `${label}=${names.length} [${preview}${suffix}]`;
 }
 
 /**
