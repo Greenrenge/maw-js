@@ -24,16 +24,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const flags = parseFlags(args, {
       "--help": Boolean, "-h": "--help",
       "--wt": Boolean,
+      "--path": String, "-p": "--path",
+      "--cmd": String, "-c": "--cmd",
+      "--shell": Boolean,
       "--engine": String, "-e": "--engine",
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw tile [N] [--wt] [--engine <name>]  (see: maw panes to inspect, maw pane swap to move)");
+      console.log("usage: maw tile [N] [--path <dir>] [--cmd <cmd>] [--shell] [--wt] [--engine <name>]");
       console.log("       maw tile clean");
       console.log("       maw tile swap <a> <b>");
       console.log("");
       console.log("  maw tile              apply tiled layout to current window (pane grid)");
       console.log("  maw tile 3            spawn 3 empty panes and tile them");
+      console.log("  maw tile 3 -p /repo   spawn 3 shells cd'd to /repo");
+      console.log("  maw tile 3 -p /repo -c \"bun test\"  cd then run a command in each pane");
+      console.log("  maw tile 3 --shell    explicit blank-shell mode (default)");
       console.log("  maw tile 3 --wt       spawn 3 worktree-backed panes, each with own branch");
       console.log("  maw tile 3 -e claude  spawn 3 panes running claude, tiled");
       console.log("  maw tile clean        kill tile panes + remove tile worktrees");
@@ -72,6 +78,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     await cmdTile(count, {
       wt: !!flags["--wt"],
+      path: flags["--path"] as string | undefined,
+      cmd: flags["--cmd"] as string | undefined,
+      shell: !!flags["--shell"],
       engine: flags["--engine"] as string | undefined,
     });
     return { ok: true, output: logs.join("\n") || undefined };

@@ -80,7 +80,39 @@ async function getWindow(): Promise<string> {
 
 export interface TileOpts {
   wt?: boolean;
+  path?: string;
+  cmd?: string;
+  shell?: boolean;
   engine?: string;
+}
+
+function expandHome(raw: string): string {
+  if (raw === "~") return process.env.HOME || raw;
+  if (raw.startsWith("~/")) return `${process.env.HOME || "~"}${raw.slice(1)}`;
+  return raw;
+}
+
+async function resolveTileCwd(raw?: string): Promise<string> {
+  if (raw === undefined) return "";
+  if (!raw.trim()) throw new Error("tile: --path cannot be empty");
+
+  const { resolve } = await import("path");
+  const { stat } = await import("fs/promises");
+  const cwd = resolve(expandHome(raw));
+  let info;
+  try {
+    info = await stat(cwd);
+  } catch {
+    throw new Error(`tile: path does not exist: ${raw}`);
+  }
+  if (!info.isDirectory()) throw new Error(`tile: path is not a directory: ${raw}`);
+  return cwd;
+}
+
+function normalizeTileCommand(raw?: string): string {
+  if (raw === undefined) return "";
+  if (!raw.trim()) throw new Error("tile: --cmd cannot be empty");
+  return raw;
 }
 
 export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void> {
@@ -90,6 +122,9 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
   if (count > 10) {
     throw new Error("tile: max 10 panes (got " + count + ")");
   }
+
+  const requestedCwd = await resolveTileCwd(opts.path);
+  const requestedCmd = normalizeTileCommand(opts.cmd);
 
   const window = await getWindow();
 
@@ -138,7 +173,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     const tileIndex = existingTileCount + i + 1;
     const name = tileRole(parentAddress, tileIndex);
 
-    let cwd = "";
+    let cwd = requestedCwd;
     if (opts.wt) {
       const { createWorktree } = await import("../../shared/wake-session");
       const oracle = repoName.replace(/-oracle$/, "");
@@ -156,11 +191,12 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     });
 
     let shellCmd = `export ${tileEnv}; exec zsh`;
-    if (engineCmd) {
-      shellCmd = `export ${tileEnv}; ${engineCmd}; exec zsh`;
+    const launchCmd = requestedCmd || engineCmd;
+    if (launchCmd) {
+      shellCmd = `export ${tileEnv}; ${launchCmd}; exec zsh`;
     }
     if (cwd) {
-      shellCmd = `cd ${shellArg(cwd)} && ${shellCmd}`;
+      shellCmd = `cd ${shellArg(cwd)} || exit $?; ${shellCmd}`;
     }
 
     // Chain: split from last pane so idx order = spawn order
@@ -206,7 +242,9 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
   const flags = [
     opts.wt ? "worktree" : "",
-    opts.engine || "",
+    requestedCwd ? "path" : "",
+    requestedCmd ? "cmd" : "",
+    opts.engine && !requestedCmd ? opts.engine : "",
   ].filter(Boolean).join(", ");
 
   console.log(`\x1b[32m✓\x1b[0m ${count} panes tiled${flags ? " (" + flags + ")" : ""}`);

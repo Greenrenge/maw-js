@@ -144,6 +144,31 @@ describe("tile plugin spawn metadata", () => {
     expect(commands).toContain("tmux set-option -p -t '%p1' @maw_tile_role 'sess-tile-1'");
   });
 
+
+
+  test("starts spawned shells in --path and runs --cmd before returning to zsh", async () => {
+    await cmdTile(2, { path: "/tmp", cmd: "bun test", shell: true });
+
+    const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommands).toHaveLength(2);
+    for (const splitCommand of splitCommands) {
+      expect(splitCommand).toContain("/tmp");
+      expect(splitCommand).toContain("|| exit $?; export");
+      expect(splitCommand).toContain("; bun test; exec zsh");
+      expect(splitCommand).toContain("MAW_TILE_PARENT='");
+    }
+  });
+
+
+
+  test("rejects invalid --path before spawning panes", async () => {
+    const missing = "/tmp/maw-js-missing-tile-path";
+    rmSync(missing, { recursive: true, force: true });
+
+    await expect(cmdTile(1, { path: missing })).rejects.toThrow("tile: path does not exist");
+    expect(commands).toEqual([]);
+  });
+
   test("uses scoped tile roles for worktree names and branches", async () => {
     await cmdTile(1, { wt: true });
 
