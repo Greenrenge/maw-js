@@ -170,13 +170,17 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).not.toContain("refusing to split-bring");
   });
 
-  test("#1816 — different target window in same session is NOT self-bring", async () => {
+  test("#1835 — split refuses different target windows in the caller session", async () => {
     paneSessionWindowResponse = "20-homekeeper:homekeeper-oracle";
 
     await maybeSplit("20-homekeeper:homekeeper-bridge", { split: true });
 
-    expect(output()).not.toContain("refusing to split-bring");
-    expect(output()).toContain("✓ split beside");
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
+    expect(output()).toContain("same-session --split unsupported");
+    expect(output()).toContain("#1835");
+    expect(output()).not.toContain("✓ split beside");
   });
 
   test("#1816 — splitTarget anchors the split in a destination session:window", async () => {
@@ -325,6 +329,21 @@ describe("wake maybe split/window coverage", () => {
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window -t '%42' -h -l 50%"))).toBe(true);
     expect(output()).toContain("✓ split beside — 20-homekeeper:homekeeper-oracle (50%)");
     expect(output()).not.toContain("opened as background tab");
+  });
+
+  test("#1835 — MAW_FORCE_SPLIT cannot force a nested attach into the caller session", async () => {
+    paneCommandResponse = "2.1.139";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+    process.env.MAW_FORCE_SPLIT = "1";
+
+    await maybeSplit("50-mawjs:mawjs-features", { split: true });
+
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+    expect(output()).toContain("same-session --split unsupported");
+    expect(output()).toContain("nested attach would close the pane");
   });
 
   test("split skips layout for two panes, tile anchors, invalid counts, and layout probe failures", async () => {

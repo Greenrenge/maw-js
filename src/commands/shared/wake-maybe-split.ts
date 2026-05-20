@@ -198,6 +198,10 @@ function sameSessionExistingWindow(target: string, sourceSession: string | undef
   return Boolean(sourceSession) && targetSession(target) === sourceSession && targetWindow(target) !== null;
 }
 
+function sameSessionTarget(target: string, callerSessionWindow: string | null): boolean {
+  return Boolean(callerSessionWindow) && targetSession(target) === targetSession(callerSessionWindow || "");
+}
+
 export async function maybeSplit(target: string, opts: { split?: boolean; splitTarget?: string }): Promise<void> {
   if (!opts.split) return;
   if (process.env.TMUX || opts.splitTarget) {
@@ -229,6 +233,16 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
             "opened as background tab";
         console.log(`  \x1b[36m→\x1b[0m ${label} (split skipped — Claude TUI pane would smear #1562).`);
         console.log(`      \x1b[90mforce split:      MAW_FORCE_SPLIT=1 maw bring ...\x1b[0m`);
+        return;
+      }
+      if (
+        sameSessionTarget(target, callerSW) &&
+        !(process.env.MAW_ALLOW_SELF_BRING === "1" && callerSW && isSelfBring(target, callerSW))
+      ) {
+        console.log(`  \x1b[31m✗\x1b[0m same-session --split unsupported — nested attach would close the pane (#1835).`);
+        console.log(`      \x1b[90mtarget:           ${target}\x1b[0m`);
+        console.log(`      \x1b[90mcaller pane:      ${callerSW}\x1b[0m`);
+        console.log(`      \x1b[90muse instead:      tmux switch-client -t ${target}\x1b[0m`);
         return;
       }
       const targetFlag = anchor ? `-t ${shellArg(anchor)} ` : "";
