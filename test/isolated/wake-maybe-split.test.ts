@@ -138,6 +138,37 @@ describe("wake maybeSplit", () => {
     expect(hostExecCalls.some(cmd => cmd.includes("tmux split-window"))).toBe(false);
   });
 
+  test("reuses an existing target tab in the caller session instead of nesting attach-session", async () => {
+    paneCommandResponse = "claude";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+
+    await maybeSplit("50-mawjs:mawjs-features", { split: true });
+
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[3]).toBe("tmux refresh-client -t '/dev/ttys001'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+  });
+
+  test("links cross-session background tabs from Claude-like panes before nested fallback", async () => {
+    paneCommandResponse = "claude";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls[0]).toContain("session_name}:#{window_name");
+    expect(hostExecCalls[1]).toContain("pane_current_command");
+    expect(hostExecCalls[2]).toBe("tmux link-window -d -s '20-homekeeper:homekeeper-oracle' -t '50-mawjs:'");
+    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -t '/dev/ttys001'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+  });
+
   test("uses a specific split target when --to contains a session:window", async () => {
     await maybeSplit("50-mawjs:mawjs-features", {
       split: true,

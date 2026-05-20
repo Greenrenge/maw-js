@@ -184,17 +184,26 @@ function targetSession(target: string): string {
   return target.split(":")[0] || target;
 }
 
+function targetWindow(target: string): string | null {
+  const window = target.split(":").slice(1).join(":").trim();
+  return window.length > 0 ? window : null;
+}
+
+function sameSessionExistingWindow(target: string, sourceSession: string | undefined): boolean {
+  return Boolean(sourceSession) && targetSession(target) === sourceSession && targetWindow(target) !== null;
+}
+
 export async function maybeSplit(target: string, opts: { split?: boolean; splitTarget?: string }): Promise<void> {
   if (!opts.split) return;
   if (process.env.TMUX || opts.splitTarget) {
     try {
       const anchor = opts.splitTarget || process.env.TMUX_PANE;
+      const callerSW = await readCallerSessionWindow(anchor);
       // #1816 — refuse to split-bring an oracle into its own pane. A child
       // pane that attach-sessions back to its own parent session creates
       // nested-attach + amplifies the #1562 redraw smear into a persistent
       // loop. MAW_ALLOW_SELF_BRING=1 overrides for diagnostic use.
       if (process.env.MAW_ALLOW_SELF_BRING !== "1") {
-        const callerSW = await readCallerSessionWindow(anchor);
         if (isSelfBring(target, callerSW)) {
           console.log(`  \x1b[31m✗\x1b[0m refusing to split-bring oracle into its own pane (#1816 — would loop).`);
           console.log(`      \x1b[90mtarget:           ${target}\x1b[0m`);
@@ -204,11 +213,16 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
         }
       }
       if (await isClaudeLikeCallerPane(anchor) && process.env.MAW_FORCE_SPLIT !== "1") {
-        await openBackgroundTab(target, {
+        const action = await openBackgroundTab(target, {
           destinationSession: opts.splitTarget ? targetSession(opts.splitTarget) : undefined,
           sourceAnchor: anchor,
+          sourceSession: callerSW ? targetSession(callerSW) : undefined,
+          preferLinkWindow: true,
         });
-        console.log(`  \x1b[36m→\x1b[0m opened as background tab (split skipped — Claude TUI pane would smear #1562).`);
+        const label = action === "existing" ? "target already in background tab" :
+          action === "linked" ? "linked as background tab" :
+            "opened as background tab";
+        console.log(`  \x1b[36m→\x1b[0m ${label} (split skipped — Claude TUI pane would smear #1562).`);
         console.log(`      \x1b[90mforce split:      MAW_FORCE_SPLIT=1 maw bring ...\x1b[0m`);
         return;
       }
@@ -244,13 +258,35 @@ export async function maybeSplit(target: string, opts: { split?: boolean; splitT
 type BackgroundTabOptions = {
   destinationSession?: string;
   sourceAnchor?: string;
+  sourceSession?: string;
+  preferLinkWindow?: boolean;
 };
 
-async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}): Promise<void> {
+async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}): Promise<"opened" | "linked" | "existing"> {
   const session = targetSession(target);
   const targetWindow = target.split(":").slice(1).join(":") || session;
   const windowName = `bring-${targetWindow}`.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "bring";
   const innerCmd = backgroundAttachCommand(target);
+  const destinationSession = opts.destinationSession || opts.sourceSession;
+  if (opts.preferLinkWindow && destinationSession) {
+    if (!opts.destinationSession && sameSessionExistingWindow(target, destinationSession)) {
+      await refreshSourceClient(opts.sourceAnchor);
+      console.log(`  \x1b[32m✓\x1b[0m target tab already in this session — ${target}`);
+      return "existing";
+    }
+    try {
+      await hostExec(`tmux link-window -d -s ${shellArg(target)} -t ${shellArg(`${destinationSession}:`)}`);
+      await refreshSourceClient(opts.sourceAnchor);
+      console.log(`  \x1b[32m✓\x1b[0m linked background tab — ${target}`);
+      return "linked";
+    } catch {
+      // Fall back to a detached attach tab only when link-window is unavailable
+      // (for example older tmux, an un-linkable target, or permissions). The
+      // same-session existing-window case above never falls through because a
+      // duplicate nested attach is the exact lower-half smear Nat reproduced at
+      // 957c41c1.
+    }
+  }
   const destination = opts.destinationSession ? `-t ${shellArg(`${opts.destinationSession}:`)} ` : "";
   await repaintSourcePane(opts.sourceAnchor);
   const opened = await hostExec(`tmux new-window -P -F '#{window_id}' -d ${destination}-n ${shellArg(windowName)} ${shellArg(innerCmd)}`);
@@ -264,6 +300,7 @@ async function openBackgroundTab(target: string, opts: BackgroundTabOptions = {}
     await repaintSourcePane(opts.sourceAnchor);
   }
   console.log(`  \x1b[32m✓\x1b[0m opened background tab — ${target}`);
+  return "opened";
 }
 
 export async function maybeOpenWindow(target: string, opts: { bring?: boolean; tab?: boolean }): Promise<void> {

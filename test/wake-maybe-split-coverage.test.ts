@@ -223,6 +223,42 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).not.toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
   });
 
+  test("Claude-like bring to an existing window in the same session avoids nested attach tabs", async () => {
+    paneCommandResponse = "2.1.139";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+
+    await maybeSplit("50-mawjs:mawjs-features", { split: true });
+
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls[2]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[3]).toBe("tmux refresh-client -t '/dev/ttys001'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("link-window"))).toBe(false);
+    expect(output()).toContain("target tab already in this session — 50-mawjs:mawjs-features");
+    expect(output()).toContain("target already in background tab (split skipped");
+  });
+
+  test("Claude-like bring links cross-session windows before falling back to nested attach tabs", async () => {
+    paneCommandResponse = "2.1.139";
+    paneSessionWindowResponse = "50-mawjs:mawjs-oracle";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls[0]).toBe("tmux display-message -p -t '%42' '#{session_name}:#{window_name}'");
+    expect(hostExecCalls[1]).toBe("tmux display-message -p -t '%42' '#{pane_current_command}'");
+    expect(hostExecCalls[2]).toBe("tmux link-window -d -s '20-homekeeper:homekeeper-oracle' -t '50-mawjs:'");
+    expect(hostExecCalls[3]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[4]).toBe("tmux refresh-client -t '/dev/ttys001'");
+    expect(hostExecCalls[5]).toBe("tmux refresh-client -S -t '/dev/ttys001'");
+    expect(hostExecCalls.some(cmd => cmd.includes("new-window"))).toBe(false);
+    expect(hostExecCalls.some(cmd => cmd.includes("attach-session"))).toBe(false);
+    expect(output()).toContain("linked background tab — 20-homekeeper:homekeeper-oracle");
+    expect(output()).toContain("linked as background tab (split skipped");
+  });
+
   test("background-tab repaint falls back to current client refresh when source tty is unavailable", async () => {
     paneCommandResponse = "2.1.139";
     paneClientTtyResponse = "\n";
