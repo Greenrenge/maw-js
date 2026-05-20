@@ -208,6 +208,17 @@ describe("wake maybe split/window coverage", () => {
     expect(output()).not.toContain("MAW_ALLOW_CLAUDE_SPLIT=1");
   });
 
+  test("background-tab repaint falls back to current client refresh when source tty is unavailable", async () => {
+    paneCommandResponse = "2.1.139";
+    paneClientTtyResponse = "\n";
+
+    await maybeSplit("20-homekeeper:homekeeper-oracle", { split: true });
+
+    expect(hostExecCalls[5]).toBe("tmux display-message -p -t '%42' '#{client_tty}'");
+    expect(hostExecCalls[6]).toBe("tmux refresh-client");
+    expect(output()).toContain("opened as background tab");
+  });
+
   test("MAW_FORCE_SPLIT keeps explicit split behavior from Claude-like caller panes", async () => {
     paneCommandResponse = "2.1.139";
     process.env.MAW_FORCE_SPLIT = "1";

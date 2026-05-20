@@ -2,7 +2,7 @@ import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCom
 import { resolve } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
-import { resolveByName, resolveWorktreeTarget } from "../../core/matcher/resolve-target";
+import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
@@ -111,9 +111,89 @@ type BringWindowCandidate = {
   detail: string;
 };
 
+type BringWindowLookupCandidate = BringWindowCandidate & {
+  aliases: string[];
+};
+
+function stripOracleRepoSuffix(name: string): string | null {
+  return name.toLowerCase().endsWith("-oracle") ? name.slice(0, -"-oracle".length) : null;
+}
+
+function bringCwdMetadata(cwd: string | undefined): { oracle?: string; worktree?: string } {
+  for (const part of (cwd ? resolve(cwd).split(/[\\/]+/).reverse() : [])) {
+    const worktreeMarker = part.indexOf(".wt-");
+    if (worktreeMarker > 0) {
+      const oracle = stripOracleRepoSuffix(part.slice(0, worktreeMarker)) ?? undefined;
+      return { oracle, worktree: part.slice(worktreeMarker + ".wt-".length) || undefined };
+    }
+    const oracle = stripOracleRepoSuffix(part);
+    if (oracle) return { oracle };
+  }
+  return {};
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map(v => v.trim()).filter(Boolean))];
+}
+
+async function buildBringWindowCandidates(
+  session: string,
+  windows: { name: string; cwd?: string }[],
+): Promise<BringWindowLookupCandidate[]> {
+  const targets = windows.map(w => `${session}:${w.name}`);
+  const infos = await getPaneInfos(targets);
+  return windows.map((w) => {
+    const target = `${session}:${w.name}`;
+    const metadata = bringCwdMetadata(w.cwd ?? infos[target]?.cwd);
+    const aliases = [w.name];
+    const detail = [`tmux window in ${session}`];
+    if (metadata.oracle) {
+      aliases.push(metadata.oracle, `${metadata.oracle}-oracle`);
+      detail.push(`oracle ${metadata.oracle}`);
+    }
+    if (metadata.worktree) {
+      aliases.push(metadata.worktree);
+      detail.push(`worktree ${metadata.worktree}`);
+    }
+    return {
+      name: w.name,
+      target,
+      detail: detail.join(" · "),
+      aliases: uniqueNonEmpty(aliases),
+    };
+  });
+}
+
+function resolveBringWindowCandidates(
+  targetName: string,
+  candidates: BringWindowLookupCandidate[],
+): BringWindowCandidate[] {
+  const lc = targetName.trim().toLowerCase();
+  const levels = [
+    (name: string) => name === lc,
+    (name: string) => name.endsWith(`-${lc}`),
+    (name: string) => name.startsWith(`${lc}-`) || name.includes(`-${lc}-`),
+  ];
+  for (const match of levels) {
+    const matches = candidates.filter(candidate =>
+      candidate.aliases.some(alias => match(alias.toLowerCase())),
+    );
+    if (matches.length > 0) {
+      const seen = new Set<string>();
+      return matches.filter((candidate) => {
+        if (seen.has(candidate.target)) return false;
+        seen.add(candidate.target);
+        return true;
+      });
+    }
+  }
+  return [];
+}
+
 /**
  * Show a numbered picker for `maw bring <target> --pick` when the target
- * fuzzily matches live tmux windows in the destination session (#1816).
+ * fuzzily matches live tmux windows, oracle names, or worktree names in the
+ * destination session (#1816).
  * Reuses the wake picker TTY hooks so headless/scripted callers fail loudly
  * instead of silently choosing the legacy fuzzy oracle fallback.
  *
@@ -325,21 +405,12 @@ async function resolveExistingWindowBringTarget(
   if (exact) return `${session}:${exact.name}`;
 
   if (opts.pick) {
-    const resolved = resolveByName(targetName, windows);
-    const candidates = resolved.kind === "fuzzy"
-      ? [resolved.match]
-      : resolved.kind === "ambiguous"
-        ? resolved.candidates
-        : [];
+    const candidates = resolveBringWindowCandidates(
+      targetName,
+      await buildBringWindowCandidates(session, windows),
+    );
     if (candidates.length > 0) {
-      const picked = promptAmbiguousBringPick(
-        targetName,
-        candidates.map(w => ({
-          name: w.name,
-          target: `${session}:${w.name}`,
-          detail: `tmux window in ${session}`,
-        })),
-      );
+      const picked = promptAmbiguousBringPick(targetName, candidates);
       if (!picked) throw new Error(`--pick requires an interactive bring selection for '${targetName}'`);
       return picked.target;
     }

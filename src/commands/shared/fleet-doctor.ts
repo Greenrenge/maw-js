@@ -26,6 +26,7 @@ export {
   checkOrphanRoutes,
   checkDuplicatePeers,
   checkSelfPeer,
+  checkPeerVersionSkew,
 } from "./fleet-doctor-checks";
 export type { FleetEntryLike } from "./fleet-doctor-checks-repo";
 export { checkMissingRepos } from "./fleet-doctor-checks-repo";
@@ -43,6 +44,7 @@ import {
   checkDuplicatePeers,
   checkSelfPeer,
   checkMissingAgents,
+  checkPeerVersionSkew,
 } from "./fleet-doctor-checks";
 import { checkMissingRepos } from "./fleet-doctor-checks-repo";
 import { checkStalePeers } from "./fleet-doctor-stale-peers";
@@ -52,6 +54,15 @@ import type { DoctorFinding, Level } from "./fleet-doctor-checks";
 interface DoctorOptions {
   fix?: boolean;
   json?: boolean;
+}
+
+function localMawVersion(): string | undefined {
+  try {
+    const pkg = require("../../../package.json") as { version?: unknown };
+    return typeof pkg.version === "string" && pkg.version.length > 0 ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
@@ -82,6 +93,7 @@ export async function cmdFleetDoctor(opts: DoctorOptions = {}): Promise<void> {
 
   const { findings: staleFindings, identities } = await checkStalePeers(peers);
   findings.push(...staleFindings);
+  findings.push(...checkPeerVersionSkew(localMawVersion(), identities));
 
   const peerAgents: Record<string, string[]> = {};
   for (const id of Object.values(identities)) {

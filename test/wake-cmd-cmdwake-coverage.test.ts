@@ -839,7 +839,7 @@ describe("cmdWake main-suite coverage", () => {
   });
 
   test("#1816 bring --pick can disambiguate multiple fuzzy live tmux windows", async () => {
-    addWindow("54-mawjs", "mawjs-alpha");
+    addWindow("54-mawjs", "mawjs-alpha", { cwd: join(tempRoot, "plain-workspace") });
     addWindow("54-mawjs", "other-alpha");
     _wtPicker.isStdoutTTY = () => true;
     _wtPicker.readChoice = () => "2";
@@ -863,6 +863,54 @@ describe("cmdWake main-suite coverage", () => {
         opts: expect.objectContaining({ bringAlias: true, split: true, pick: true }),
       },
     ]);
+  });
+
+  test("#1816 bring --pick includes oracle and worktree names from live window cwd", async () => {
+    const buddyRepo = join(parentDir, "buddy-oracle");
+    const featureWorktree = join(parentDir, `${repoName}.wt-2-feature-blue`);
+    mkdirSync(buddyRepo, { recursive: true });
+    mkdirSync(featureWorktree, { recursive: true });
+    addWindow("54-mawjs", "operator-console", { cwd: buddyRepo });
+    addWindow("54-mawjs", "scratch-pad", { cwd: featureWorktree });
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "1";
+
+    const oraclePick = await captureLogs(() =>
+      cmdWake("buddy", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    );
+
+    expect(oraclePick.result).toBe("54-mawjs:operator-console");
+    expect(oraclePick.logs.join("\n")).toContain("operator-console");
+    expect(oraclePick.logs.join("\n")).toContain("oracle buddy");
+
+    maybeSplitCalls = [];
+    takeSnapshotCalls = [];
+
+    const worktreePick = await captureLogs(() =>
+      cmdWake("feature-blue", {
+        bringAlias: true,
+        split: true,
+        pick: true,
+        session: "54-mawjs",
+      }),
+    );
+
+    expect(worktreePick.result).toBe("54-mawjs:scratch-pad");
+    expect(worktreePick.logs.join("\n")).toContain("scratch-pad");
+    expect(worktreePick.logs.join("\n")).toContain("oracle mawjs");
+    expect(worktreePick.logs.join("\n")).toContain("worktree 2-feature-blue");
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "54-mawjs:scratch-pad",
+        opts: expect.objectContaining({ bringAlias: true, split: true, pick: true }),
+      },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
   });
 
   test("#1816 bring --pick with no live-window candidates preserves oracle fallback", async () => {

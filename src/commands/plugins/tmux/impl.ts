@@ -281,7 +281,9 @@ function isDefaultOracleListSession(sessionName: string, fleetSessions: Readonly
   // Top-level `maw ls` is an oracle roster, not a raw tmux dump. Hide junk
   // sessions like `--help`, `foo`, and stale app names by default (#1796).
   // `--all`/`--roster` and `maw tmux ls` remain available for raw inventory.
-  return /^\d+-/.test(sessionName) || fleetSessions.has(sessionName);
+  const numericFleet = sessionName.match(/^\d+-(.+)$/);
+  if (numericFleet) return !numericFleet[1].startsWith("-");
+  return fleetSessions.has(sessionName);
 }
 
 async function sessionCreatedTimes(): Promise<Map<string, number>> {

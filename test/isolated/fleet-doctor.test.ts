@@ -131,6 +131,7 @@ mock.module(
 // NB: import targets AFTER mocks so their import graph resolves through our stubs.
 const { checkStalePeers } = await import("../../src/commands/shared/fleet-doctor-stale-peers");
 const { cmdFleetDoctor } = await import("../../src/commands/shared/fleet-doctor");
+const { checkPeerVersionSkew } = await import("../../src/commands/shared/fleet-doctor-checks");
 
 // ─── Harness for cmdFleetDoctor (stdout + process.exit capture) ─────────────
 
@@ -182,14 +183,14 @@ describe("checkStalePeers — reachable happy path", () => {
   test("valid identity → no finding, identities map populated", async () => {
     curlFetchResponses = [{
       match: /white\.example\/api\/identity$/,
-      response: { ok: true, status: 200, data: { node: "white", agents: ["neo", "mawjs"] } },
+      response: { ok: true, status: 200, data: { node: "white", version: "26.5.19-alpha.739", agents: ["neo", "mawjs"] } },
     }];
 
     const out = await checkStalePeers([{ name: "white", url: "https://white.example" }]);
 
     expect(out.findings).toEqual([]);
     expect(out.identities).toEqual({
-      white: { node: "white", agents: ["neo", "mawjs"] },
+      white: { node: "white", version: "26.5.19-alpha.739", agents: ["neo", "mawjs"] },
     });
   });
 
@@ -688,5 +689,58 @@ describe("cmdFleetDoctor — stale peer + missing-agent integration", () => {
 
     expect(exitCode).toBe(1);
     expect(outs.join("\n")).toContain("missing-agent");
+  });
+
+  test("peer identity version mismatch surfaces version-skew warning", async () => {
+    configOverride = {
+      node: "m5",
+      namedPeers: [{ name: "white", url: "https://white.example" }],
+      agents: {},
+      port: 3456,
+      ghqRoot: "/tmp/nope",
+    };
+    curlFetchResponses = [{
+      match: /white\.example/,
+      response: { ok: true, status: 200, data: { node: "white", version: "26.5.16-alpha.2126", agents: [] } },
+    }];
+
+    await run(() => cmdFleetDoctor());
+
+    expect(exitCode).toBe(1);
+    const joined = outs.join("\n");
+    expect(joined).toContain("version-skew");
+    expect(joined).toContain("26.5.16-alpha.2126");
+    expect(joined).toContain("wake Discord --channels auto-detect");
+  });
+});
+
+describe("checkPeerVersionSkew", () => {
+  test("warns on differing peer versions", () => {
+    const findings = checkPeerVersionSkew("26.5.19-alpha.739", {
+      white: { node: "white", version: "26.5.16-alpha.2126", agents: [] },
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      level: "warn",
+      check: "version-skew",
+      fixable: false,
+      detail: {
+        peer: "white",
+        node: "white",
+        peerVersion: "26.5.16-alpha.2126",
+        localVersion: "26.5.19-alpha.739",
+      },
+    });
+  });
+
+  test("ignores aligned, missing, and unknown local versions", () => {
+    expect(checkPeerVersionSkew("26.5.19-alpha.739", {
+      aligned: { node: "aligned", version: "26.5.19-alpha.739", agents: [] },
+      legacy: { node: "legacy", agents: [] },
+    })).toEqual([]);
+    expect(checkPeerVersionSkew(undefined, {
+      white: { node: "white", version: "26.5.16-alpha.2126", agents: [] },
+    })).toEqual([]);
   });
 });
