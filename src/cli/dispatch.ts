@@ -97,7 +97,7 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
       if (help) console.error(`\n  usage: ${help}`);
       throw new UserError(`unknown flag: ${flagValidation.flag}`);
     }
-    const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining });
+    const result = await invokePlugin(dispatch.plugin, { source: "cli", args: remaining, matchedName: dispatch.matchedName });
     if (result.ok && result.output) console.log(result.output);
     else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
     process.exit(0);
@@ -186,7 +186,7 @@ async function dispatchPluginRegistry(cmd: string, args: string[]): Promise<void
           if (help) console.error(`\n  usage: ${help}`);
           throw new UserError(`unknown flag: ${flagValidation.flag}`);
         }
-        const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: remaining });
+        const result = await invokePlugin(retryPlugin.plugin, { source: "cli", args: remaining, matchedName: retryPlugin.matchedName });
         if (result.ok && result.output) console.log(result.output);
         else if (!result.ok) { console.error(result.error); process.exit(result.exitCode ?? 1); }
         process.exit(0);

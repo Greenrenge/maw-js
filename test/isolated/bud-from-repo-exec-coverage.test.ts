@@ -40,6 +40,7 @@ mock.module("maw-js/config/ghq-root", () => ({
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   fleetDirForWrite: () => fleetDir,
   loadFleetEntries: () => fleetEntries,
+  loadFleet: () => [],
 }));
 
 mock.module("maw-js/commands/shared/wake", () => ({
@@ -61,6 +62,7 @@ mock.module("maw-js/commands/shared/should-auto-wake", () => ({
 }));
 
 mock.module("maw-js/commands/shared/wake-target", () => ({
+  parseWakeTarget: () => null,
   ensureCloned: async (repo: string) => {
     ensureClonedCalls.push(repo);
   },
@@ -186,6 +188,8 @@ describe("bud from-repo exec", () => {
     expect(claude).toContain("# sprout-oracle");
     expect(claude).toContain("Budded from **parent**");
     expect(claude).toContain("<!-- oracle-lineage: parent=parent -->");
+    expect(claude).toContain("## Inbox Discipline");
+    expect(claude).toContain("maw inbox read <id>");
     expect(readFileSync(join(repo, ".gitignore"), "utf-8")).toBe("ψ/\n");
     expect(logLines.join("\n")).toContain("ψ/ vault initialized (8 dirs)");
     expect(logLines.join("\n")).toContain("run `maw wake sprout`");
@@ -221,6 +225,8 @@ describe("bud from-repo exec", () => {
     const claude = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claude.match(new RegExp(oracleMarkerBegin("sprout"), "g")) ?? []).toHaveLength(1);
     expect(claude).toContain(oracleMarkerEnd("sprout"));
+    expect(claude).toContain("Inbox discipline");
+    expect(claude).toContain("maw inbox read <id>");
     expect(readFileSync(join(repo, ".gitignore"), "utf-8")).toBe("node_modules\nψ\n");
     const rendered = firstLogs.join("\n");
     expect(rendered).toContain(".claude/settings.local.json exists — untouched");

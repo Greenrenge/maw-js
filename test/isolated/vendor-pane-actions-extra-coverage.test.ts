@@ -586,10 +586,10 @@ describe("entrypoint handlers for capture/attach/panes/view", () => {
   test("view handler validates usage, parses split anchors and flags, and captures impl output/errors", async () => {
     expect(await viewHandler(ctx("cli", []))).toEqual({
       ok: false,
-      error: "usage: maw view <agent> [window] [--clean] [--kill] [--split[=<anchor>]]  (see: maw peek/capture for read-only inspection)",
+      error: "usage: maw view <agent> [window] [--clean] [--kill] [--readonly|-r] [--split[=<anchor>]]",
     });
 
-    let result = await viewHandler(ctx("cli", ["neo", "logs", "--clean", "--kill", "--split=anchor:2", "--wake", "--no-wake"]));
+    let result = await viewHandler(ctx("cli", ["neo", "logs", "--clean", "--kill", "--readonly", "--split=anchor:2", "--wake", "--no-wake"]));
     expect(result.ok).toBe(true);
     expect(viewCalls.at(-1)).toEqual({
       agent: "neo",
@@ -597,7 +597,7 @@ describe("entrypoint handlers for capture/attach/panes/view", () => {
       clean: true,
       kill: true,
       splitAnchor: "anchor:2",
-      extraOpts: { wake: true, noWake: true },
+      extraOpts: { readonly: true, wake: true, noWake: true },
     });
 
     result = await viewHandler(ctx("cli", ["neo", "--split"]));

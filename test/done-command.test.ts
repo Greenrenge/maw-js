@@ -465,7 +465,7 @@ describe("done worktree cleanup helpers", () => {
 
     await expect(removeWorktreeByGhqScan("x-tile-1", "/repos/github.com", h.deps)).resolves.toBe(false);
 
-    expect(h.commands).toEqual(["find '/repos/github.com' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null"]);
+    expect(h.commands).toEqual(["find '/repos/github.com' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null"]);
     expect(h.errors.join("\n")).toContain("refusing to remove worktree 'tile-1' — matches 2 repos");
     expect(h.errors.join("\n")).toContain("/repos/github.com/Other/repo.wt-tile-1");
   });

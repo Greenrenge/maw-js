@@ -417,21 +417,35 @@ describe("resolveOracle runtime paths", () => {
 });
 
 describe("findWorktrees and detectSession runtime paths", () => {
-  test("findWorktrees maps shell glob output into wake worktree records", async () => {
+  test("findWorktrees maps legacy and nested shell output into wake worktree records", async () => {
+    const calls: string[] = [];
     hostExecImpl = async (cmd) => {
-      expect(cmd).toBe("ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true");
-      return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
+      calls.push(cmd);
+      if (cmd === "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true") {
+        return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
+      }
+      if (cmd === "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true") {
+        return "/repos/mawjs-oracle/agents/3-nested\n";
+      }
+      throw new Error(`unexpected command: ${cmd}`);
     };
 
     await expect(findWorktrees("/repos", "mawjs-oracle")).resolves.toEqual([
       { path: "/repos/mawjs-oracle.wt-feature", name: "feature" },
       { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
+      { path: "/repos/mawjs-oracle/agents/3-nested", name: "3-nested" },
+    ]);
+    expect(calls).toEqual([
+      "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true",
+      "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true",
     ]);
   });
 
   test("findReusableWorktreeBySlug finds matching slug only within the requested oracle scope", () => {
     const orgDir = join(tempRoot, "laris-co");
     rmSync(orgDir, { recursive: true, force: true });
+    mkdirSync(join(orgDir, "homekeeper-oracle", "agents", "4-nested"), { recursive: true });
+    mkdirSync(join(orgDir, "orphan-oracle"), { recursive: true });
     mkdirSync(join(orgDir, "homelab.wt-1-blue"), { recursive: true });
     mkdirSync(join(orgDir, "homekeeper-oracle.wt-2-white"), { recursive: true });
     mkdirSync(join(orgDir, "volt-oracle.wt-3-white"), { recursive: true });
@@ -441,6 +455,18 @@ describe("findWorktrees and detectSession runtime paths", () => {
       path: join(orgDir, "homekeeper-oracle.wt-2-white"),
       name: "2-white",
     });
+    expect(findReusableWorktreeBySlug(orgDir, "nested", "homekeeper-oracle")).toEqual({
+      path: join(orgDir, "homekeeper-oracle", "agents", "4-nested"),
+      name: "4-nested",
+    });
+    expect(findReusableWorktreeBySlug(orgDir, "nested", "orphan-oracle")).toBeNull();
+    expect(findReusableWorktreeBySlug(orgDir, "nested", "homekeeper-oracle", {
+      readdirSync: (path: string) => {
+        if (path === orgDir) return ["homekeeper-oracle"] as any;
+        return ["4-nested"] as any;
+      },
+      statSync: (() => { throw new Error("stat race"); }) as any,
+    })).toBeNull();
     expect(findReusableWorktreeBySlug(orgDir, "white", "mother-oracle")).toBeNull();
     expect(findReusableWorktreeBySlug(orgDir, "missing", "homekeeper-oracle")).toBeNull();
     expect(findReusableWorktreeBySlug(join(orgDir, "missing"), "white", "homekeeper-oracle")).toBeNull();

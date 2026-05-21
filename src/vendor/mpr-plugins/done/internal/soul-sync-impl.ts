@@ -9,6 +9,14 @@ export { syncDir, findPeers, findProjectsForOracle, syncProjectVault } from "./s
 export type { SoulSyncResult, ProjectSyncResult } from "./sync-helpers";
 export { resolveOraclePath, resolveProjectSlug, findOracleForProject } from "./resolve";
 
+function repoBaseFromMaybeWorktree(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.at(-2) === "agents" && parts.at(-3)) return parts.at(-3)!;
+  const base = basename(path);
+  const wtIdx = base.indexOf(".wt-");
+  return wtIdx >= 0 ? base.slice(0, wtIdx) : base;
+}
+
 /**
  * maw soul-sync [peer] [--from <peer>] — push ψ/ to peers; --from reverses direction.
  * maw ss <peer>       push to specific peer
@@ -26,13 +34,6 @@ export async function cmdSoulSync(target?: string, opts?: { from?: boolean; cwd?
     }
   }
 
-  const cwdParts = cwd.split("/");
-  const repoName = cwdParts.pop() || "";
-  // Strip `.wt-…` worktree suffix via indexOf — non-regex to avoid CodeQL polynomial-redos flag.
-  const wtIdx = repoName.indexOf(".wt-");
-  const baseRepo = wtIdx >= 0 ? repoName.slice(0, wtIdx) : repoName;
-  const oracleName = baseRepo.replace(/-oracle$/, "");
-
   let oraclePath = cwd;
   try {
     const commonDir = (await hostExec(`git -C '${cwd}' rev-parse --git-common-dir`)).trim();
@@ -41,6 +42,9 @@ export async function cmdSoulSync(target?: string, opts?: { from?: boolean; cwd?
       oraclePath = join(mainGit, "..");
     }
   } catch { /* use cwd */ }
+
+  const baseRepo = repoBaseFromMaybeWorktree(cwd);
+  const oracleName = baseRepo.replace(/-oracle$/, "");
 
   const peers = target ? [target] : findPeers(oracleName);
   if (peers.length === 0) {
@@ -112,7 +116,7 @@ export async function cmdSoulSyncProject(opts?: { cwd?: string }): Promise<Proje
   } catch { /* not a git repo */ }
 
   const repoSlug = resolveProjectSlug(repoRoot, reposRoot);
-  const repoBase = basename(repoRoot).replace(/\.wt-.*$/, "");
+  const repoBase = repoBaseFromMaybeWorktree(repoRoot);
   const isOracle = repoBase.endsWith("-oracle");
 
   console.log(`\n  \x1b[36m⚡ Soul Sync (project)\x1b[0m — ${isOracle ? "absorbing into" : "exporting from"} ${repoBase}\n`);

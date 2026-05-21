@@ -1,8 +1,10 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import {
   cmdInboxLs,
+  cmdInboxDrain,
   cmdInboxMarkRead,
   cmdInboxRead,
+  cmdInboxStatus,
   cmdInboxWrite,
   cmdQueueList,
   cmdApprove,
@@ -16,6 +18,27 @@ export const command = {
   name: "inbox",
   description: "Inbox messages + cross-scope approval queue (#842 Sub-C).",
 };
+
+function flagValue(args: string[], name: string): string | undefined {
+  const inline = args.find(arg => arg.startsWith(`${name}=`));
+  if (inline) return inline.slice(name.length + 1);
+  const idx = args.indexOf(name);
+  return idx >= 0 ? args[idx + 1] : undefined;
+}
+
+function positionalArgs(args: string[]): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--max" || arg === "--older-than-hours") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--")) continue;
+    values.push(arg);
+  }
+  return values;
+}
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -84,6 +107,42 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (sub === "read") {
       // maw inbox read <id>  — mark as read
       await cmdInboxMarkRead(args[1] ?? "");
+    } else if (sub === "drain") {
+      // maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]
+      const rest = args.slice(1);
+      const positions = positionalArgs(rest);
+      const maxRaw = flagValue(rest, "--max");
+      const olderRaw = flagValue(rest, "--older-than-hours");
+      const max = maxRaw === undefined ? undefined : parseInt(maxRaw, 10);
+      const olderHours = olderRaw === undefined ? undefined : parseFloat(olderRaw);
+      const hasMaxFlag = rest.some(arg => arg === "--max" || arg.startsWith("--max="));
+      const hasOlderFlag = rest.some(arg => arg === "--older-than-hours" || arg.startsWith("--older-than-hours="));
+      if (positions.length > 1 || !rest.includes("--safe")) {
+        return { ok: false, error: "usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]", output: out() };
+      }
+      if (hasMaxFlag && (maxRaw === undefined || maxRaw === "" || !Number.isFinite(max) || max < 0)) {
+        return { ok: false, error: "--max must be a non-negative integer", output: out() };
+      }
+      if (hasOlderFlag && (olderRaw === undefined || olderRaw === "" || !Number.isFinite(olderHours) || olderHours < 0)) {
+        return { ok: false, error: "--older-than-hours must be a non-negative number", output: out() };
+      }
+      await cmdInboxDrain(positions[0], {
+        safe: true,
+        json: rest.includes("--json"),
+        dryRun: rest.includes("--dry-run"),
+        max,
+        olderThanSeconds: olderHours === undefined ? undefined : olderHours * 60 * 60,
+      });
+    } else if (sub === "status") {
+      // maw inbox status [oracle-name] [--json] [--all] — red/green unread backpressure.
+      const rest = args.slice(1);
+      const json = rest.includes("--json");
+      const all = rest.includes("--all");
+      const oracle = rest.find(a => !a.startsWith("-"));
+      if (all && oracle) {
+        return { ok: false, error: "usage: maw inbox status [oracle-name] [--json] [--all]", output: out() };
+      }
+      await cmdInboxStatus(oracle, { json, all });
     } else if (sub === "show") {
       // maw inbox show [N|name]  — display content of a message
       await cmdInboxRead(args[1]);

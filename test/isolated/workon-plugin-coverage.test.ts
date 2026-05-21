@@ -134,13 +134,24 @@ describe("workon plugin coverage", () => {
     await cmdWorkon("maw-js", "new-task");
 
     expect(hostExecCalls.some((cmd) => cmd.includes("branch -D 'agents/8-new-task'"))).toBe(true);
-    expect(hostExecCalls.some((cmd) => cmd.includes("worktree add '/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-8-new-task' -b 'agents/8-new-task'"))).toBe(true);
+    expect(hostExecCalls.some((cmd) => cmd.includes("worktree add '/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/8-new-task' -b 'agents/8-new-task'"))).toBe(true);
     expect(newWindowCalls[0]).toEqual({
       session: "alpha-session",
       name: "maw-js-new-task",
-      opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-8-new-task" },
+      opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js/agents/8-new-task" },
     });
     expect(sendTextCalls[0]).toEqual({ target: "alpha-session:maw-js-new-task", text: "agent --name maw-js-new-task" });
+  });
+
+  test("honors --layout legacy for new task worktrees", async () => {
+    await cmdWorkon("maw-js", "legacy-task", { layout: "legacy" });
+
+    expect(hostExecCalls.some((cmd) => cmd.includes("worktree add '/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-1-legacy-task' -b 'agents/1-legacy-task'"))).toBe(true);
+    expect(newWindowCalls[0]).toEqual({
+      session: "alpha-session",
+      name: "maw-js-legacy-task",
+      opts: { cwd: "/opt/Code/github.com/Soul-Brews-Studio/maw-js.wt-1-legacy-task" },
+    });
   });
 
   test("requires tmux and a detectable current session", async () => {

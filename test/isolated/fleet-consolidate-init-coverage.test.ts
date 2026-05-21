@@ -317,7 +317,7 @@ describe("cmdFleetInit", () => {
     expect(output).toContain("6 fleet configs written");
     expect(output).toContain(WRITE_FLEET_DIR);
     expect(output).toContain("maw wake all");
-    expect(hostExecCalls).toHaveLength(5);
+    expect(hostExecCalls).toHaveLength(10);
   });
 
   test("handles an empty oracle scan without writing overview", async () => {

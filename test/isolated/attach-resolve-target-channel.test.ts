@@ -58,6 +58,18 @@ describe("attach resolver channel-session filtering", () => {
     });
   });
 
+  test("prefers a single exact session name over legacy dashless fuzzy ambiguity", async () => {
+    const result = await resolveAttachTarget("77-mawjs", {
+      listSessions: async () => [
+        { name: "51-maw-js", windows: [{ name: "main" }] },
+        { name: "77-mawjs", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "77-mawjs" });
+  });
+
   test("falls back to a single sleeping fleet match when no session matches", async () => {
     const result = await resolveAttachTarget("homekeeper", {
       listSessions: async () => [],
@@ -130,6 +142,20 @@ describe("attach resolver channel-session filtering", () => {
     });
 
     expect(result).toEqual({ tier: 1, sessionName: "50-mawjs" });
+  });
+
+  test("preserves exact live window matches for multi-window sessions", async () => {
+    const result = await resolveAttachTarget("mawjs-features", {
+      listSessions: async () => [
+        {
+          name: "50-mawjs",
+          windows: [{ name: "mawjs-oracle" }, { name: "mawjs-features" }],
+        },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjs", windowName: "mawjs-features" });
   });
 
   test("keeps tmux numeric window suffixes as session targets", async () => {

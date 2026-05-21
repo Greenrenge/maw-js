@@ -62,7 +62,7 @@ mock.module(join(import.meta.dir, "../../src/config"), () => ({
   },
 }));
 
-const { cmdNew, decideNewWorkspaceAttach, isTruthyEnv, validateWorkspaceSessionName } = await import("../../src/cli/cmd-new");
+const { cmdNew, decideNewWorkspaceAttach, isTruthyEnv, validateWorkspaceSessionName, validateWorkspaceWindowName } = await import("../../src/cli/cmd-new");
 
 beforeEach(() => {
   sessions = new Set<string>();
@@ -98,6 +98,8 @@ describe("cmdNew workspace session factory", () => {
     })).toEqual({ action: "skip", reason: "no-attach-flag" });
     expect(() => validateWorkspaceSessionName("bad name")).toThrow("invalid session name");
     expect(() => validateWorkspaceSessionName("maw-view")).toThrow("reserved");
+    expect(() => validateWorkspaceWindowName("main")).not.toThrow();
+    expect(() => validateWorkspaceWindowName("bad:name")).toThrow("invalid window name");
   });
 
   test("usage errors print help for missing, help, and flag-shaped session names", async () => {
@@ -124,6 +126,50 @@ describe("cmdNew workspace session factory", () => {
       { name: "my-project", opts: { window: "lead", cwd: process.cwd() } },
     ]);
     expect(attached).toEqual([]);
+  });
+
+  test("creates a workspace with an explicit first window name", async () => {
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line: string) => {
+      lines.push(String(line));
+    });
+    try {
+      await cmdNew(["demo", "--window", "main", "--print", "--no-attach"]);
+
+      expect(newSessionCalls).toEqual([
+        {
+          name: "demo",
+          opts: {
+            window: "main",
+            cwd: process.cwd(),
+            printFormat: "#{pane_id}",
+          },
+        },
+      ]);
+      expect(setOptionCalls).toContainEqual({ session: "demo", option: "@maw_new_window", value: "main" });
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "demo",
+        window: "main",
+        pane_id: "%99",
+        cwd: process.cwd(),
+        reused: false,
+      });
+
+      lines.length = 0;
+      newSessionCalls = [];
+      firstPaneIds.set("demo:main", "%100");
+      await cmdNew(["demo", "--print", "--no-attach"]);
+      expect(newSessionCalls).toEqual([]);
+      expect(JSON.parse(lines[0])).toEqual({
+        session: "demo",
+        window: "main",
+        pane_id: "%100",
+        cwd: process.cwd(),
+        reused: true,
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test("starts the lead shell in --path and runs --cmd while staying maw-ls visible", async () => {
@@ -198,6 +244,8 @@ describe("cmdNew workspace session factory", () => {
 
       await expect(cmdNew(["same", "-p", dir, "-c", "bun test", "--no-attach"]))
         .rejects.toThrow("different launch context");
+      await expect(cmdNew(["same", "-p", dir, "-c", "bun dev", "--window", "main", "--no-attach"]))
+        .rejects.toThrow("different launch context");
     } finally {
       logSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });
@@ -217,6 +265,12 @@ describe("cmdNew workspace session factory", () => {
         .rejects.toThrow("--path requires a non-empty directory");
       await expect(cmdNew(["empty-cmd", "--cmd", "", "--no-attach"]))
         .rejects.toThrow("--cmd cannot be empty");
+      await expect(cmdNew(["empty-window", "--window", "", "--no-attach"]))
+        .rejects.toThrow("--window requires a non-empty name");
+      await expect(cmdNew(["bad-window", "--window", "bad:name", "--no-attach"]))
+        .rejects.toThrow("invalid window name");
+      await expect(cmdNew(["split-window", "--split", "--window", "main", "--no-attach"]))
+        .rejects.toThrow("--window only applies");
 
       expect(newSessionCalls).toEqual([]);
       expect(attached).toEqual([]);

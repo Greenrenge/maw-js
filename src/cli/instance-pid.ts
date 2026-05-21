@@ -71,8 +71,7 @@ export function serveStatus(): { pid: number | null; alive: boolean; file: strin
   return { pid, alive, file };
 }
 
-export function printServeStatus(): void {
-  const status = serveStatus();
+function printServeStatusFrom(status: { pid: number | null; alive: boolean; file: string }): void {
   if (!status.pid) {
     console.log(`maw serve: stopped (${status.file})`);
     return;
@@ -84,8 +83,21 @@ export function printServeStatus(): void {
   }
 }
 
+export function printServeStatus(): void {
+  printServeStatusFrom(serveStatus());
+}
+
 function defaultEngineUrl(): string {
   return (process.env.MAW_ENGINE_URL || `http://127.0.0.1:${process.env.MAW_PORT || "3456"}`).replace(/\/+$/, "");
+}
+
+function portFromEngineUrl(engineUrl: string): string {
+  try {
+    const url = new URL(engineUrl);
+    return url.port || (url.protocol === "https:" ? "443" : "80");
+  } catch {
+    return process.env.MAW_PORT || "3456";
+  }
 }
 
 function formatEngineRegistration(registration: Record<string, unknown>): string {
@@ -101,24 +113,37 @@ function formatEngineRegistration(registration: Record<string, unknown>): string
 
 async function fetchEngineRegistrations(engineUrl = defaultEngineUrl()): Promise<
   | { ok: true; engineUrl: string; registrations: Array<Record<string, unknown>> }
-  | { ok: false; engineUrl: string; error: string }
+  | { ok: false; engineUrl: string; reachable: boolean; error: string }
 > {
   try {
     const response = await fetch(`${engineUrl}/api/_engine/registrations`, { signal: AbortSignal.timeout(1_000) });
-    if (!response.ok) return { ok: false, engineUrl, error: `HTTP ${response.status}` };
+    if (!response.ok) return { ok: false, engineUrl, reachable: true, error: `HTTP ${response.status}` };
     const body = await response.json() as { registrations?: Array<Record<string, unknown>> };
     return { ok: true, engineUrl, registrations: Array.isArray(body.registrations) ? body.registrations : [] };
   } catch (err) {
-    return { ok: false, engineUrl, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, engineUrl, reachable: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 export async function printServeStatusWithPlugins(engineUrl = defaultEngineUrl()): Promise<void> {
-  printServeStatus();
   const status = serveStatus();
-  if (!status.alive) return;
-
   const result = await fetchEngineRegistrations(engineUrl);
+  if (!status.alive && !result.ok && !result.reachable) {
+    printServeStatusFrom(status);
+    return;
+  }
+
+  if (!status.alive && (result.ok || result.reachable)) {
+    const port = portFromEngineUrl(engineUrl);
+    console.log(`maw serve: listener reachable without PID file (${engineUrl})`);
+    console.log(`  pid file: ${status.file}`);
+    console.log("  likely: pm2 or another MAW_HOME/XDG state root owns the process");
+    console.log("  check: pm2 status maw");
+    console.log(`  find:  lsof -nP -iTCP:${port} -sTCP:LISTEN`);
+  } else {
+    printServeStatusFrom(status);
+  }
+
   if (!result.ok) {
     console.log(`engine plugins: unavailable (${result.engineUrl}: ${result.error})`);
     return;

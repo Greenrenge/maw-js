@@ -20,6 +20,10 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   },
 }));
 
+mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
+  cmdTmuxAttach: () => {},
+}));
+
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/attach/resolve-attach-target.ts"), () => ({
   resolveAttachTarget: async () => resolveResult,
 }));

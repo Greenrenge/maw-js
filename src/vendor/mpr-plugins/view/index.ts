@@ -2,7 +2,7 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 
 export const command = {
   name: "view",
-  description: "Create or attach to an agent tmux view; use peek/capture for read-only inspection.",
+  description: "Create or attach to an agent tmux view, optionally with a read-only tmux client.",
 };
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
@@ -43,18 +43,19 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     if (!scanned[0]) {
       return {
         ok: false,
-        error: "usage: maw view <agent> [window] [--clean] [--kill] [--split[=<anchor>]]  (see: maw peek/capture for read-only inspection)",
+        error: "usage: maw view <agent> [window] [--clean] [--kill] [--readonly|-r] [--split[=<anchor>]]",
       };
     }
 
     const clean = scanned.includes("--clean");
     const kill = scanned.includes("--kill");
+    const readonly = scanned.includes("--readonly") || scanned.includes("--read-only") || scanned.includes("-r");
     const wake = scanned.includes("--wake");
     const noWake = scanned.includes("--no-wake");
     const filtered = scanned.filter(
-      a => a !== "--clean" && a !== "--kill" && a !== "--wake" && a !== "--no-wake",
+      a => a !== "--clean" && a !== "--kill" && a !== "--readonly" && a !== "--read-only" && a !== "-r" && a !== "--wake" && a !== "--no-wake",
     );
-    await cmdView(filtered[0], filtered[1], clean, kill, splitAnchor, { wake, noWake });
+    await cmdView(filtered[0], filtered[1], clean, kill, splitAnchor, { readonly, wake, noWake });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

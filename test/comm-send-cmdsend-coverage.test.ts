@@ -303,13 +303,14 @@ afterAll(() => {
 
 describe("cmdSend — delivery branch coverage", () => {
   test("local delivery signs, sends, logs, hooks, captures last line, and emits feed", async () => {
+    captureResponses = ["accepted"];
     await runCmd(() => cmdSend("local:session:oracle", "hello"));
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
     expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] hello" } }]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] hello", route: "local" }]);
-    expect(captureCalls.map(c => c.lines)).toEqual([5, 3]);
+    expect(captureCalls.map(c => c.lines)).toEqual([3]);
     expect(emitFeedCalls[0].data.route).toBe("local");
     expect(logs.join("\n")).toContain("delivered");
     expect(logs.join("\n")).toContain("accepted");
@@ -343,19 +344,21 @@ describe("cmdSend — delivery branch coverage", () => {
     }]);
   });
 
-  test("local delivery refuses non-agent panes unless forced", async () => {
+  test("local delivery sends to non-agent panes by default", async () => {
     getPaneCommandReturn = "zsh";
+    captureResponses = ["post-send"];
     await runCmd(() => cmdSend("local:session:oracle", "hello"));
 
-    expect(exitCode).toBe(1);
-    expect(sendKeysCalls).toEqual([]);
-    expect(errs.join("\n")).toContain("no active Claude session");
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] hello" }]);
+    expect(errs.join("\n")).not.toContain("no active Claude session");
   });
 
-  test("local delivery queues to receiver inbox instead of dropping when pane is not agent", async () => {
+  test("--inbox queues to receiver inbox without pane injection", async () => {
     getPaneCommandReturn = "zsh";
 
     await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
+      inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
@@ -373,10 +376,11 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(logs.join("\n")).toContain("ψ/inbox/msg.md");
   });
 
-  test("receiver inbox writer failures fall back to the normal local error path", async () => {
+  test("--inbox receiver inbox writer failures surface as queue-only errors", async () => {
     getPaneCommandReturn = "zsh";
 
     await runCmd(() => cmdSend("local:session:oracle", "offline task", false, {
+      inboxOnly: true,
       receiverInbox: () => {
         throw new Error("inbox locked");
       },
@@ -385,7 +389,8 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([]);
-    expect(errs.join("\n")).toContain("no active Claude session");
+    expect(errs.join("\n")).toContain("--inbox requested");
+    expect(errs.join("\n")).toContain("inbox locked");
   });
 
   test("--force bypasses pane command and idle checks", async () => {
@@ -399,21 +404,22 @@ describe("cmdSend — delivery branch coverage", () => {
     expect(captureCalls.map(c => c.lines)).toEqual([3]);
   });
 
-  test("idle guard retries once and exits when the pane stays busy", async () => {
+  test("default delivery does not idle-guard busy panes", async () => {
     captureResponses = ["❯ git status", "❯ maw hey someone hi"];
 
     await runCmd(() => cmdSend("local:session:oracle", "blocked"));
 
-    expect(exitCode).toBe(1);
-    expect(sleepCalls).toContain(500);
-    expect(sendKeysCalls).toEqual([]);
-    expect(errs.join("\n")).toContain("pane session:oracle.0 is not idle");
+    expect(exitCode).toBeUndefined();
+    expect(sleepCalls).not.toContain(500);
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] blocked" }]);
+    expect(errs.join("\n")).not.toContain("not idle");
   });
 
-  test("idle guard queues to receiver inbox after retry when the pane stays busy", async () => {
+  test("--inbox queues to receiver inbox when the pane is busy", async () => {
     captureResponses = ["❯ draft one", "❯ draft two"];
 
     await runCmd(() => cmdSend("local:session:oracle", "queued while busy", false, {
+      inboxOnly: true,
       receiverInbox: () => ({
         ok: true,
         oracle: "oracle",
@@ -424,10 +430,10 @@ describe("cmdSend — delivery branch coverage", () => {
     }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toContain(500);
+    expect(sleepCalls).not.toContain(500);
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued while busy", route: "inbox" }]);
-    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "pane not idle: draft two" });
+    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", state: "queued", lastLine: "--inbox requested; pane injection skipped" });
     expect(logs.join("\n")).toContain("busy.md");
   });
 

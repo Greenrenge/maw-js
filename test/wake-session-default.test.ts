@@ -204,8 +204,8 @@ describe("createWorktree", () => {
       },
     );
 
-    expect(result).toEqual({ wtPath: "/tmp/repo.wt-1-white", windowName: "oracle-white" });
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-white' -b 'agents/1-white'");
+    expect(result).toEqual({ wtPath: "/repo/agents/1-white", windowName: "oracle-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-white' -b 'agents/1-white'");
   });
 
   test("reattaches an existing branch for the stable slot when the worktree dir is gone", async () => {
@@ -222,8 +222,8 @@ describe("createWorktree", () => {
       log: (...args: unknown[]) => logs.push(args.map(String).join(" ")),
     });
 
-    expect(result.wtPath).toBe("/tmp/repo.wt-1-white");
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-white' 'agents/1-white'");
+    expect(result.wtPath).toBe("/repo/agents/1-white");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-white' 'agents/1-white'");
     expect(logs.join("\n")).toContain("reused branch");
   });
 
@@ -249,8 +249,8 @@ describe("createWorktree", () => {
       },
     );
 
-    expect(result).toEqual({ wtPath: "/tmp/repo.wt-8-white", windowName: "oracle-white" });
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-8-white' -b 'agents/8-white'");
+    expect(result).toEqual({ wtPath: "/repo/agents/8-white", windowName: "oracle-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/8-white' -b 'agents/8-white'");
   });
 
   test("named mode creates an exact reusable worktree and branch without numeric prefix", async () => {
@@ -267,8 +267,8 @@ describe("createWorktree", () => {
       log: () => {},
     });
 
-    expect(result).toEqual({ wtPath: "/tmp/repo.wt-osmosis-white", windowName: "oracle-osmosis-white" });
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' -b 'agents/osmosis-white'");
+    expect(result).toEqual({ wtPath: "/repo/agents/osmosis-white", windowName: "oracle-osmosis-white" });
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/osmosis-white' -b 'agents/osmosis-white'");
   });
 
   test("named mode reattaches an exact stale named branch", async () => {
@@ -285,14 +285,14 @@ describe("createWorktree", () => {
       log: () => {},
     });
 
-    expect(result.wtPath).toBe("/tmp/repo.wt-osmosis-white");
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' 'agents/osmosis-white'");
+    expect(result.wtPath).toBe("/repo/agents/osmosis-white");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/osmosis-white' 'agents/osmosis-white'");
   });
 
   test("shares the parent .claude directory with newly-created worktrees", async () => {
     const root = mkdtempSync(join(tmpdir(), "maw-wt-claude-"));
     const repoPath = join(root, "repo");
-    const wtPath = join(root, "repo.wt-1-white");
+    const wtPath = join(root, "repo", "agents", "1-white");
     mkdirSync(join(repoPath, ".claude", "skills"), { recursive: true });
     const logs: string[] = [];
 
@@ -308,7 +308,7 @@ describe("createWorktree", () => {
       });
 
       expect(result.wtPath).toBe(wtPath);
-      expect(readlinkSync(join(wtPath, ".claude"))).toBe("../repo/.claude");
+      expect(readlinkSync(join(wtPath, ".claude"))).toBe("../../.claude");
       expect(logs.join("\n")).toContain(".claude:");
     } finally {
       rmSync(root, { recursive: true, force: true });

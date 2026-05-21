@@ -181,6 +181,11 @@ export const fromSigningAuth = new Elysia({ name: "from-signing-auth" })
     const clientIp = _bunServer?.requestIP?.(request)?.address;
     if (isLoopback(clientIp)) return;
 
+    // No claimed sender means the HMAC layer already handled the request; do
+    // not clone/read the body again. This keeps unsigned legacy HMAC writes
+    // from tripping the from-signing body reader (#1859).
+    if (request.headers.get("x-maw-from") === null) return;
+
     // Read body once (clone). We need the bytes for the body-hash binding.
     let body: Uint8Array | undefined;
     try {

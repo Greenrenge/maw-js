@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import { existsSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 
 /**
  * #19 — Detect stillborn git worktrees.
@@ -113,6 +113,11 @@ export function checkStillbornWorktrees(): {
  *   "myrepo.wt-1-task" → "myrepo-task"
  */
 export function dirNameToWindowName(dirName: string): string {
+  if (dirName.includes("/agents/")) {
+    const wtName = basename(dirName).replace(/^\d+-/, "");
+    const mainStem = basename(dirname(dirname(dirName))).replace(/-oracle$/, "");
+    return `${mainStem}-${wtName}`;
+  }
   const parts = dirName.split(".wt-");
   if (parts.length < 2) return dirName;
   const mainStem = parts[0]!.replace(/-oracle$/, "");
@@ -158,14 +163,22 @@ function findWorktreeDirs(ghqRoot: string): string[] {
     }
 
     for (const e of entries) {
-      if (e.includes(".wt-")) {
-        const fullPath = join(orgDir, e);
-        try {
-          if (statSync(fullPath).isDirectory()) {
-            results.push(fullPath);
+      const fullPath = join(orgDir, e);
+      try {
+        if (e.includes(".wt-") && statSync(fullPath).isDirectory()) {
+          results.push(fullPath);
+          continue;
+        }
+        const agentsDir = join(fullPath, "agents");
+        if (statSync(agentsDir).isDirectory()) {
+          for (const wt of readdirSync(agentsDir)) {
+            const nestedPath = join(agentsDir, wt);
+            try {
+              if (statSync(nestedPath).isDirectory()) results.push(nestedPath);
+            } catch { /* skip nested */ }
           }
-        } catch { /* skip */ }
-      }
+        }
+      } catch { /* skip */ }
     }
   }
   return results;

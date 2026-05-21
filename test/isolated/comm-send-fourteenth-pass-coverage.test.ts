@@ -152,18 +152,17 @@ describe("comm-send fourteenth-pass uncovered branches", () => {
     expect(sendKeysCalls).toEqual([]);
   });
 
-  test("persistently busy local panes without inbox fallback print the force hint and exit", async () => {
+  test("persistently busy local panes deliver by default without the old force hint", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
     captureResponses = ["❯ drafting a reply", "❯ still typing"];
 
     await runCmd(() => cmdSend("local:session:oracle", "wait for idle", false, { receiverInbox: false }));
 
-    expect(exitCode).toBe(1);
-    expect(sleepCalls).toEqual([500]);
+    expect(exitCode).toBeUndefined();
+    expect(sleepCalls).toEqual([150]);
     expect(defaultInboxCalls).toEqual([]);
-    expect(sendKeysCalls).toEqual([]);
-    expect(runHookCalls).toEqual([]);
-    expect(errs.join("\n")).toContain('pane session:oracle.0 is not idle — user appears to be typing: "still typing"');
-    expect(errs.join("\n")).toContain("use \x1b[36m--force\x1b[0m to send anyway");
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] wait for idle" }]);
+    expect(runHookCalls).toEqual([{ name: "after_send", payload: { to: "local:session:oracle", message: "[test-node:sender] wait for idle" } }]);
+    expect(errs.join("\n")).not.toContain("not idle");
   });
 });

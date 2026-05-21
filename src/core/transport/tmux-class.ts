@@ -178,12 +178,43 @@ export class Tmux {
   }
 
   /** Switch the current tmux client to a different session. Only works when inside tmux. */
-  async switchClient(session: string): Promise<void> {
-    await this.tryRun("switch-client", "-t", session);
+  async switchClient(session: string, opts: { readonly?: boolean } = {}): Promise<void> {
+    if (!opts.readonly) {
+      await this.tryRun("switch-client", "-t", session);
+      return;
+    }
+
+    const readonly = await this.tryRun("display-message", "-p", "#{client_readonly}");
+    const args: (string | number)[] = readonly.trim() === "1"
+      ? ["-t", session]
+      : ["-r", "-t", session];
+    await this.tryRun("switch-client", ...args);
   }
 
   async killWindow(target: string): Promise<void> {
     await this.tryRun("kill-window", "-t", target);
+  }
+
+  async linkWindow(source: string, target: string, opts: { detached?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.detached !== false) args.push("-d");
+    args.push("-s", source, "-t", target);
+    await this.run("link-window", ...args);
+  }
+
+  async unlinkWindow(target: string, opts: { killLastLink?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.killLastLink) args.push("-k");
+    args.push("-t", target);
+    await this.run("unlink-window", ...args);
+  }
+
+  async renameWindow(target: string, name: string): Promise<void> {
+    await this.run("rename-window", "-t", target, name);
+  }
+
+  async setWindowOption(target: string, option: string, value: string): Promise<void> {
+    await this.run("set-window-option", "-t", target, option, value);
   }
 
   // --- Panes ---
@@ -293,6 +324,42 @@ export class Tmux {
 
   async selectLayout(target: string, layout: string): Promise<void> {
     await this.run("select-layout", "-t", target, layout);
+  }
+
+  /** Attach a client in tmux read-only mode (`attach-session -r`). */
+  async attachReadonly(session: string): Promise<void> {
+    await this.run("attach-session", "-r", "-t", session);
+  }
+
+  /**
+   * Pipe pane output and/or shell-command output through tmux `pipe-pane`.
+   *
+   * tmux defaults to output mode (`-O`) when neither `input` nor `output` is
+   * set; this wrapper makes the default explicit for callers and tests. Omit
+   * `command` to close the current pipe for the target pane.
+   */
+  async pipePane(target: string, command?: string, opts: {
+    /** Connect shell-command stdout to the pane as typed input (`-I`). */
+    input?: boolean;
+    /** Connect pane output to shell-command stdin (`-O`). Default true. */
+    output?: boolean;
+    /** Only open a new pipe if none exists (`-o`). */
+    onlyIfClosed?: boolean;
+  } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    const input = opts.input === true;
+    const output = opts.output !== false || !input;
+    if (input) args.push("-I");
+    if (output) args.push("-O");
+    if (opts.onlyIfClosed) args.push("-o");
+    args.push("-t", target);
+    if (command !== undefined) args.push(command);
+    await this.run("pipe-pane", ...args);
+  }
+
+  /** Toggle tmux synchronize-panes for a target window. */
+  async synchronizePanes(target: string, on: boolean): Promise<void> {
+    await this.run("set-window-option", "-t", target, "synchronize-panes", on ? "on" : "off");
   }
 
   // --- Keys ---

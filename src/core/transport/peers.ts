@@ -413,11 +413,16 @@ function peerSendBodySnippet(data: unknown): string {
  * inbox after tmux delivery could not be proven. Callers that display user
  * state must not collapse this into "delivered".
  */
-export async function sendKeysToPeerDetailed(peerUrl: string, target: string, text: string): Promise<PeerSendResult> {
+export async function sendKeysToPeerDetailed(
+  peerUrl: string,
+  target: string,
+  text: string,
+  opts: { inbox?: boolean } = {},
+): Promise<PeerSendResult> {
   try {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target, text }),
+      body: JSON.stringify({ target, text, ...(opts.inbox ? { inbox: true } : {}) }),
       timeout: cfgTimeout("http"),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send via TransportManager
     });

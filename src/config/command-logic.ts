@@ -61,14 +61,6 @@ export function buildCommandFromConfig(
     }
   }
 
-  // Fallback for --continue/--resume: retry without it (fresh worktree / expired session).
-  // Keep --session-id (if set) so the first run creates the session with that ID.
-  if (cmd.includes("--continue") || cmd.includes("--resume")) {
-    let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
-    if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    return `${cmd} || ${fallback}`;
-  }
-
   return cmd;
 }
 

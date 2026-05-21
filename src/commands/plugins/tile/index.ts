@@ -54,10 +54,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       "--cmd": String, "-c": "--cmd",
       "--shell": Boolean,
       "--engine": String, "-e": "--engine",
+      "--layout": String,
     }, 0);
 
     if (flags["--help"]) {
-      console.log("usage: maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>] [--shell] [--engine <name>]");
+      console.log("usage: maw tile [N] [--wt <name>] [--layout nested|legacy] [--path <dir>] [--cmd <cmd>] [--shell] [--engine <name>]");
       console.log("       maw tile clean");
       console.log("       maw tile swap <a> <b>");
       console.log("");
@@ -67,6 +68,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       console.log("  maw tile 3 -p /repo -c \"bun test\"  cd then run a command in each pane");
       console.log("  maw tile 3 --shell    explicit blank-shell mode (default)");
       console.log("  maw tile 3 --wt feat  spawn 3 blank shells in a reusable worktree");
+      console.log("  maw tile 3 --wt feat --layout legacy  use the old sibling .wt-N-X layout");
       console.log("  maw tile 3 --wt       spawn 3 worktree-backed panes, each with own branch");
       console.log("  maw tile 3 -e claude  spawn 3 panes running claude, tiled");
       console.log("  maw tile clean        kill tile panes + remove tile worktrees");
@@ -103,12 +105,19 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       return { ok: false, error: "invalid count" };
     }
 
+    const layout = flags["--layout"] as string | undefined;
+    if (layout !== undefined && layout !== "nested" && layout !== "legacy") {
+      console.log("\x1b[33m⚠\x1b[0m tile: --layout must be nested or legacy");
+      return { ok: false, error: "invalid layout", output: logs.join("\n") };
+    }
+
     await cmdTile(count, {
       wt: wtArgs.wt,
       path: flags["--path"] as string | undefined,
       cmd: flags["--cmd"] as string | undefined,
       shell: !!flags["--shell"],
       engine: flags["--engine"] as string | undefined,
+      layout: layout as "nested" | "legacy" | undefined,
     });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {

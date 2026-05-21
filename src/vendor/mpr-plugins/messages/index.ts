@@ -244,36 +244,77 @@ async function registerWithEngine(engineUrl: string, upstream: string): Promise<
   }
 }
 
-async function unregisterFromEngine(engineUrl: string): Promise<void> {
-  await fetch(`${engineUrl}/api/_engine/unregister`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ plugin: "messages", prefix: ENGINE_PREFIX }),
-  }).catch(() => undefined);
+const SHUTDOWN_UNREGISTER_TIMEOUT_MS = 500;
+const SHUTDOWN_UNREGISTER_RETRY_MS = 50;
+
+async function unregisterFromEngine(engineUrl: string, timeoutMs = SHUTDOWN_UNREGISTER_TIMEOUT_MS): Promise<boolean> {
+  const started = Date.now();
+  let attempted = false;
+  while (!attempted || Date.now() - started < timeoutMs) {
+    attempted = true;
+    const remainingMs = Math.max(1, timeoutMs - (Date.now() - started));
+    try {
+      const response = await fetch(`${engineUrl}/api/_engine/unregister`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plugin: "messages", prefix: ENGINE_PREFIX }),
+        signal: AbortSignal.timeout(remainingMs),
+      });
+      if (response.ok) {
+        const body = await response.json().catch(() => null) as { ok?: unknown; removed?: unknown } | null;
+        if (body?.ok !== false && body?.removed !== false) return true;
+      }
+    } catch {
+      // Retry until the bounded shutdown window expires.
+    }
+    const nextDelay = Math.min(SHUTDOWN_UNREGISTER_RETRY_MS, Math.max(0, timeoutMs - (Date.now() - started)));
+    if (nextDelay <= 0) break;
+    await Bun.sleep(nextDelay);
+  }
+  return false;
 }
 
 type ServeHandle = { stop(force?: boolean): void };
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 export function installServeShutdown(
   engineUrl: string,
   server: ServeHandle,
   deps: {
     once?: typeof process.once;
-    unregister?: typeof unregisterFromEngine;
+    unregister?: (engineUrl: string, timeoutMs?: number) => Promise<unknown>;
     exit?: typeof process.exit;
+    timeoutMs?: number;
+    warn?: typeof console.warn;
   } = {},
-): () => void {
+): () => Promise<void> | void {
   const once = deps.once ?? process.once.bind(process);
   const unregister = deps.unregister ?? unregisterFromEngine;
   const exit = deps.exit ?? process.exit.bind(process);
+  const timeoutMs = deps.timeoutMs ?? SHUTDOWN_UNREGISTER_TIMEOUT_MS;
+  const warn = deps.warn ?? console.warn.bind(console);
   let shuttingDown = false;
-  const shutdown = () => {
+  const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    unregister(engineUrl).finally(() => {
+    try {
+      const result = await withTimeout(Promise.resolve(unregister(engineUrl, timeoutMs)), timeoutMs);
+      if (result === "timeout" || result === false) {
+        warn(`maw messages serve: engine unregister did not confirm within ${timeoutMs}ms; exiting and relying on health pruning`);
+      }
+    } finally {
       server.stop(true);
       exit(0);
-    });
+    }
   };
   once("SIGTERM", shutdown);
   once("SIGINT", shutdown);

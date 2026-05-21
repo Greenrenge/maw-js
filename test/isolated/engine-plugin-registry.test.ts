@@ -11,6 +11,7 @@ import {
   pollEnginePluginHealth,
   proxyEnginePluginRequest,
   registerEnginePlugin,
+  startEnginePluginHealthPolling,
 } from "../../src/core/engine-plugin-registry";
 
 afterEach(() => clearEnginePluginRegistrations());
@@ -256,6 +257,31 @@ describe("engine plugin registry (#1566)", () => {
     upstream.stop(true);
     expect(await pollEnginePluginHealth()).toEqual({ checked: 1, removed: 1 });
     expect(findEnginePluginRegistration("/api/health-ledger/messages")).toBeUndefined();
+  });
+
+  test("health polling timer auto-prunes dead registered plugin processes", async () => {
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => Response.json({ ok: true }),
+    });
+    registerEnginePlugin({
+      plugin: "timer-ledger",
+      prefix: "/api/timer-ledger",
+      upstream: `http://127.0.0.1:${upstream.port}`,
+      health: "/health",
+    });
+
+    const stopPolling = startEnginePluginHealthPolling(5);
+    try {
+      upstream.stop(true);
+      for (let i = 0; i < 20 && findEnginePluginRegistration("/api/timer-ledger/messages"); i++) {
+        await Bun.sleep(10);
+      }
+      expect(findEnginePluginRegistration("/api/timer-ledger/messages")).toBeUndefined();
+    } finally {
+      stopPolling();
+    }
   });
 
   test("proxies requests to unix upstreams preserving suffix, query, body, and headers", async () => {

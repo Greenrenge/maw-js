@@ -336,4 +336,39 @@ describe("createPtyHandlers", () => {
     ]);
     await h.finishReaders();
   });
+
+  test("honors attach replayLines overrides for follow clients", async () => {
+    const noReplay = makeHarness({ spawnPlans: [{ chunks: ["live"], autoEnd: true }] });
+    const liveOnly = makeWs();
+    noReplay.handlePtyMessage(liveOnly as any, JSON.stringify({ type: "attach", target: "follow:0", replayLines: 0 }));
+    await eventually(() => liveOnly.sent.map(decode).includes(JSON.stringify({ type: "detached", target: "follow:0" })), "no-replay detach");
+
+    expect(noReplay.spawnSyncCalls).toEqual([]);
+    expect(liveOnly.sent.map(decode)).toEqual([
+      JSON.stringify({ type: "attached", target: "follow:0" }),
+      "live",
+      JSON.stringify({ type: "detached", target: "follow:0" }),
+    ]);
+
+    const shared = makeHarness({ spawnPlans: [{ chunks: ["first"], autoEnd: false }] });
+    const firstViewer = makeWs();
+    shared.handlePtyMessage(firstViewer as any, JSON.stringify({ type: "attach", target: "follow:shared", replayLines: 0 }));
+    await eventually(() => firstViewer.sent.map(decode).includes("first"), "shared follow output");
+    expect(shared.spawnSyncCalls).toEqual([]);
+
+    const secondViewer = makeWs();
+    shared.handlePtyMessage(secondViewer as any, JSON.stringify({ type: "attach", target: "follow:shared", replayLines: 0 }));
+    expect(shared.spawnSyncCalls).toEqual([]);
+    expect(secondViewer.sent.map(decode)).toEqual([
+      JSON.stringify({ type: "attached", target: "follow:shared" }),
+    ]);
+    await shared.finishReaders();
+
+    const bounded = makeHarness({ spawnPlans: [{ autoEnd: true }] });
+    const withReplay = makeWs();
+    bounded.handlePtyMessage(withReplay as any, JSON.stringify({ type: "attach", target: "follow:1", replayLines: 12 }));
+    await eventually(() => bounded.spawnCalls.length === 1, "bounded replay spawn");
+
+    expect(bounded.spawnSyncCalls[0]).toEqual(["tmux", "capture-pane", "-t", "follow:1", "-p", "-e", "-J", "-S", "-12"]);
+  });
 });

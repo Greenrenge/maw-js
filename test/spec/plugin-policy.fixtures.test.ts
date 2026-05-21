@@ -11,17 +11,20 @@ import {
   DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1531,
   DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1854,
+  DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION,
   isDefaultActive1514Plugin,
   isDefaultActive1523Plugin,
   isDefaultActive1524Plugin,
   isDefaultActive1531Plugin,
+  isDefaultActive1854Plugin,
   isDefaultActivePlugin,
 } from "../../src/plugin/default-active";
 import { DEFAULT_TIER, KNOWN_TIERS } from "../../src/plugin/manifest-constants";
 import { weightToTier } from "../../src/plugin/tier";
 import type { PluginTier } from "../../src/plugin/types";
 
-type DefaultActiveKey = "1500" | "1514" | "1523" | "1524" | "1531";
+type DefaultActiveKey = "1500" | "1514" | "1523" | "1524" | "1531" | "1854";
 
 type WeightFixture = {
   name: string;
@@ -78,6 +81,11 @@ const defaultActivePolicy: Record<DefaultActiveKey, {
     plugins: DEFAULT_ACTIVE_PLUGINS_1531,
     migration: DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION,
     includes: isDefaultActive1531Plugin,
+  },
+  "1854": {
+    plugins: DEFAULT_ACTIVE_PLUGINS_1854,
+    migration: DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION,
+    includes: isDefaultActive1854Plugin,
   },
 };
 

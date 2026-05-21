@@ -109,11 +109,13 @@ export async function respawnMissingWorktrees(sessions: FleetSession[], deps: Pa
       const repoName = main.repo.split("/").pop()!;
       const parentDir = repoPath.replace(/\/[^/]+$/, "");
 
-      // Scan disk for worktrees
       let wtPaths: string[] = [];
       try {
-        const raw = await io.ssh(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
-        wtPaths = raw.split("\n").filter(Boolean);
+        const raw = [
+          await io.ssh(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`),
+          await io.ssh(`find ${repoPath}/agents -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`),
+        ].join("\n");
+        wtPaths = [...new Set(raw.split("\n").filter(Boolean))];
       } catch { continue; }
 
       // Get running windows for this session
@@ -126,7 +128,7 @@ export async function respawnMissingWorktrees(sessions: FleetSession[], deps: Pa
       const usedNames = new Set([...registeredNames, ...runningWindows]);
       for (const wtPath of wtPaths) {
         const wtBase = wtPath.split("/").pop()!;
-        const suffix = wtBase.replace(`${repoName}.wt-`, "");
+        const suffix = wtBase.includes(".wt-") ? wtBase.replace(`${repoName}.wt-`, "") : wtBase;
         const taskPart = suffix.replace(/^\d+-/, "");
         let windowName = `${oracleName}-${taskPart}`;
         if (usedNames.has(windowName)) {

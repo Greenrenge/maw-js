@@ -53,6 +53,17 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else if (sub === "doctor" || sub === "dr") {
       const { cmdFleetDoctor } = await import("../../shared/fleet-doctor");
       await cmdFleetDoctor({ fix: args.includes("--fix"), json: args.includes("--json"), reboot: args.includes("--reboot") });
+    } else if (sub === "config-doctor" || sub === "config-drift") {
+      if (args.includes("--fix")) {
+        return { ok: false, error: "maw fleet config-doctor is report-only; review the drift output before copying repo-local config" };
+      }
+      const baselineFlag = args.findIndex((arg) => arg === "--baseline");
+      const baseline = baselineFlag >= 0 ? args[baselineFlag + 1] : undefined;
+      if (baselineFlag >= 0 && !baseline) {
+        return { ok: false, error: "usage: maw fleet config-doctor [--baseline <path>] [--json]" };
+      }
+      const { cmdFleetConfigDoctor } = await import("../../shared/fleet-config-doctor");
+      await cmdFleetConfigDoctor({ baseline, json: args.includes("--json") });
     } else if (sub === "consolidate") {
       const { cmdFleetConsolidate } = await import("./fleet-consolidate");
       await cmdFleetConsolidate({ dryRun: args.includes("--dry-run"), remove: args.includes("--remove") });
@@ -145,7 +156,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     } else {
       return {
         ok: false,
-        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|rename|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet doctor --reboot checks reboot auto-wake readiness; maw fleet ls shows registered fleet config; maw ls shows live sessions`,
+        error: `unknown fleet subcommand: ${sub}\nusage: maw fleet <init|ls|rename|renumber|validate|health|doctor|config-doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>\n  tip: maw fleet config-doctor detects repo-local .claude/ drift; maw fleet doctor --reboot checks reboot auto-wake readiness; maw ls shows live sessions`,
       };
     }
 

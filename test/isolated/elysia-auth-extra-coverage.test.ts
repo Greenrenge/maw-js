@@ -56,6 +56,17 @@ function fromAuthApp(): Elysia {
     .get("/sessions", () => ({ ok: true, route: "sessions" }));
 }
 
+function fullAuthPaneKeysApp(): Elysia {
+  return new Elysia({ prefix: "/api" })
+    .use(federationAuth)
+    .use(fromSigningAuth)
+    .post(
+      "/pane-keys",
+      ({ body }) => ({ ok: true, route: "pane-keys", target: body.target, enter: body.enter }),
+      { body: t.Object({ target: t.String(), text: t.String(), enter: t.Optional(t.Boolean()) }) },
+    );
+}
+
 function signedHeaders(method: string, path: string, timestamp = Math.floor(Date.now() / 1000)): Record<string, string> {
   return {
     "x-maw-timestamp": String(timestamp),
@@ -218,6 +229,42 @@ describe("fromSigningAuth — per-peer continuity branches", () => {
     const res = await fromAuthApp().handle(new Request("http://localhost/api/send", { method: "POST", body: "{}" }));
 
     expect(res.status).toBe(200);
+  });
+
+  test("protected HMAC requests without x-maw-from skip the from-signing body reader (#1859)", async () => {
+    const body = new ReadableStream({
+      pull() {
+        throw new Error("body should not be read by from-signing");
+      },
+    });
+
+    const res = await fromAuthApp().handle(new Request("http://localhost/api/send", {
+      method: "POST",
+      body,
+      // Bun follows the Fetch streaming-body shape used by Node-compatible runtimes.
+      duplex: "half",
+    } as RequestInit & { duplex: "half" }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, route: "send" });
+  });
+
+  test("/api/pane-keys accepts current v3 from-signing headers even with fleet-HMAC signature noise (#1859)", async () => {
+    peersState = { peer: { node: "peer-node", pubkey: PEER_SECRET } };
+    const body = JSON.stringify({ target: "origin_discord:0", text: "test", enter: true });
+
+    const res = await fullAuthPaneKeysApp().handle(new Request("http://localhost/api/pane-keys", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-maw-signature": "0".repeat(64),
+        ...fromSignatureHeaders({ path: "/api/pane-keys", body }),
+      },
+      body,
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, route: "pane-keys", target: "origin_discord:0", enter: true });
   });
 
   test("signed unknown peer accepts TOFU-record path", async () => {

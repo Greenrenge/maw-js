@@ -116,6 +116,11 @@ export interface InvokeContext {
   source: "cli" | "api" | "peer";
   args: string[] | Record<string, unknown>;
   /**
+   * CLI surface that matched this invocation. Alias-aware plugins can use it
+   * for deprecation warnings while keeping canonical behavior unchanged.
+   */
+  matchedName?: string;
+  /**
    * Optional output writer injected by the invoker based on ctx.source.
    * CLI source → streams to process.stdout (real-time terminal output).
    * API/peer source → undefined; plugin falls back to logs[] capture.

@@ -233,7 +233,8 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
 
   api.post("/send", async ({ body, request, set }) => {
     try {
-      const { target, text, force, attachments } = body;
+      const { target, text, attachments } = body;
+      const inboxOnly = body.inbox === true;
       const message = attachments?.length
         ? attachments.join("\n") + "\n" + text
         : text;
@@ -336,35 +337,8 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       if (resolved?.type === "local" || resolved?.type === "self-node") {
         const live = await verifyDeliverableTarget(resolved.target);
         if (!live.ok) return queueOrFail(resolved.target, live.reason);
-        // #405: idle guard — reject if user has in-progress input on the prompt line
         try {
-          if (!force) {
-            let idleCheck = await d.checkPaneIdle(resolved.target);
-            if (!idleCheck.idle) {
-              await d.sleep(500);
-              idleCheck = await d.checkPaneIdle(resolved.target);
-              if (!idleCheck.idle) {
-                const inbox = await writeInboundInbox(resolved.target);
-                const queued = inbox ? queuedInboxResponse(inbox, resolved.target, "pane not idle") : null;
-                if (queued) return queued;
-                set.status = 409;
-                emitLifecycle({
-                  direction: "inbound",
-                  state: "failed",
-                  channel: "api-send",
-                  route: resolved.type,
-                  from: messageFrom,
-                  to: messageTo,
-                  target: resolved.target,
-                  text: message,
-                  error: "pane not idle",
-                  lastLine: idleCheck.lastInput,
-                  signed: messageSigned,
-                });
-                return { ok: false, error: "pane not idle", target: resolved.target, lastInput: idleCheck.lastInput };
-              }
-            }
-          }
+          if (inboxOnly) return queueOrFail(resolved.target, "--inbox requested; pane injection skipped");
           await d.sendKeys(resolved.target, message);
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
@@ -403,7 +377,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       if (resolved?.type === "peer") {
         const res = await d.curlFetch(`${resolved.peerUrl}/api/send`, {
           method: "POST",
-          body: JSON.stringify({ target: resolved.target, text: message }),
+          body: JSON.stringify({ target: resolved.target, text: message, ...(inboxOnly ? { inbox: true } : {}) }),
           timeout: 10000,
           from: "auto", // #804 Step 4 SIGN — sign cross-node forwarded /api/send
         });
@@ -443,7 +417,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
       // Fallback: async peer discovery
       const peerUrl = await d.findPeerForTarget(target, local);
       if (peerUrl) {
-        const send = await d.sendKeysToPeerDetailed(peerUrl, target, message);
+        const send = await d.sendKeysToPeerDetailed(peerUrl, target, message, { inbox: inboxOnly });
         emitLifecycle({
           direction: "forwarded",
           state: send.ok ? send.state : "failed",
@@ -487,33 +461,7 @@ export function createSessionsApi(deps: SessionsApiDeps = {}) {
                 return queueOrFail(retry.target, `target not live in tmux after wake: ${retry.target}`);
               }
               try {
-                if (!force) {
-                  let idleCheck = await d.checkPaneIdle(retry.target);
-                  if (!idleCheck.idle) {
-                    await d.sleep(500);
-                    idleCheck = await d.checkPaneIdle(retry.target);
-                    if (!idleCheck.idle) {
-                      const inbox = await writeInboundInbox(retry.target);
-                      const queued = inbox ? queuedInboxResponse(inbox, retry.target, "pane not idle after wake") : null;
-                      if (queued) return queued;
-                      set.status = 409;
-                      emitLifecycle({
-                        direction: "inbound",
-                        state: "failed",
-                        channel: "api-send",
-                        route: "local",
-                        from: messageFrom,
-                        to: messageTo,
-                        target: retry.target,
-                        text: message,
-                        error: "pane not idle",
-                        lastLine: idleCheck.lastInput,
-                        signed: messageSigned,
-                      });
-                      return { ok: false, error: "pane not idle", target: retry.target, lastInput: idleCheck.lastInput };
-                    }
-                  }
-                }
+                if (inboxOnly) return queueOrFail(retry.target, "--inbox requested; pane injection skipped");
                 await d.sendKeys(retry.target, message);
               } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);

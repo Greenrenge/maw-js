@@ -35,6 +35,12 @@ export interface BudOpts {
   scaffoldOnly?: boolean;
 }
 
+function oracleStemFromMaybeWorktreePath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  const repoName = parts.at(-2) === "agents" && parts.at(-3) ? parts.at(-3)! : (parts.at(-1) || "");
+  return repoName.replace(/\.wt-.*$/, "").replace(/-oracle$/, "");
+}
+
 // TinyBudOpts removed — --tiny deprecated, code moved to deprecated/tiny-bud-209/
 // See #209 for history. Full buds with --blank (alpha.38) are now as lightweight.
 
@@ -120,8 +126,7 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
   if (!parentName && !opts.root) {
     try {
       const cwd = (await hostExec("tmux display-message -p '#{pane_current_path}'")).trim();
-      const repoName = cwd.split("/").pop() || "";
-      parentName = repoName.replace(/\.wt-.*$/, "").replace(/-oracle$/, "");
+      parentName = oracleStemFromMaybeWorktreePath(cwd);
     } catch {
       throw new Error("could not detect parent oracle. Use --from <oracle> or --root");
     }

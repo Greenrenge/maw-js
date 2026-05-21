@@ -192,6 +192,26 @@ describe("direct handler invocation", () => {
     }]);
   });
 
+  test("cmdLs help prints usage instead of treating --help as a filter", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("cmdLs", ["--help"], deps);
+
+    expect(calls.tmuxLs).toEqual([]);
+    expect(calls.logs.join("\n")).toContain("usage: maw ls");
+    expect(calls.logs.join("\n")).toContain("--active");
+  });
+
+  test("cmdLs missing --node value prints friendly usage instead of ArgError", async () => {
+    const { calls, deps } = makeDeps();
+
+    await expect(invokeDirectHandler("cmdLs", ["--node"], deps)).rejects.toThrow(UserError);
+
+    expect(calls.tmuxLs).toEqual([]);
+    expect(calls.errors.join("\n")).toContain("usage: maw ls");
+    expect(calls.errors.join("\n")).toContain("✗ maw ls: --node requires a value");
+  });
+
   test("layout help owns the top-level verb and applies presets to the current window", async () => {
     const { calls, deps } = makeDeps();
 
@@ -223,6 +243,7 @@ describe("direct handler invocation", () => {
       "neo",
       "--task", "fix bug",
       "--wt", "issue-1",
+      "--layout", "legacy",
       "--session", "workspace",
       "-p", "hello",
       "--incubate", "Soul-Brews-Studio/maw-js",
@@ -245,6 +266,7 @@ describe("direct handler invocation", () => {
     expect(calls.wake).toEqual([["neo", {
       task: "fix bug",
       wt: "issue-1",
+      layout: "legacy",
       session: "workspace",
       prompt: "hello",
       incubate: "Soul-Brews-Studio/maw-js",

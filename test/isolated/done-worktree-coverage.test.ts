@@ -179,7 +179,7 @@ describe("removeWorktreeByGhqScan", () => {
 
     const mainPath = exact.replace("repo.wt-123-feature", "repo");
     expect(hostExecCalls).toEqual([
-      `find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`,
+      `find '${REPOS_ROOT}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`,
       `git -C '${exact}' rev-parse --abbrev-ref HEAD`,
       `git -C '${mainPath}' worktree remove '${exact}' --force`,
       `git -C '${mainPath}' worktree prune`,
@@ -203,7 +203,7 @@ describe("removeWorktreeByGhqScan", () => {
       expect(await removeWorktreeByGhqScan("mother-feature", REPOS_ROOT)).toBe(false);
     });
 
-    expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`]);
+    expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`]);
     expect(output).toContain("refusing to remove worktree 'feature' — matches 2 repos");
     expect(output).toContain(one);
     expect(output).toContain(two);

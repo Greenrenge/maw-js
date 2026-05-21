@@ -227,7 +227,7 @@ describe("dispatchCommand runtime coverage", () => {
     await capture(() => dispatchCommand("tool", ["tool", "arg"]));
     expect(logs).toEqual(["hello from plugin"]);
     expect(exitCode).toBe(0);
-    expect(invokeCalls.at(-1).ctx).toEqual({ source: "cli", args: ["arg"] });
+    expect(invokeCalls.at(-1).ctx).toEqual({ source: "cli", args: ["arg"], matchedName: "tool" });
 
     invokeResult = { ok: false, error: "plugin exploded", exitCode: 7 };
     resolveQueue = [{ kind: "match", plugin: p, matchedName: "tool" }];
@@ -275,6 +275,7 @@ describe("dispatchCommand runtime coverage", () => {
     await capture(() => dispatchCommand("roc", ["roc", "now"]));
     expect(logs).toContain("launched");
     expect(invokeCalls.at(-1).ctx.args).toEqual(["now"]);
+    expect(invokeCalls.at(-1).ctx.matchedName).toBe("rocket");
     expect(exitCode).toBe(0);
 
     plugins = [];

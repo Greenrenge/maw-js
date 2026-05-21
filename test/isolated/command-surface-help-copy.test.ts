@@ -47,7 +47,7 @@ describe("#1531 command-surface help copy", () => {
     expect(help("src/vendor/mpr-plugins/peek/plugin.json")).toContain("maw capture");
     expect(help("src/vendor/mpr-plugins/peek/plugin.json")).toContain("maw view");
     expect(help("src/vendor/mpr-plugins/capture/plugin.json")).toContain("maw peek");
-    expect(help("src/vendor/mpr-plugins/view/plugin.json")).toContain("maw peek/capture");
+    expect(help("src/vendor/mpr-plugins/view/plugin.json")).toContain("--readonly");
   });
 
   test("kill, sleep, and done clarify immediate, graceful, and worktree shutdown", () => {
@@ -97,6 +97,7 @@ describe("#1531 command-surface help copy", () => {
     for (const name of [
       "ls", "peek", "capture", "view", "kill", "done", "sleep", "panes", "tab",
       "bg", "rename", "dream", "oracle-skills", "park", "shellenv", "token",
+      "stream",
     ]) {
       expect(summary(`src/vendor/mpr-plugins/${name}/registry.meta.json`)).toBe(
         desc(`src/vendor/mpr-plugins/${name}/plugin.json`),

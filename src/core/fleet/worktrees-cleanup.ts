@@ -3,6 +3,7 @@ import { tmux } from "../transport/tmux";
 import { getGhqRoot } from "../../config/ghq-root";
 import { writeFileSync } from "fs";
 import { join } from "path";
+import { parseWorktreePath } from "./worktree-layout";
 import { resolveWorktreeTarget } from "../matcher/resolve-target";
 import { loadFleetEntries } from "../../commands/shared/fleet-load";
 
@@ -14,24 +15,19 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   const reposRoot = join(getGhqRoot(), "github.com");
   const log: string[] = [];
 
-  const dirName = wtPath.split("/").pop()!;
-  const parts = dirName.split(".wt-");
-  if (parts.length < 2) {
-    log.push(`not a worktree: ${dirName}`);
+  const parsed = parseWorktreePath(wtPath, reposRoot);
+  if (!parsed) {
+    log.push(`not a worktree: ${wtPath.split("/").pop()!}`);
     return log;
   }
 
-  const mainRepoName = parts[0];
-  const relPath = wtPath.replace(reposRoot + "/", "");
-  const parentParts = relPath.split("/");
-  parentParts.pop();
-  const org = parentParts.join("/");
-  const mainPath = join(reposRoot, org, mainRepoName);
-  const repo = `${org}/${dirName}`;
+  const dirName = parsed.dirName;
+  const mainPath = parsed.mainPath;
+  const repo = parsed.repo;
 
   // 1. Find and kill tmux window
   const sessions = await listSessions();
-  const wtName = parts[1];
+  const wtName = parsed.wtName;
   const taskPart = wtName.replace(/^\d+-/, "");
 
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ name: w.name, session: s.name })));

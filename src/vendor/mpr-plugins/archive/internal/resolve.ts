@@ -61,7 +61,13 @@ export function resolveProjectSlug(repoRoot: string, ghqRoot: string): string | 
   // If ghqRoot is the bare ghq root (not github.com-rooted), rel starts with
   // a host segment — strip known forges so we always land at "<org>/<repo>".
   rel = rel.replace(/^(github\.com|gitlab\.com|bitbucket\.org)\//, "");
-  const parts = rel.split("/").slice(0, 2);
+  const relParts = rel.split("/").filter(Boolean);
+  // New #1850 layout: <org>/<repo>/agents/<worktree>. Treat nested
+  // worktrees as the parent repo for project_repos lookups.
+  if (relParts.length >= 4 && relParts[2] === "agents") {
+    return `${relParts[0]}/${relParts[1]}`;
+  }
+  const parts = relParts.slice(0, 2);
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   parts[1] = parts[1].replace(/\.wt-.*$/, "");
   return parts.join("/");

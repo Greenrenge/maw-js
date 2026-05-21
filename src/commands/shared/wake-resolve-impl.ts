@@ -6,6 +6,7 @@ import { resolveFleetWindowSessionTarget, resolveNumericFleetStemPrefix, resolve
 import { isInfrastructureChannelSessionName } from "../../core/matcher/channel-session";
 import { readdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
+import { worktreeNameFromPath } from "../../core/fleet/worktree-layout";
 import { scanWorktrees, type WorktreeInfo } from "../../core/fleet/worktrees-scan";
 import { scanSuggestOracle } from "./wake-resolve-scan-suggest";
 import { loadFleet, type FleetWindow } from "./fleet-load";
@@ -345,15 +346,30 @@ export async function findWorktrees(
   scopeStem?: string,
 ): Promise<{ path: string; name: string }[]> {
   const safe = (s: string) => s.replace(/'/g, "'\\''");
-  let lsOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
-  if (!lsOut.trim() && taskSlug && scopeStem) {
-    lsOut = await hostExec(
+  const repoPath = `${parentDir}/${repoName}`;
+  const outs: string[] = [];
+  const legacyOut = await hostExec(`ls -d '${safe(parentDir)}'/'${safe(repoName)}'.wt-* 2>/dev/null || true`);
+  outs.push(legacyOut);
+  const nestedOut = await hostExec(`find '${safe(repoPath)}/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`);
+  outs.push(nestedOut);
+
+  if (!outs.join("\n").trim() && taskSlug && scopeStem) {
+    outs.push(await hostExec(
       `find '${safe(parentDir)}' -maxdepth 1 -type d -name '${safe(scopeStem)}.wt-*-${safe(taskSlug)}' 2>/dev/null || true`,
-    );
+    ));
   }
-  return lsOut.split("\n").filter(Boolean).map(p => ({
-    path: p, name: p.split("/").pop()!.replace(/^.*\.wt-/, ""),
-  }));
+
+  const seen = new Set<string>();
+  return outs
+    .join("\n")
+    .split("\n")
+    .filter(Boolean)
+    .filter(path => {
+      if (seen.has(path)) return false;
+      seen.add(path);
+      return true;
+    })
+    .map(path => ({ path, name: worktreeNameFromPath(path) ?? path.split("/").pop()! }));
 }
 
 export function findReusableWorktreeBySlug(
@@ -366,29 +382,35 @@ export function findReusableWorktreeBySlug(
   const stat = deps.statSync ?? statSync;
   const suffix = `-${slug}`;
   try {
-    const matches = readDir(parentDir)
-      .filter((entry) => {
-        if (!entry.includes(".wt-") || !entry.endsWith(suffix)) return false;
+    const matches: { path: string; name: string }[] = [];
+    for (const entry of readDir(parentDir)) {
+      if (entry.includes(".wt-") && entry.endsWith(suffix)) {
         // #1780 — scope to the target oracle's main window stem so a reused
         // slug (e.g. "white") cannot hijack another oracle's worktree.
         if (scopeStem) {
           const stem = entry.split(".wt-")[0];
-          if (stem !== scopeStem) {
-            return false;
-          }
+          if (stem !== scopeStem) continue;
         }
-        return true;
-      })
-      .map((entry) => join(parentDir, entry))
-      .filter((path) => {
-        try { return stat(path).isDirectory(); }
-        catch { return false; }
-      })
-      .sort();
-    const path = matches[0];
-    if (!path) return null;
-    const name = path.split("/").pop()!.split(".wt-").slice(1).join(".wt-");
-    return { path, name };
+        const path = join(parentDir, entry);
+        try { if (stat(path).isDirectory()) matches.push({ path, name: worktreeNameFromPath(path) ?? entry }); }
+        catch { /* skip */ }
+        continue;
+      }
+
+      if (scopeStem && entry === scopeStem) {
+        const agentsDir = join(parentDir, entry, "agents");
+        try {
+          for (const wt of readDir(agentsDir)) {
+            if (!wt.endsWith(suffix)) continue;
+            const path = join(agentsDir, wt);
+            try { if (stat(path).isDirectory()) matches.push({ path, name: wt }); }
+            catch { /* skip */ }
+          }
+        } catch { /* no nested agents */ }
+      }
+    }
+    matches.sort((a, b) => a.path.localeCompare(b.path));
+    return matches[0] ?? null;
   } catch {
     return null;
   }

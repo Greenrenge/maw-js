@@ -160,7 +160,7 @@ describe("coverage next dispatch", () => {
     await capture(() => dispatchCommand("quiet", ["quiet", "--ok"]));
 
     expect(invokeCalls).toHaveLength(1);
-    expect((invokeCalls[0] as any).ctx).toEqual({ source: "cli", args: ["--ok"] });
+    expect((invokeCalls[0] as any).ctx).toEqual({ source: "cli", args: ["--ok"], matchedName: "quiet" });
     expect(exitCode).toBe(0);
   });
 

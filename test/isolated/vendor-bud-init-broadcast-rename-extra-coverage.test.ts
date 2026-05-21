@@ -296,6 +296,17 @@ describe("bud impl extra isolated coverage", () => {
     expect(ensureClonedCalls).toEqual([]);
   });
 
+  test("parent autodetect derives the oracle stem from nested agents worktree paths", async () => {
+    hostExecResult = "/ghq/github.com/TestOrg/parent-oracle/agents/feature-work";
+
+    await cmdBud("sprout", { dryRun: true });
+
+    expect(hostExecCalls).toEqual(["tmux display-message -p '#{pane_current_path}'"]);
+    expect(output()).toContain("parent → sprout");
+    expect(output()).toContain("born blank — pull memory later: maw soul-sync parent --from");
+    expect(ensureBudRepoCalls).toEqual([]);
+  });
+
   test("parent autodetect failure asks for --from or --root before repo creation", async () => {
     hostExecError = new Error("not in tmux");
     await expect(cmdBud("sprout", {})).rejects.toThrow("could not detect parent oracle");

@@ -71,11 +71,23 @@ export const DEFAULT_ACTIVE_PLUGINS_1531 = [
 
 export const DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION = "defaultActivePlugins1531";
 
+/**
+ * #1854 follow-up: view is the canonical read-only/observer attach surface.
+ * Keep stale profile-generated disabled lists from hiding `maw view` after
+ * the tmux read-only primitive path exists.
+ */
+export const DEFAULT_ACTIVE_PLUGINS_1854 = [
+  "view",
+] as const;
+
+export const DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION = "defaultActivePlugins1854";
+
 const DEFAULT_ACTIVE_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1500);
 const DEFAULT_ACTIVE_1514_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1514);
 const DEFAULT_ACTIVE_1523_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1523);
 const DEFAULT_ACTIVE_1524_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1524);
 const DEFAULT_ACTIVE_1531_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1531);
+const DEFAULT_ACTIVE_1854_SET = new Set<string>(DEFAULT_ACTIVE_PLUGINS_1854);
 
 export function isDefaultActivePlugin(name: string): boolean {
   return DEFAULT_ACTIVE_SET.has(name);
@@ -95,4 +107,8 @@ export function isDefaultActive1524Plugin(name: string): boolean {
 
 export function isDefaultActive1531Plugin(name: string): boolean {
   return DEFAULT_ACTIVE_1531_SET.has(name);
+}
+
+export function isDefaultActive1854Plugin(name: string): boolean {
+  return DEFAULT_ACTIVE_1854_SET.has(name);
 }

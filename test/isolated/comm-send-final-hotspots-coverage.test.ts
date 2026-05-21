@@ -237,19 +237,20 @@ describe("comm-send final hotspots", () => {
     expect(logMessageCalls[0]).toMatchObject({ route: "peer:remote", message: "[test-node:sender] ping" });
   });
 
-  test("receiver inbox returning ok:false does not hide a non-agent pane refusal", async () => {
+  test("--inbox surfaces receiver inbox ok:false as a queue-only error", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
     getPaneCommandReturn = "vim";
 
     await runCmd(() => cmdSend("local:session:oracle", "draft", false, {
+      inboxOnly: true,
       receiverInbox: async () => ({ ok: false, reason: "mailbox offline" }),
     }));
 
     expect(exitCode).toBe(1);
     expect(sendKeysCalls).toEqual([]);
     expect(logMessageCalls).toEqual([]);
-    expect(errs.join("\n")).toContain("no active Claude session in session:oracle.0 (running: vim)");
-    expect(errs.join("\n")).toContain("--force");
+    expect(errs.join("\n")).toContain("--inbox requested");
+    expect(errs.join("\n")).toContain("mailbox offline");
   });
 
   test("receiver inbox writer exceptions do not block successful local delivery", async () => {

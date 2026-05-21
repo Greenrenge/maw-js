@@ -121,7 +121,8 @@ maw bud myname --from neo                # bud from an existing oracle
 Talk across machines with HMAC-SHA256 signing.
 
 ```bash
-maw hey neo "hello"                      # bare name — exact local match (errors on ambiguity)
+maw hey neo "hello"                      # default: inbox + immediate pane delivery
+maw hey neo "later" --inbox              # queue-only: write receiver inbox, skip pane injection
 maw hey white:neo "hello"                # canonical form — remote node, window 1
 maw hey white:neo:3 "hello hermes"       # pick a specific tmux window (#410)
 maw peek white:neo                       # see their screen
@@ -156,7 +157,7 @@ maw ls                           # compact session summary
 maw ls -v / -c                   # detailed / compact views
 maw ls --recent [n]              # sort by creation time
 maw peek [agent]                 # see agent screen
-maw hey <agent> <msg>            # send message
+maw hey <agent> <msg> [--inbox]  # send now by default; --inbox queues only
 maw wake <oracle> [task]         # wake oracle in tmux
 maw wake --dry-run/--list        # preview without side effects
 maw wake --from-snapshot         # restore from a wake snapshot

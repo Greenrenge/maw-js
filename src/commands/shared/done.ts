@@ -1,4 +1,5 @@
-import { join } from "path";
+import { basename, join } from "path";
+import { parseWorktreePath } from "../../core/fleet/worktree-layout";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { listSessions, hostExec, tmux, takeSnapshot } from "../../sdk";
@@ -245,13 +246,10 @@ export async function removeWorktreeViaConfig(
       if (!win?.repo) continue;
 
       const fullPath = join(reposRoot, win.repo);
-      if (!win.repo.includes(".wt-")) break;
+      const parsed = parseWorktreePath(fullPath, reposRoot);
+      if (!parsed) break;
 
-      const parts = win.repo.split("/");
-      const wtDir = parts.pop()!;
-      const org = parts.join("/");
-      const mainRepo = wtDir.split(".wt-")[0];
-      const mainPath = join(reposRoot, org, mainRepo);
+      const mainPath = parsed.mainPath;
 
       try {
         let branch = "";
@@ -282,11 +280,12 @@ export async function removeWorktreeByGhqScan(
   try {
     const suffix = windowName.replace(/^[^-]+-/, "");
     const safeRoot = reposRoot.replace(/'/g, "'\''");
-    const ghqOut = await d.hostExec(`find '${safeRoot}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const ghqOut = await d.hostExec(`find '${safeRoot}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
-      const base = p.split("/").pop()!;
-      const wtSuffix = base.replace(/^.*\.wt-(?:\d+-)?/, "");
+      const parsed = parseWorktreePath(p, reposRoot);
+      if (!parsed) return false;
+      const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
       return wtSuffix.toLowerCase() === suffix.toLowerCase();
     });
     if (exactMatch.length > 1) {
@@ -296,9 +295,10 @@ export async function removeWorktreeByGhqScan(
       return false;
     }
     for (const wtPath of exactMatch) {
-      const base = wtPath.split("/").pop()!;
-      const mainRepo = base.split(".wt-")[0];
-      const mainPath = wtPath.replace(base, mainRepo);
+      const base = basename(wtPath);
+      const parsed = parseWorktreePath(wtPath, reposRoot);
+      if (!parsed) continue;
+      const mainPath = parsed.mainPath;
       try {
         let branch = "";
         try { branch = (await d.hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }

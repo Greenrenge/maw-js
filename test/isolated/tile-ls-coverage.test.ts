@@ -75,9 +75,15 @@ mock.module("maw-js/commands/shared/comm", () => ({
 
 let lsPeerCalls: Array<{ peer: string; opts: Record<string, unknown> }> = [];
 let lsAllPeersCalls: Array<Record<string, unknown>> = [];
+let lsFederatedCalls: Array<Record<string, unknown>> = [];
+let localPayloadCalls: Array<Record<string, unknown>> = [];
 let peerThrow: string | null = null;
 
 mock.module(lsPeerCallPath, () => ({
+  localLsPayload: async (opts: Record<string, unknown>) => {
+    localPayloadCalls.push(opts);
+    return { node: "m5", oracle: "mawjs", local: true, sessions: [{ name: "77-mawjs", windows: [] }] };
+  },
   lsPeer: async (peer: string, opts: Record<string, unknown>) => {
     lsPeerCalls.push({ peer, opts });
     if (peerThrow === "peer") throw new Error("peer exploded");
@@ -87,6 +93,11 @@ mock.module(lsPeerCallPath, () => ({
     lsAllPeersCalls.push(opts);
     if (peerThrow === "all") throw new Error("all exploded");
     return { ok: true, output: `all ${opts.json ? "json" : "text"}` };
+  },
+  lsFederated: async (opts: Record<string, unknown>) => {
+    lsFederatedCalls.push(opts);
+    if (peerThrow === "federated") throw new Error("federated exploded");
+    return { ok: true, output: `federated ${opts.json ? "json" : "text"}` };
   },
 }));
 
@@ -107,6 +118,8 @@ beforeEach(() => {
   tmuxLsCalls = [];
   lsPeerCalls = [];
   lsAllPeersCalls = [];
+  lsFederatedCalls = [];
+  localPayloadCalls = [];
   peerThrow = null;
 });
 
@@ -133,7 +146,7 @@ describe("tile plugin index coverage", () => {
     const result = await tileHandler({ source: "cli", args: ["--help"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("usage: maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>]");
+    expect(result.output).toContain("usage: maw tile [N] [--wt <name>] [--layout nested|legacy] [--path <dir>] [--cmd <cmd>]");
     expect(result.output).toContain("maw tile 3 -p /repo -c \"bun test\"");
     expect(result.output).toContain("maw tile 3 --wt feat");
     expect(result.output).toContain("maw tile clean");
@@ -181,6 +194,13 @@ describe("tile plugin index coverage", () => {
     result = await tileHandler({ source: "cli", args: ["three"] } as any);
     expect(result).toEqual({ ok: false, error: "invalid count" });
 
+    result = await tileHandler({ source: "cli", args: ["1", "--layout", "diagonal"] } as any);
+    expect(result).toEqual({
+      ok: false,
+      error: "invalid layout",
+      output: "\x1b[33m⚠\x1b[0m tile: --layout must be nested or legacy",
+    });
+
     tileThrow = "tile";
     result = await tileHandler({ source: "cli", args: ["2"] } as any);
     expect(result).toEqual({ ok: false, error: "tile exploded", output: undefined });
@@ -201,51 +221,55 @@ describe("tile plugin index coverage", () => {
 });
 
 describe("ls plugin index coverage", () => {
-  test("exports metadata and routes non-CLI calls to local cmdList with writer-backed log/error streaming", async () => {
-    const writes: string[] = [];
-
+  test("exports metadata and routes API calls to the local /api/ls payload", async () => {
     const result = await lsHandler({
       source: "api",
-      args: { ignored: true },
-      writer: (...parts: unknown[]) => writes.push(parts.map(String).join(" ")),
+      args: { active: "true", activeThresholdSec: "60", node: "m5" },
     } as any);
 
     expect(lsCommand).toEqual({
       name: "ls",
-      description: "List live sessions and agents; use maw fleet ls for registered fleet config.",
+      description: "List live sessions locally by default; use --federation for peers.",
     });
-    expect(result).toEqual({ ok: true, output: undefined });
-    expect(cmdListCalls).toEqual([undefined]);
-    expect(writes).toEqual(["local list plain", "local err stream"]);
+    expect(result).toEqual({
+      ok: true,
+      node: "m5",
+      oracle: "mawjs",
+      local: true,
+      sessions: [{ name: "77-mawjs", windows: [] }],
+    });
+    expect(localPayloadCalls).toEqual([{ active: true, activeThresholdSec: 60, filter: "m5" }]);
+    expect(cmdListCalls).toEqual([]);
   });
 
   test("renders help without calling local or peer listing implementations", async () => {
     const result = await lsHandler({ source: "cli", args: ["-h"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("maw ls --all");
+    expect(result.output).toContain("maw ls --federation");
     expect(result.output).toContain("maw fleet ls");
     expect(cmdListCalls).toEqual([]);
     expect(lsPeerCalls).toEqual([]);
     expect(lsAllPeersCalls).toEqual([]);
   });
 
-  test("routes peer positional before --all, all-peers, and default local --fix branches", async () => {
-    let result = await lsHandler({ source: "cli", args: ["clinic", "--all", "--json"] } as any);
+  test("routes federation only when explicit, otherwise defaulting to local --fix branches", async () => {
+    let result = await lsHandler({ source: "cli", args: ["--federation", "clinic", "--all", "--json"] } as any);
     expect(result).toEqual({ ok: true, output: "peer clinic json" });
 
-    result = await lsHandler({ source: "cli", args: ["--all"] } as any);
-    expect(result).toEqual({ ok: true, output: "all text" });
+    result = await lsHandler({ source: "cli", args: ["--federation"] } as any);
+    expect(result).toEqual({ ok: true, output: "federated text" });
 
     result = await lsHandler({ source: "cli", args: ["--fix"] } as any);
     expect(result).toEqual({ ok: true, output: "local list fix\nlocal err stream" });
 
     expect(lsPeerCalls).toEqual([{ peer: "clinic", opts: { json: true } }]);
-    expect(lsAllPeersCalls).toEqual([{ json: false }]);
+    expect(lsFederatedCalls).toEqual([{ json: false, node: undefined, active: false, activeThresholdSec: undefined }]);
+    expect(lsAllPeersCalls).toEqual([]);
     expect(cmdListCalls).toEqual([{ fix: true, verify: false }]);
   });
 
-  test("routes --active to local tmux activity filtering before peer positional handling", async () => {
+  test("routes default --active to local tmux activity filtering before peer positional handling", async () => {
     const result = await lsHandler({ source: "cli", args: ["--active", "1h", "mawjs", "--json"] } as any);
 
     expect(result.ok).toBe(true);
@@ -277,8 +301,8 @@ describe("ls plugin index coverage", () => {
     let result = await lsHandler({ source: "cli", args: [] } as any);
     expect(result).toEqual({ ok: false, error: "local list exploded", output: undefined });
 
-    peerThrow = "all";
-    result = await lsHandler({ source: "cli", args: ["--all", "--json"] } as any);
-    expect(result).toEqual({ ok: false, error: "all exploded", output: undefined });
+    peerThrow = "federated";
+    result = await lsHandler({ source: "cli", args: ["--federation", "--all", "--json"] } as any);
+    expect(result).toEqual({ ok: false, error: "federated exploded", output: undefined });
   });
 });

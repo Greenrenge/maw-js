@@ -234,12 +234,14 @@ describe("wake-resolve-impl helper callbacks in one process", () => {
     hostExecCalls = [];
     hostExecHandler = async (cmd) => {
       if (cmd.startsWith("ls -d")) return "\n";
+      if (cmd.includes("/neo-oracle/agents")) return "\n";
       return "/repos/o'rg/neo-oracle.wt-7-fix-login\n";
     };
     await expect(findWorktrees("/repos/o'rg", "neo-oracle", "fix-login", "neo-oracle")).resolves.toEqual([
       { path: "/repos/o'rg/neo-oracle.wt-7-fix-login", name: "7-fix-login" },
     ]);
-    expect(hostExecCalls[1]).toBe("find '/repos/o'\\''rg' -maxdepth 1 -type d -name 'neo-oracle.wt-*-fix-login' 2>/dev/null || true");
+    expect(hostExecCalls).toContain("find '/repos/o'\\''rg/neo-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true");
+    expect(hostExecCalls).toContain("find '/repos/o'\\''rg' -maxdepth 1 -type d -name 'neo-oracle.wt-*-fix-login' 2>/dev/null || true");
 
     const parentDir = join(tempRoot, "reuse-scope");
     rmSync(parentDir, { recursive: true, force: true });

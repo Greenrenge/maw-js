@@ -429,7 +429,9 @@ mock.module(
         name,
         deps,
       });
-      const wtPath = join(parentDirArg, `${repoNameArg}.wt-${name}`);
+      const wtPath = deps?.layout === "legacy"
+        ? join(parentDirArg, `${repoNameArg}.wt-${name}`)
+        : join(repoPathArg, "agents", name);
       mkdirSync(wtPath, { recursive: true });
       return { wtPath, windowName: `${oracleArg}-${name}` };
     },
@@ -744,6 +746,39 @@ describe("cmdWake main-suite coverage", () => {
           bringAlias: true,
           split: true,
           session: "54-mawjs",
+          splitTarget: "54-mawjs:maw-js-1816",
+        }),
+      },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
+  test("#1862 bring resolves an exact live tmux session before repo lookup", async () => {
+    sessions.push({ name: "cool" });
+    hasSessions.add("cool");
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("cool", {
+        bringAlias: true,
+        split: true,
+        splitTarget: "54-mawjs:maw-js-1816",
+      }),
+    );
+
+    expect(result).toBe("cool");
+    expect(logs.join("\n")).toContain("live tmux session: cool");
+    expect(detectSessionCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(newSessionCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "cool",
+        opts: expect.objectContaining({
+          bringAlias: true,
+          split: true,
           splitTarget: "54-mawjs:maw-js-1816",
         }),
       },
@@ -1118,7 +1153,7 @@ describe("cmdWake main-suite coverage", () => {
     expect(result).toBe("12-seed:seed-newtool");
     expect(hostExecCalls).toContain("ghq get -u github.com/Soul-Brews-Studio/new-tool");
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName, oracle: "seed", name: "newtool", deps: { fresh: false, named: false } },
+      { repoPath, parentDir, repoName, oracle: "seed", name: "newtool", deps: { fresh: false, named: false, layout: "nested" } },
     ]);
   });
 
@@ -1414,7 +1449,7 @@ describe("cmdWake main-suite coverage", () => {
 
     const { result } = await captureLogs(() => cmdWake("homekeeper", { wt: "white", name: "osmosis" }));
 
-    const wtPath = join(parentDir, "homelab.wt-osmosis-white");
+    const wtPath = join(repoPath, "agents", "osmosis-white");
     expect(result).toBe("04-homekeeper:homekeeper-osmosis-white");
     expect(findWorktreesCalls).toContainEqual({
       parentDir,
@@ -1423,7 +1458,7 @@ describe("cmdWake main-suite coverage", () => {
       scopeStem: "homekeeper-oracle",
     });
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName: "homelab", oracle: "homekeeper", name: "osmosis-white", deps: { fresh: false, named: true } },
+      { repoPath, parentDir, repoName: "homelab", oracle: "homekeeper", name: "osmosis-white", deps: { fresh: false, named: true, layout: "nested" } },
     ]);
     expect(newWindowCalls).toContainEqual({
       session: "04-homekeeper",
@@ -1471,10 +1506,10 @@ describe("cmdWake main-suite coverage", () => {
       }),
     );
 
-    const wtPath = join(parentDir, `${repoName}.wt-fix-a`);
+    const wtPath = join(repoPath, "agents", "fix-a");
     expect(result).toBe("54-mawjs:mawjs-fix-a");
     expect(createdWorktrees).toEqual([
-      { repoPath, parentDir, repoName, oracle: "mawjs", name: "fix-a", deps: { fresh: false, named: false } },
+      { repoPath, parentDir, repoName, oracle: "mawjs", name: "fix-a", deps: { fresh: false, named: false, layout: "nested" } },
     ]);
     expect(newWindowCalls).toContainEqual({
       session: "54-mawjs",

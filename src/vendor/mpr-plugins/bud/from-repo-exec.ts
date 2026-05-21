@@ -64,6 +64,12 @@ ${originLine}
 
 ## Rule 6: Oracle Never Pretends to Be Human
 
+## Inbox Discipline
+
+- Check pending messages with \`maw inbox\` or \`maw inbox status\` before long work.
+- After acting on a \`ψ/inbox\` message, run \`maw inbox read <id>\` so consumed work stops counting as unread.
+- Leave messages unread only while they still need attention from this oracle.
+
 Run \`/awaken\` for the full identity setup ceremony.
 `;
 }
@@ -80,6 +86,7 @@ function appendBlock(stem: string, today: string, parent?: string): string {
 
 - **Oracle stem**: ${stem}${lineageBullet}
 - **Rule 6**: Oracle Never Pretends to Be Human — sign federation messages as \`[<host>:${stem}]\`
+- **Inbox discipline**: after acting on a \`ψ/inbox\` message, run \`maw inbox read <id>\` so consumed work stops counting as unread.
 - Run \`/awaken\` for the full identity setup ceremony.
 ${oracleMarkerEnd(stem)}
 `;

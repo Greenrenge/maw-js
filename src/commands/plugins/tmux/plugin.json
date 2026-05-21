@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "entry": "./index.ts",
   "sdk": "^1.0.0",
-  "description": "tmux control verbs — peek (read pane content by id, session:w.p, or team-agent name).",
+  "description": "tmux control verbs — pane/session tools including peek, attach, pipe-pane, and synchronize-panes.",
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "tmux",
-    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom> [...] — tmux pane/session tools; ls supports --json and --recent",
+    "help": "maw tmux <peek|ls|attach|kill|open|close|zoom|pipe|sync> [...] — tmux pane/session tools; ls supports --json and --recent",
     "flags": {
       "--json": "boolean",
       "--all": "boolean",
@@ -15,7 +15,14 @@
       "--verbose": "boolean",
       "--roster": "boolean",
       "--recent": "boolean",
-      "-r": "boolean"
+      "-r": "boolean",
+      "--readonly": "boolean",
+      "--read-only": "boolean",
+      "--input": "boolean",
+      "--output": "boolean",
+      "--no-output": "boolean",
+      "--only-if-closed": "boolean",
+      "-o": "boolean"
     }
   },
   "weight": 10,

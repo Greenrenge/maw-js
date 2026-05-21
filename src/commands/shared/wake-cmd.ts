@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { ghqFind } from "../../core/ghq";
 import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
+import { normalizeWorktreeLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
@@ -127,7 +128,16 @@ function stripOracleRepoSuffix(name: string): string | null {
 }
 
 function bringCwdMetadata(cwd: string | undefined): { oracle?: string; worktree?: string } {
-  for (const part of (cwd ? resolve(cwd).split(/[\\/]+/).reverse() : [])) {
+  const parts = cwd ? resolve(cwd).split(/[\\/]+/).filter(Boolean) : [];
+  const agentsIdx = parts.lastIndexOf("agents");
+  if (agentsIdx > 0 && parts[agentsIdx + 1]) {
+    return {
+      oracle: stripOracleRepoSuffix(parts[agentsIdx - 1] ?? "") ?? undefined,
+      worktree: parts[agentsIdx + 1],
+    };
+  }
+
+  for (const part of parts.slice().reverse()) {
     const worktreeMarker = part.indexOf(".wt-");
     if (worktreeMarker > 0) {
       const oracle = stripOracleRepoSuffix(part.slice(0, worktreeMarker)) ?? undefined;
@@ -341,6 +351,8 @@ export interface WakeOptions {
   engine?: string;
   fromSnapshot?: boolean;
   snapshotId?: string;
+  /** Filesystem layout for newly-created worktrees (#1850): default nested, legacy sibling via --layout legacy. */
+  layout?: WorktreeLayout;
 }
 
 function loadRequestedSnapshot(snapshotId?: string): Snapshot | null {
@@ -528,6 +540,19 @@ async function resolveExistingWindowBringTarget(
   return null;
 }
 
+async function resolveExistingSessionBringTarget(
+  targetName: string,
+  opts: WakeOptions,
+  preResolvedSession: string | null,
+): Promise<string | null> {
+  if (!opts.bringAlias) return null;
+  if (opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) return null;
+  const sessionName = (preResolvedSession || targetName).trim();
+  if (!sessionName || sessionName.includes(":")) return null;
+  const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+  return sessions.some(s => s.name === sessionName) ? sessionName : null;
+}
+
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
   const mappedOrFleet = getSessionMap()[oracle] || resolveFleetSession(oracle);
   const baseName = mappedOrFleet || canonicalSessionName(urlRepoName || oracle);
@@ -587,6 +612,19 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
 
+  const existingSessionBringTarget = await resolveExistingSessionBringTarget(oracle, opts, preResolvedSession);
+  if (existingSessionBringTarget) {
+    console.log(`\x1b[36m→\x1b[0m live tmux session: ${existingSessionBringTarget}`);
+    if (opts.dryRun) {
+      console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
+      return existingSessionBringTarget;
+    }
+    await maybeSplit(existingSessionBringTarget, opts);
+    await maybeOpenWindow(existingSessionBringTarget, opts);
+    await recordWakeSnapshot();
+    return existingSessionBringTarget;
+  }
+
   const existingWindowBringTarget = await resolveExistingWindowBringTarget(oracle, opts, preResolvedSession);
   if (existingWindowBringTarget) {
     console.log(`\x1b[36m→\x1b[0m live tmux window: ${existingWindowBringTarget}`);
@@ -631,6 +669,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   }
 
   const { repoPath, repoName, parentDir } = resolved;
+  const worktreeLayout = normalizeWorktreeLayout(opts.layout);
 
   if (opts.bud && !opts.task && !opts.wt) {
     throw new Error("--bud requires --task <slug> or --wt <slug>");
@@ -922,6 +961,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
       const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, worktrees, {
         fresh: !!opts.fresh,
         named: Boolean(stableName && !opts.fresh),
+        layout: worktreeLayout,
       });
       targetPath = result.wtPath;
       windowName = result.windowName;

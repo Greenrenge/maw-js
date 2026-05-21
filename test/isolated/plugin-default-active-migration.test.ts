@@ -14,6 +14,7 @@ import {
   DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION,
   DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION,
+  DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION,
 } from "../../src/plugin/default-active";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -326,6 +327,54 @@ describe("#1500 default-active plugin migration", () => {
     const disk = readConfig(home);
     expect(disk.disabledPlugins).toEqual(["learn", "project"]);
     expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION]).toBeUndefined();
+  });
+
+  test("#1854 re-enables view after stale profile migrations", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      migrations: {
+        [DEFAULT_ACTIVE_PLUGINS_1500_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1514_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1523_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1524_MIGRATION]: true,
+        [DEFAULT_ACTIVE_PLUGINS_1531_MIGRATION]: true,
+      },
+      disabledPlugins: ["view", "costs"],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("config.disabledPlugins migration (#1854)");
+
+    const disk = readConfig(home);
+    expect(disk.disabledPlugins).not.toContain("view");
+    expect(disk.disabledPlugins).toContain("costs");
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION]).toBe(true);
+  });
+
+  test("#1854 preserves a small manual view disable list", () => {
+    const home = makeHome({
+      host: "local",
+      port: 3456,
+      oracleUrl: "http://localhost:47779",
+      env: {},
+      commands: { default: "claude" },
+      sessions: {},
+      disabledPlugins: ["view"],
+    });
+
+    const result = loadInSubprocess(home);
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain("config.disabledPlugins migration (#1854)");
+
+    const disk = readConfig(home);
+    expect(disk.disabledPlugins).toEqual(["view"]);
+    expect(disk.migrations?.[DEFAULT_ACTIVE_PLUGINS_1854_MIGRATION]).toBeUndefined();
   });
 
   test("typing a disabled installed plugin explains the real fix", () => {

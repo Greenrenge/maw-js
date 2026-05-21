@@ -296,8 +296,8 @@ describe("cmdPlugins isolated branch dispatcher", () => {
       "doEnable",
       "doDisable",
     ]);
-    expect(pluginCalls[0].args).toEqual([true, true, discover]);
-    expect(pluginCalls[1].args).toEqual([false, false, discover]);
+    expect(pluginCalls[0].args).toEqual([true, true, discover, undefined, { verbose: false, tiers: [], apiOnly: false }]);
+    expect(pluginCalls[1].args).toEqual([false, false, discover, undefined, { verbose: false, tiers: [], apiOnly: false }]);
     expect(pluginCalls[2].args).toEqual(["core", discover]);
     expect(pluginCalls[3].args).toEqual(["standard", discover]);
     expect(pluginCalls[4].args).toEqual(["full", discover]);

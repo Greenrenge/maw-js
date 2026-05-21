@@ -214,10 +214,10 @@ describe("workon vendor action index", () => {
   });
 
   test("reports usage for missing CLI args and API invocations", async () => {
-    expect(await workonPlugin.default(ctx("cli", []))).toMatchObject({ ok: false, error: "usage: maw workon <repo> [task]" });
+    expect(await workonPlugin.default(ctx("cli", []))).toMatchObject({ ok: false, error: "usage: maw workon <repo> [task] [--layout nested|legacy]" });
     expect(await workonPlugin.default(ctx("api", { repo: "maw-js" }))).toMatchObject({
       ok: false,
-      error: "usage: maw workon <repo> [task]",
+      error: "usage: maw workon <repo> [task] [--layout nested|legacy]",
     });
     expect(workonCalls).toEqual([]);
   });

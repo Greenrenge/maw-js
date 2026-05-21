@@ -28,6 +28,15 @@ let inboxLsCalls: Array<{ unread?: boolean; from?: string; last?: number }> = []
 let markReadCalls: string[] = [];
 let inboxReadCalls: Array<string | undefined> = [];
 let inboxWriteCalls: string[] = [];
+let inboxStatusCalls: Array<{ oracle?: string; json?: boolean; all?: boolean }> = [];
+let inboxDrainCalls: Array<{
+  oracle?: string;
+  safe?: boolean;
+  max?: number;
+  json?: boolean;
+  dryRun?: boolean;
+  olderThanSeconds?: number;
+}> = [];
 
 mock.module(implPath, () => ({
   cmdQueueList: () => {
@@ -79,6 +88,30 @@ mock.module(implPath, () => ({
     console.error(`read stderr ${id ?? "latest"}`);
     if (throwLabel === "inbox-read") throw new Error("inbox read exploded");
   },
+  cmdInboxStatus: async (oracle?: string, opts?: { json?: boolean; all?: boolean }) => {
+    inboxStatusCalls.push({ oracle, json: opts?.json, all: opts?.all });
+    const target = opts?.all ? "all" : (oracle ?? "current");
+    console.log(opts?.json ? `json status ${target}` : `status ${target}`);
+    if (throwLabel === "inbox-status") throw new Error("inbox status exploded");
+  },
+  cmdInboxDrain: async (oracle?: string, opts?: {
+    safe?: boolean;
+    max?: number;
+    json?: boolean;
+    dryRun?: boolean;
+    olderThanSeconds?: number;
+  }) => {
+    inboxDrainCalls.push({
+      oracle,
+      safe: opts?.safe,
+      max: opts?.max,
+      json: opts?.json,
+      dryRun: opts?.dryRun,
+      olderThanSeconds: opts?.olderThanSeconds,
+    });
+    console.log(opts?.json ? `json drain ${oracle ?? "current"}` : `drain ${oracle ?? "current"}`);
+    if (throwLabel === "inbox-drain") throw new Error("inbox drain exploded");
+  },
   cmdInboxWrite: async (note: string) => {
     inboxWriteCalls.push(note);
     console.log(`wrote ${note}`);
@@ -111,6 +144,8 @@ beforeEach(() => {
   markReadCalls = [];
   inboxReadCalls = [];
   inboxWriteCalls = [];
+  inboxStatusCalls = [];
+  inboxDrainCalls = [];
 });
 
 function invoke(args: string[] | Record<string, unknown>, writer?: (...args: unknown[]) => void) {
@@ -223,6 +258,50 @@ describe("inbox plugin index", () => {
     expect(showResultWithWriter).toEqual({ ok: true, output: undefined });
     expect(inboxReadCalls).toEqual(["2"]);
     expect(writes).toEqual(["read 2", "read stderr 2"]);
+
+    expect(await invoke(["status"])).toEqual({ ok: true, output: "status current" });
+    expect(await invoke(["status", "mawjs-codex-oracle", "--json"])).toEqual({
+      ok: true,
+      output: "json status mawjs-codex-oracle",
+    });
+    expect(await invoke(["status", "--json"])).toEqual({ ok: true, output: "json status current" });
+    expect(await invoke(["status", "--all", "--json"])).toEqual({ ok: true, output: "json status all" });
+    expect(await invoke(["status", "--all", "mawjs-codex-oracle"])).toEqual({
+      ok: false,
+      error: "usage: maw inbox status [oracle-name] [--json] [--all]",
+      output: "",
+    });
+    expect(inboxStatusCalls).toEqual([
+      { oracle: undefined, json: false, all: false },
+      { oracle: "mawjs-codex-oracle", json: true, all: false },
+      { oracle: undefined, json: true, all: false },
+      { oracle: undefined, json: true, all: true },
+    ]);
+
+    expect(await invoke(["drain"])).toEqual({
+      ok: false,
+      error: "usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]",
+      output: "",
+    });
+    expect(await invoke(["drain", "mawjs-oracle", "--safe", "--max=7", "--older-than-hours", "12", "--json", "--dry-run"])).toEqual({
+      ok: true,
+      output: "json drain mawjs-oracle",
+    });
+    expect(await invoke(["drain", "--safe", "--max", "bad"])).toEqual({
+      ok: false,
+      error: "--max must be a non-negative integer",
+      output: "",
+    });
+    expect(inboxDrainCalls).toEqual([
+      {
+        oracle: "mawjs-oracle",
+        safe: true,
+        max: 7,
+        json: true,
+        dryRun: true,
+        olderThanSeconds: 12 * 60 * 60,
+      },
+    ]);
 
     expect(await invoke(["write", "hello", "world"])).toEqual({ ok: true, output: "wrote hello world" });
     expect(inboxWriteCalls).toEqual(["hello world"]);

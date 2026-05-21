@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync } from "fs";
 import { hostExec } from "../../../sdk";
 import { ghqList } from "../../../core/ghq";
 import { fleetDirForWrite } from "../../shared/fleet-load";
+import { parseWorktreePath, worktreeNameFromPath } from "../../../core/fleet/worktree-layout";
 
 interface FleetWindow {
   name: string;
@@ -69,6 +70,7 @@ export async function cmdFleetInit() {
     const repoName = parts.pop()!;
     const org = parts.pop()!;
     const parentDir = parts.join("/") + "/" + org;
+    const reposRoot = parts.join("/");
 
     // Match *-oracle repos or known names
     let oracleName: string | null = null;
@@ -79,17 +81,21 @@ export async function cmdFleetInit() {
     }
 
     if (!oracleName) continue;
-    // Skip worktree dirs (they have .wt- in the name)
-    if (repoName.includes(".wt-")) continue;
+    // Skip worktree dirs (legacy .wt-* siblings or nested repo/agents/*)
+    if (repoName.includes(".wt-") || org === "agents") continue;
 
     // Find worktrees (strip number prefix from window name)
     const worktrees: { name: string; path: string; repo: string }[] = [];
     try {
-      const wtOut = await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`);
+      const wtOuts: string[] = [];
+      try { wtOuts.push(await hostExec(`ls -d ${parentDir}/${repoName}.wt-* 2>/dev/null || true`)); } catch { /* legacy scan failed */ }
+      try { wtOuts.push(await hostExec(`find ${repoPath}/agents -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true`)); } catch { /* nested scan failed */ }
+      const wtOut = wtOuts.join("\n");
       const usedNames = new Set<string>();
       for (const wtPath of wtOut.split("\n").filter(Boolean)) {
-        const wtBase = wtPath.split("/").pop()!;
-        const suffix = wtBase.replace(`${repoName}.wt-`, "");
+        const parsed = parseWorktreePath(wtPath, reposRoot);
+        if (!parsed) continue;
+        const suffix = worktreeNameFromPath(wtPath) ?? parsed.wtName;
         const taskPart = suffix.replace(/^\d+-/, "");
         let windowName = `${oracleName}-${taskPart}`;
         if (usedNames.has(windowName)) windowName = `${oracleName}-${suffix}`; // collision fallback
@@ -97,7 +103,7 @@ export async function cmdFleetInit() {
         worktrees.push({
           name: windowName,
           path: wtPath,
-          repo: `${org}/${wtBase}`,
+          repo: parsed.repo,
         });
       }
     } catch { /* no worktrees */ }

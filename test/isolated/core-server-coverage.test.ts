@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mockConfigModule } from "../helpers/mock-config";
 import { mockSshModule } from "../helpers/mock-ssh";
+import { isUserError } from "../../src/core/util/user-error";
 
 process.env.MAW_CLI = "1";
 process.env.MAW_UI_DIR = join(tmpdir(), "maw-ui-missing-core-server-test");
@@ -331,6 +332,33 @@ describe("core server startup and routing", () => {
     expect(serveCalls).toHaveLength(1);
     expect(serveCalls[0].hostname).toBe("127.9.9.9");
     expect(stopCalls).toEqual([true]);
+  });
+
+  test("port conflicts print serve instructions instead of leaking a Bun listen stack", async () => {
+    config = { bind: "127.0.0.1", federationToken: "1234567890123456" };
+    sessions = [];
+    Bun.serve = ((opts: any) => {
+      serveCalls.push(opts);
+      const err = new Error("Failed to start server. Is port 4569 in use?");
+      Object.assign(err, { code: "EADDRINUSE", syscall: "listen" });
+      throw err;
+    }) as typeof Bun.serve;
+
+    let caught: unknown;
+    try {
+      await startServer(4569);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isUserError(caught)).toBe(true);
+    expect((caught as Error).message).toContain("port 4569 is already in use");
+    const text = errors.join("\n");
+    expect(text).toContain("maw serve cannot start: 127.0.0.1:4569 is already in use");
+    expect(text).toContain("maw serve status");
+    expect(text).toContain("maw serve stop");
+    expect(text).toContain("lsof -nP -iTCP:4569 -sTCP:LISTEN");
+    expect(text).toContain("maw serve 4570");
   });
 });
 

@@ -23,10 +23,8 @@ describe("coverage-next vendor-b messages shutdown", () => {
     expect(callbacks.has("SIGTERM")).toBe(true);
     expect(callbacks.has("SIGINT")).toBe(true);
 
-    shutdown();
+    await shutdown();
     callbacks.get("SIGINT")?.();
-    await Promise.resolve();
-    await Promise.resolve();
 
     expect(unregisterCalls).toBe(1);
     expect(stops).toEqual([true]);

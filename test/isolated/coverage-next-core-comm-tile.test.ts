@@ -177,12 +177,13 @@ describe("coverage next comm-send helpers", () => {
     expect(commSend.resolveTeamWorkspaceMemberTarget("crew", "missing", [] as any)).toBeNull();
   });
 
-  test("cmdSend queues receiver inbox when a local pane is not running an agent", async () => {
+  test("cmdSend queues receiver inbox without pane injection when --inbox is requested", async () => {
     resolveTargetReturn = { type: "local", target: "sess:agent.0" };
-    paneCommand = "zsh";
+    paneCommand = "node";
     const inboxWrites: unknown[] = [];
 
     await commSend.cmdSend("m5:sess:agent", "hello", false, {
+      inboxOnly: true,
       receiverInbox: async (input) => {
         inboxWrites.push(input);
         return { ok: true, oracle: "agent", filename: "queued.json" } as any;

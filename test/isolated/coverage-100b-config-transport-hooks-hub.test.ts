@@ -269,7 +269,10 @@ describe("coverage 100b from-signing body read failure", () => {
 
     const res = await app.handle(new Request("http://localhost/api/send", {
       method: "POST",
-      headers: { "content-type": "application/x-maw-unparsed" },
+      headers: {
+        "content-type": "application/x-maw-unparsed",
+        "x-maw-from": "mawjs:remote",
+      },
       body,
     }));
 

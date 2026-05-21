@@ -28,6 +28,7 @@ import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
+import { lsFederated } from "../vendor/mpr-plugins/ls/internal/peer-call";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -48,7 +49,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — thin alias for `wake --split`",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (compact default, -v detail, -r recent, -a roster)",
+  ls: "List local sessions by default; use --federation for peers",
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
@@ -74,12 +75,11 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
-  //   maw ls      → compact live-session summary (#1613)
-  //   maw ls -v   → full per-pane detail
-  //   maw ls -c   → explicit compact alias
-  //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
-  //   maw ls -r   → compact sessions sorted newest-first by tmux creation time
-  //   maw ls --active [30m|1h] → compact sessions touched within the threshold
+  //   maw ls          → compact local live-session summary (#1613 legacy path)
+  //   maw ls --federation → explicit local+peer view (#1870)
+  //   maw ls -v       → full per-pane detail
+  //   maw ls -a       → compact + sleeping oracles (roster; legacy behavior)
+  //   maw ls --active [30m|1h] → local sessions touched within the threshold
   ls: { kind: "direct", handler: "cmdLs" },
   scaffold: ["bud", "--scaffold-only"],
 
@@ -166,7 +166,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -175,6 +175,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   }
   write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
+  write("  --layout selects new worktree filesystem layout: nested (default repo/agents/N-X) or legacy (.wt-N-X).");
   write("  --pick opens the reusable worktree picker; --name creates/reuses a stable named worktree.");
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
@@ -195,12 +196,21 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  * `--active [duration]` filters by tmux session_activity (default 30m).
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
+
+function missingLongArgName(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  if ((error as { code?: string }).code !== "ARG_MISSING_REQUIRED_LONGARG") return null;
+  const match = /option requires argument: (\S+)/.exec(error.message);
+  return match?.[1] ?? "option";
+}
+
 export function parseLsAliasOpts(argv: string[]) {
   const flags = parseFlags(argv, {
     "--all": Boolean, "-a": "--all",
     "--compact": Boolean, "-c": "--compact",
     "--verbose": Boolean, "-v": "--verbose",
     "--fix": Boolean,
+    "--federation": Boolean,
     "--json": Boolean,
     "--recent": Boolean, "-r": "--recent",
     "--active": Boolean,
@@ -229,6 +239,7 @@ export function parseLsAliasOpts(argv: string[]) {
     channels?: boolean;
     oracleOnly?: boolean;
     verify?: boolean;
+    federation?: boolean;
   } = {
     all: true,
     compact,
@@ -239,6 +250,7 @@ export function parseLsAliasOpts(argv: string[]) {
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
   if (compact && !flags["--all"] && !flags["--channels"]) opts.oracleOnly = true;
   if (flags["--verify"]) opts.verify = true;
+  if (flags["--federation"]) opts.federation = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
   const filterPositionals = activeArg
@@ -263,10 +275,30 @@ export function parseLsAliasOpts(argv: string[]) {
   return opts;
 }
 
+function printLsAliasUsage(write: (line: string) => void): void {
+  write("usage: maw ls [filter] [--all|-a] [--verbose|-v] [--compact|-c] [--json] [--recent|-r [N]] [--active [30m|1h]]");
+  write("       maw ls --federation [--node <node>] [--json]");
+  write("       maw ls --channels | --verify | --fix");
+  write("");
+  write("List live local sessions by default. Use --federation for local + peer inventory.");
+  write("");
+  write("Options:");
+  write("  --federation       query configured peers in parallel (2s timeout each)");
+  write("  -v, --verbose      show full per-pane detail");
+  write("  -a, --all          include sleeping roster and channel sessions");
+  write("  --channels         include channel/infrastructure sessions");
+  write("  -r, --recent [N]   sort newest-first, optionally limiting to N sessions");
+  write("  --active [DUR]     show sessions touched within a duration (default from tmux helper)");
+  write("  --node <node>      filter sessions by node/name");
+  write("  --verify           include worktree-bind diagnostics");
+  write("  --fix              prune orphaned worktrees");
+}
+
 type MaybePromise<T = unknown> = T | Promise<T>;
 
 export interface TopAliasHandlerDeps {
   cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  lsFederated?: (opts: Parameters<typeof lsFederated>[0]) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
   cmdNew?: (argv: string[]) => MaybePromise;
@@ -287,6 +319,7 @@ export async function invokeDirectHandler(
   }
 
   const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directLsFederated = deps.lsFederated ?? lsFederated;
   const directCmdTmuxLayout = deps.cmdTmuxLayout ?? cmdTmuxLayout;
   const directCmdWake = deps.cmdWake ?? cmdWake;
   const directCmdNew = deps.cmdNew ?? cmdNew;
@@ -295,7 +328,34 @@ export async function invokeDirectHandler(
   const error = deps.error ?? console.error;
 
   if (exportName === "cmdLs") {
-    await directCmdTmuxLs(parseLsAliasOpts(argv));
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printLsAliasUsage(log);
+      return;
+    }
+    try {
+      const opts = parseLsAliasOpts(argv);
+      if (!opts.federation) {
+        await directCmdTmuxLs(opts);
+        return;
+      }
+      const result = await directLsFederated({
+        json: opts.json,
+        node: opts.filter,
+        active: opts.active,
+        activeThresholdSec: opts.activeThresholdSec,
+      });
+      if (result.output) log(result.output);
+      if (!result.ok) {
+        if (result.error) error(result.error);
+        throw new UserError(result.error ?? "ls failed");
+      }
+    } catch (e) {
+      const missingArg = missingLongArgName(e);
+      if (!missingArg) throw e;
+      printLsAliasUsage(error);
+      error(`✗ maw ls: ${missingArg} requires a value`);
+      throw new UserError(`ls: missing value for ${missingArg}`);
+    }
     return;
   }
 
@@ -324,6 +384,7 @@ export async function invokeDirectHandler(
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
+      "--layout": String,
       "--session": String,
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
@@ -374,9 +435,15 @@ export async function invokeDirectHandler(
       engine?: string;
       fromSnapshot?: boolean;
       snapshotId?: string;
+      layout?: "nested" | "legacy";
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
+    if (flags["--layout"]) {
+      const layout = flags["--layout"];
+      if (layout !== "nested" && layout !== "legacy") throw new UserError("wake: --layout must be nested or legacy");
+      opts.layout = layout;
+    }
     if (flags["--session"]) opts.session = flags["--session"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];

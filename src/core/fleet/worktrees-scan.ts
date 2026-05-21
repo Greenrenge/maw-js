@@ -2,6 +2,7 @@ import { hostExec, listSessions } from "../transport/ssh";
 import { getGhqRoot } from "../../config/ghq-root";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { parseWorktreePath } from "./worktree-layout";
 import { fleetDirForWrite, fleetDirsForRead, uniqueDirs } from "./paths";
 import { resolveWorktreeWindow } from "./worktree-window-match";
 import type { Session } from "../runtime/find-window";
@@ -55,13 +56,13 @@ export async function scanWorktrees(deps: Partial<ScanWorktreesDeps> = {}): Prom
   const reposRoot = join(d.getGhqRoot(), "github.com");
   const fleetDirs = uniqueDirs(d.fleetDirs?.length ? d.fleetDirs : [d.fleetDir]);
 
-  // 1. Find all .wt- directories
+  // 1. Find all legacy .wt-* and nested agents/* worktree directories
   // #1553 — dedupe paths; `find` can surface the same .wt-* dir multiple times
   // when nested ghq layouts walk through symlinks or overlapping prefixes,
   // turning N worktrees into N×K classification rows + ambiguity error spam.
   let wtPaths: string[] = [];
   try {
-    const raw = await d.hostExec(`find ${reposRoot} -maxdepth 4 -name '*.wt-*' -type d 2>/dev/null`);
+    const raw = await d.hostExec(`find ${reposRoot} -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
     wtPaths = [...new Set(raw.split("\n").filter(Boolean))];
   } catch { /* no worktrees */ }
 
@@ -104,20 +105,9 @@ export async function scanWorktrees(deps: Partial<ScanWorktreesDeps> = {}): Prom
   const results: WorktreeInfo[] = [];
 
   for (const wtPath of wtPaths) {
-    const dirName = wtPath.split("/").pop()!;
-    const parts = dirName.split(".wt-");
-    if (parts.length < 2) continue;
-
-    const mainRepoName = parts[0];
-    const wtName = parts[1];
-
-    // Derive org/repo path
-    const relPath = wtPath.replace(reposRoot + "/", "");
-    const parentParts = relPath.split("/");
-    parentParts.pop(); // remove wt dir
-    const org = parentParts.join("/");
-    const mainRepo = `${org}/${mainRepoName}`;
-    const repo = `${org}/${dirName}`;
+    const parsed = parseWorktreePath(wtPath, reposRoot);
+    if (!parsed) continue;
+    const { dirName, mainRepoName, wtName, mainRepo, repo } = parsed;
 
     // Get branch
     let branch = "";

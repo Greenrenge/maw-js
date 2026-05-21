@@ -182,6 +182,28 @@ describe("cmdTmuxAttach — TTY exec branches", () => {
     expect(calls[0].args).toEqual(["tmux", "attach", "-t", "some-session"]);
   });
 
+  test("readonly attach uses `tmux attach -r` even from inside tmux", () => {
+    const origTTY = impl._tty.isStdoutTTY;
+    impl._tty.isStdoutTTY = () => true;
+    const origTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
+
+    const calls: any[] = [];
+    const restoreSpawn = mockTmuxSessions(["some-session"], calls);
+
+    try {
+      cmdTmuxAttach("some-session:0.1", { readonly: true });
+    } finally {
+      restoreSpawn();
+      impl._tty.isStdoutTTY = origTTY;
+      if (origTmux !== undefined) process.env.TMUX = origTmux;
+      else delete process.env.TMUX;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["tmux", "attach", "-r", "-t", "some-session"]);
+  });
+
   test("dead resolved session → prints recovery and exits non-zero", () => {
     const origTTY = impl._tty.isStdoutTTY;
     impl._tty.isStdoutTTY = () => true;

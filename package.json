@@ -1,6 +1,6 @@
 {
   "name": "maw-js",
-  "version": "26.5.20",
+  "version": "26.5.21-alpha.2319",
   "license": "BUSL-1.1",
   "repository": "Soul-Brews-Studio/maw-js",
   "type": "module",
@@ -80,6 +80,7 @@
     "./core/fleet/leaf": "./src/core/fleet/leaf.ts",
     "./core/fleet/nicknames": "./src/core/fleet/nicknames.ts",
     "./core/fleet/validate": "./src/core/fleet/validate.ts",
+    "./core/fleet/worktree-layout": "./src/core/fleet/worktree-layout.ts",
     "./core/ghq": "./src/core/ghq.ts",
     "./core/resolve": "./src/core/resolve.ts",
     "./core/matcher/normalize-target": "./src/core/matcher/normalize-target.ts",

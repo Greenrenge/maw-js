@@ -2,6 +2,7 @@ import { hostExec } from "maw-js/sdk";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
+import { parseWorktreePath } from "maw-js/core/fleet/worktree-layout";
 
 function activeFleetConfigFiles(): Array<{ file: string; path: string }> {
   const filesByName = new Map<string, { file: string; path: string }>();
@@ -37,13 +38,9 @@ export async function removeWorktreeViaConfig(
       if (!win?.repo) continue;
 
       const fullPath = join(reposRoot, win.repo);
-      if (!win.repo.includes(".wt-")) break;
-
-      const parts = win.repo.split("/");
-      const wtDir = parts.pop()!;
-      const org = parts.join("/");
-      const mainRepo = wtDir.split(".wt-")[0];
-      const mainPath = join(reposRoot, org, mainRepo);
+      const parsed = parseWorktreePath(fullPath, reposRoot);
+      if (!parsed) break;
+      const mainPath = parsed.mainPath;
 
       try {
         let branch = "";
@@ -65,7 +62,7 @@ export async function removeWorktreeViaConfig(
 }
 
 /**
- * Fallback: scan ghq for .wt- dirs matching the window name suffix.
+ * Fallback: scan ghq for legacy .wt- and nested agents dirs matching the window name suffix.
  * EXACT match only — substring matching killed unrelated worktrees (#60).
  * Returns true if any worktrees were removed.
  */
@@ -77,11 +74,12 @@ export async function removeWorktreeByGhqScan(
   try {
     const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
     const safeRoot = reposRoot.replace(/'/g, "'\''");
-    const ghqOut = await hostExec(`find '${safeRoot}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const ghqOut = await hostExec(`find '${safeRoot}' -maxdepth 4 -type d \\( -name '*.wt-*' -o -path '*/agents/*' \\) 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
-      const base = p.split("/").pop()!;
-      const wtSuffix = base.replace(/^.*\.wt-(?:\d+-)?/, "");
+      const parsed = parseWorktreePath(p, reposRoot);
+      if (!parsed) return false;
+      const wtSuffix = parsed.wtName.replace(/^\d+-/, "");
       return wtSuffix.toLowerCase() === suffix.toLowerCase();
     });
     if (exactMatch.length > 1) {
@@ -91,9 +89,10 @@ export async function removeWorktreeByGhqScan(
       return false;
     }
     for (const wtPath of exactMatch) {
-      const base = wtPath.split("/").pop()!;
-      const mainRepo = base.split(".wt-")[0];
-      const mainPath = wtPath.replace(base, mainRepo);
+      const parsed = parseWorktreePath(wtPath, reposRoot);
+      if (!parsed) continue;
+      const base = parsed.dirName;
+      const mainPath = parsed.mainPath;
       try {
         let branch = "";
         try { branch = (await hostExec(`git -C '${wtPath}' rev-parse --abbrev-ref HEAD`)).trim(); } catch { /* expected */ }

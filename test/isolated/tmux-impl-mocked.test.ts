@@ -32,6 +32,12 @@ mock.module(join(srcRoot, "src/sdk"), () => ({
   tmux: {
     listPanes: async () => panes,
     capture: async () => "",
+    pipePane: async (target: string, command?: string, opts: unknown = {}) => {
+      hostCalls.push(`pipePane ${target} ${command ?? "<close>"} ${JSON.stringify(opts)}`);
+    },
+    synchronizePanes: async (target: string, on: boolean) => {
+      hostCalls.push(`synchronizePanes ${target} ${on}`);
+    },
   },
   tmuxCmd: () => "tmux",
 }));
@@ -58,8 +64,10 @@ const {
   cmdTmuxLayout,
   cmdTmuxLs,
   cmdTmuxPeek,
+  cmdTmuxPipePane,
   cmdTmuxSend,
   cmdTmuxSplit,
+  cmdTmuxSynchronizePanes,
 } = impl;
 
 async function captureLogs(fn: () => void | Promise<void>) {
@@ -154,6 +162,18 @@ describe("cmdTmuxSplit/Layout/Kill — mocked tmux commands", () => {
   test("layout strips pane index and targets the tmux window", async () => {
     await captureLogs(() => cmdTmuxLayout("demo:2.3", "tiled"));
     expect(hostCalls).toEqual(["tmux select-layout -t 'demo:2' tiled"]);
+  });
+
+  test("pipe-pane and synchronize-panes delegate through the tmux primitive wrappers", async () => {
+    await captureLogs(() => cmdTmuxPipePane("demo:2.3", "cat > /tmp/fifo", { input: true, onlyIfClosed: true }));
+    await captureLogs(() => cmdTmuxPipePane("demo:2.3"));
+    await captureLogs(() => cmdTmuxSynchronizePanes("demo:2.3", true));
+
+    expect(hostCalls).toEqual([
+      'pipePane demo:2.3 cat > /tmp/fifo {"input":true,"onlyIfClosed":true}',
+      "pipePane demo:2.3 <close> {}",
+      "synchronizePanes demo:2 true",
+    ]);
   });
 
   test("kill refuses fleet sessions without force before hostExec kill", async () => {

@@ -110,7 +110,12 @@ describe("Tmux command wrapper coverage", () => {
     await t.newWindow("oracle", "child", { cwd: "/repo/child" });
     await t.selectWindow("oracle:child");
     await t.switchClient("oracle");
+    await t.switchClient("oracle-view", { readonly: true });
     await t.killWindow("oracle:child");
+    await t.linkWindow("oracle:main", "maw-view:1");
+    await t.unlinkWindow("maw-view:linked");
+    await t.renameWindow("maw-view:1", "linked");
+    await t.setWindowOption("maw-view:1", "@maw-linked-from", "oracle:main");
     await t.killSession("maw-pty-1");
 
     expect(t.callStrings()).toEqual([
@@ -123,7 +128,13 @@ describe("Tmux command wrapper coverage", () => {
       "new-window -t oracle: -n child -c /repo/child",
       "select-window -t oracle:child",
       "switch-client -t oracle",
+      "display-message -p #{client_readonly}",
+      "switch-client -r -t oracle-view",
       "kill-window -t oracle:child",
+      "link-window -d -s oracle:main -t maw-view:1",
+      "unlink-window -t maw-view:linked",
+      "rename-window -t maw-view:1 linked",
+      "set-window-option -t maw-view:1 @maw-linked-from oracle:main",
       "kill-session -t maw-pty-1",
     ]);
   });
@@ -133,6 +144,19 @@ describe("Tmux command wrapper coverage", () => {
 
     expect(await t.hasSession("missing")).toBe(false);
     expect(await t.tryRun("kill-window", "-t", "missing:0")).toBe("");
+  });
+
+  test("read-only switch preserves an already read-only client instead of toggling it off", async () => {
+    const t = new FakeTmux(byCommand({
+      "display-message -p #{client_readonly}": "1\n",
+    }));
+
+    await t.switchClient("oracle-view", { readonly: true });
+
+    expect(t.callStrings()).toEqual([
+      "display-message -p #{client_readonly}",
+      "switch-client -t oracle-view",
+    ]);
   });
 
   test("pane list/info helpers parse optional fields and tolerate failures", async () => {
@@ -177,6 +201,10 @@ describe("Tmux command wrapper coverage", () => {
     await t.splitWindow("s:0");
     await t.selectPane("s:0.1", { title: "work pane" });
     await t.selectLayout("s:0", "tiled");
+    await t.attachReadonly("s");
+    await t.pipePane("s:0.1", "cat > /tmp/out", { onlyIfClosed: true });
+    await t.pipePane("s:0.1", undefined, { input: true, output: false });
+    await t.synchronizePanes("s:0", true);
     await t.sendKeys("s:0.1", "C-c", "Enter");
     await t.sendKeysLiteral("s:0.1", "hello world");
     await t.pasteBuffer("s:0.1");
@@ -191,6 +219,10 @@ describe("Tmux command wrapper coverage", () => {
       "split-window -t s:0",
       "select-pane -t s:0.1 -T work pane",
       "select-layout -t s:0 tiled",
+      "attach-session -r -t s",
+      "pipe-pane -O -o -t s:0.1 cat > /tmp/out",
+      "pipe-pane -I -t s:0.1",
+      "set-window-option -t s:0 synchronize-panes on",
       "send-keys -t s:0.1 C-c Enter",
       "send-keys -t s:0.1 -l hello world",
       "paste-buffer -t s:0.1",

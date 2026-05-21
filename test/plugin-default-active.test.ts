@@ -4,6 +4,7 @@ import {
   isDefaultActive1523Plugin,
   isDefaultActive1524Plugin,
   isDefaultActive1531Plugin,
+  isDefaultActive1854Plugin,
   isDefaultActivePlugin,
 } from "../src/plugin/default-active";
 
@@ -22,6 +23,8 @@ describe("default-active plugin tier guards", () => {
     for (const name of ["learn", "find", "talk-to", "project", "workon", "cleanup"]) {
       expect(isDefaultActive1531Plugin(name)).toBe(true);
     }
+    expect(isDefaultActive1854Plugin("view")).toBe(true);
     expect(isDefaultActive1531Plugin("fleet")).toBe(false);
+    expect(isDefaultActive1854Plugin("split")).toBe(false);
   });
 });

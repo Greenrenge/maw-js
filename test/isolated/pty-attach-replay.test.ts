@@ -64,7 +64,7 @@ afterAll(() => {
 });
 
 describe("PTY attach scrollback replay (#1588)", async () => {
-  const { handlePtyMessage } = await import("../../src/core/transport/pty");
+  const { handlePtyMessage } = await import("../../src/core/transport/pty.ts?pty-attach-replay");
 
   async function createCachedSession(target: string) {
     const ws = makeWs();

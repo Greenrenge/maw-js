@@ -194,8 +194,12 @@ describe("routeTools default-suite seams", () => {
     expect(await routeToolsWithDeps("plugins", ["plugins", "info", "about", "--json"], h.deps)).toBe(true);
     expect(h.calls.plugins[0]).toMatchObject({ sub: "info", args: ["about", "--json"], flags: { "--json": true } });
 
-    expect(await routeToolsWithDeps("plugin", ["plugin", "ls", "--all"], h.deps)).toBe(true);
-    expect(h.calls.plugins[1]).toMatchObject({ sub: "ls", args: ["--all"], flags: { "--all": true } });
+    expect(await routeToolsWithDeps("plugin", ["plugin", "ls", "--all", "-v", "--api"], h.deps)).toBe(true);
+    expect(h.calls.plugins[1]).toMatchObject({
+      sub: "ls",
+      args: ["--all", "-v", "--api"],
+      flags: { "--all": true, "-v": true, "--api": true },
+    });
 
     expect(await routeToolsWithDeps("artifact", ["artifact", "get", "team", "task-1", "--json"], h.deps)).toBe(true);
     expect(h.calls.artifacts[0]).toMatchObject({ sub: "get", args: ["team", "task-1", "--json"], flags: { "--json": true } });
