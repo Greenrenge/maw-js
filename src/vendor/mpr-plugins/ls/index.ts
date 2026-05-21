@@ -3,16 +3,18 @@ import { cmdList } from "maw-js/commands/shared/comm";
 import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "maw-js/commands/plugins/tmux/impl";
 import { parseFlags } from "maw-js/cli/parse-args";
 
-export const command = { name: "ls", description: "List live sessions and agents; use maw fleet ls for registered fleet config." };
+export const command = { name: "ls", description: "List live local sessions by default; use --federation for peers." };
 
 const HELP = [
   "maw ls — list live sessions (local or cross-node)",
   "",
   "Usage:",
   "  maw ls                  list live local sessions (default)",
-  "  maw ls <peer>           list sessions on a federation peer",
-  "  maw ls --all            aggregate sessions from all known peers",
-  "  maw ls --json           emit JSON (combine with <peer> or --all)",
+  "  maw ls <filter>         filter local sessions",
+  "  maw ls --federation     list local + peer sessions",
+  "  maw ls --federation <peer>  drill into one peer",
+  "  maw ls --federation --node <node>  filter the federated view",
+  "  maw ls --json           emit JSON",
   "  maw ls --active [30m]   local sessions touched within a recent threshold",
   "  maw ls --verify         include worktree-bind diagnostics",
   "  maw ls --fix            prune orphaned worktrees (local only)",
@@ -39,9 +41,20 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
 
   try {
-    // API source (non-CLI) — preserve original behavior. The /api/sessions
-    // endpoint already exposes cross-node listing at the HTTP layer, so
-    // there is no need to plumb peer aliasing through this entrypoint too.
+    // Plugin API surface (#1870): peers call GET /api/ls to fetch THIS node's
+    // local sessions only. Federation fan-out happens in the CLI caller to
+    // avoid recursive peer storms.
+    if (ctx.source === "api") {
+      const query = ctx.args && !Array.isArray(ctx.args) ? ctx.args as Record<string, unknown> : {};
+      const { localLsPayload } = await import("./internal/peer-call");
+      const payload = await localLsPayload({
+        active: boolish(query.active),
+        activeThresholdSec: numberish(query.activeThresholdSec),
+        filter: typeof query.node === "string" ? query.node : undefined,
+      });
+      return { ok: true, output: JSON.stringify(payload) };
+    }
+
     if (ctx.source !== "cli") {
       await cmdList();
       return { ok: true, output: logs.join("\n") || undefined };
@@ -50,8 +63,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const args = (ctx.args as string[]) ?? [];
     const flags = parseFlags(args, {
       "--all": Boolean,
+      "--federation": Boolean,
       "--json": Boolean,
       "--active": Boolean,
+      "--node": String,
       "--verify": Boolean,
       "--fix": Boolean,
       "--help": Boolean,
@@ -64,11 +79,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     const activeArg = activeDurationArg(args);
     const positionals = flags._ as string[];
-    const localFilter = positionals.find((arg) => arg !== activeArg);
+    const nodeFilter = typeof flags["--node"] === "string" ? flags["--node"].trim() : "";
+    const localFilter = nodeFilter || positionals.find((arg) => arg !== activeArg);
     const positional = positionals[0];
     const json = Boolean(flags["--json"]);
 
-    if (flags["--active"]) {
+    if (!flags["--federation"] && flags["--active"]) {
       const lsOpts: Parameters<typeof cmdTmuxLs>[0] = {
         all: true,
         compact: true,
@@ -87,18 +103,22 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     // peer alias" error rather than silently falling through to local ls
     // (which would be confusing — "I asked for oracle-world, why am I
     // seeing my own sessions?").
-    if (positional) {
+    if (flags["--federation"] && positional) {
       const { lsPeer } = await import("./internal/peer-call");
       return await lsPeer(positional, { json });
     }
 
-    // Cross-node: aggregate every alias in the maw state peers store.
-    if (flags["--all"]) {
-      const { lsAllPeers } = await import("./internal/peer-call");
-      return await lsAllPeers({ json });
+    if (flags["--federation"] && !flags["--fix"] && !flags["--verify"]) {
+      const { lsFederated } = await import("./internal/peer-call");
+      return await lsFederated({
+        json,
+        node: nodeFilter || undefined,
+        active: Boolean(flags["--active"]),
+        activeThresholdSec: parseActiveDurationSeconds(activeArg),
+      });
     }
 
-    // Default: local sessions (existing behavior, including --fix).
+    // Default/local-only sessions (fast path, no network).
     await cmdList({ fix: Boolean(flags["--fix"]), verify: Boolean(flags["--verify"]) });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
@@ -107,4 +127,16 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     console.log = origLog;
     console.error = origError;
   }
+}
+
+function boolish(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+  return false;
+}
+
+function numberish(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }

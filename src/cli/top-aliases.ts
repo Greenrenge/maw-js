@@ -28,6 +28,7 @@ import { cmdNew } from "./cmd-new";
 import { parseFlags } from "./parse-args";
 import { UserError } from "../core/util/user-error";
 import { parseBringToTarget } from "../commands/shared/bring-flags";
+import { lsFederated } from "../vendor/mpr-plugins/ls/internal/peer-call";
 
 export type DirectHandler = { kind: "direct"; handler: string };
 export type AliasResolution =
@@ -48,7 +49,7 @@ export const ALIAS_DESCRIPTIONS: Record<string, string> = {
   tile: "Tile current window or spawn N panes tiled",
   bring: "Bring an oracle HERE — thin alias for `wake --split`",
   b: "Bring an oracle HERE (short form of `bring`)",
-  ls: "List sessions (compact default, -v detail, -r recent, -a roster)",
+  ls: "List local sessions by default; use --federation for peers",
   scaffold: "Create oracle repo + skeleton only (no commit, wake, or /awaken)",
   wake: "Wake an oracle session (fuzzy match, auto-clone)",
   awake: "Launch an oracle process with optional engine (does not trigger /awaken)",
@@ -74,12 +75,11 @@ export const TOP_ALIASES: Record<string, string[] | DirectHandler> = {
   b: { kind: "direct", handler: "../commands/shared/wake-cmd:cmdBring" },
 
   // Direct-handler form — `ls` flags differ from tmux ls:
-  //   maw ls      → compact live-session summary (#1613)
-  //   maw ls -v   → full per-pane detail
-  //   maw ls -c   → explicit compact alias
-  //   maw ls -a   → compact + sleeping oracles (roster; legacy behavior)
-  //   maw ls -r   → compact sessions sorted newest-first by tmux creation time
-  //   maw ls --active [30m|1h] → compact sessions touched within the threshold
+  //   maw ls          → compact local live-session summary (#1613 legacy path)
+  //   maw ls --federation → explicit local+peer view (#1870)
+  //   maw ls -v       → full per-pane detail
+  //   maw ls -a       → compact + sleeping oracles (roster; legacy behavior)
+  //   maw ls --active [30m|1h] → local sessions touched within the threshold
   ls: { kind: "direct", handler: "cmdLs" },
   scaffold: ["bud", "--scaffold-only"],
 
@@ -210,6 +210,7 @@ export function parseLsAliasOpts(argv: string[]) {
     "--compact": Boolean, "-c": "--compact",
     "--verbose": Boolean, "-v": "--verbose",
     "--fix": Boolean,
+    "--federation": Boolean,
     "--json": Boolean,
     "--recent": Boolean, "-r": "--recent",
     "--active": Boolean,
@@ -238,6 +239,7 @@ export function parseLsAliasOpts(argv: string[]) {
     channels?: boolean;
     oracleOnly?: boolean;
     verify?: boolean;
+    federation?: boolean;
   } = {
     all: true,
     compact,
@@ -248,6 +250,7 @@ export function parseLsAliasOpts(argv: string[]) {
   if (flags["--channels"] || flags["--all"]) opts.channels = true;
   if (compact && !flags["--all"] && !flags["--channels"]) opts.oracleOnly = true;
   if (flags["--verify"]) opts.verify = true;
+  if (flags["--federation"]) opts.federation = true;
   const positionals = flags._ as string[];
   const activeArg = activeDurationArg(argv);
   const filterPositionals = activeArg
@@ -274,12 +277,13 @@ export function parseLsAliasOpts(argv: string[]) {
 
 function printLsAliasUsage(write: (line: string) => void): void {
   write("usage: maw ls [filter] [--all|-a] [--verbose|-v] [--compact|-c] [--json] [--recent|-r [N]] [--active [30m|1h]]");
-  write("       maw ls --node <node> [--active [30m|1h]]");
+  write("       maw ls --federation [--node <node>] [--json]");
   write("       maw ls --channels | --verify | --fix");
   write("");
-  write("List live local sessions. Default output is compact and oracle-only.");
+  write("List live local sessions by default. Use --federation for local + peer inventory.");
   write("");
   write("Options:");
+  write("  --federation       query configured peers in parallel (2s timeout each)");
   write("  -v, --verbose      show full per-pane detail");
   write("  -a, --all          include sleeping roster and channel sessions");
   write("  --channels         include channel/infrastructure sessions");
@@ -294,6 +298,7 @@ type MaybePromise<T = unknown> = T | Promise<T>;
 
 export interface TopAliasHandlerDeps {
   cmdTmuxLs?: (opts: ReturnType<typeof parseLsAliasOpts>) => MaybePromise;
+  lsFederated?: (opts: Parameters<typeof lsFederated>[0]) => MaybePromise<{ ok: boolean; output?: string; error?: string }>;
   cmdTmuxLayout?: (target: string, preset: string) => MaybePromise;
   cmdWake?: (oracle: string, opts: Record<string, unknown>) => MaybePromise;
   cmdNew?: (argv: string[]) => MaybePromise;
@@ -314,6 +319,7 @@ export async function invokeDirectHandler(
   }
 
   const directCmdTmuxLs = deps.cmdTmuxLs ?? cmdTmuxLs;
+  const directLsFederated = deps.lsFederated ?? lsFederated;
   const directCmdTmuxLayout = deps.cmdTmuxLayout ?? cmdTmuxLayout;
   const directCmdWake = deps.cmdWake ?? cmdWake;
   const directCmdNew = deps.cmdNew ?? cmdNew;
@@ -327,7 +333,22 @@ export async function invokeDirectHandler(
       return;
     }
     try {
-      await directCmdTmuxLs(parseLsAliasOpts(argv));
+      const opts = parseLsAliasOpts(argv);
+      if (!opts.federation) {
+        await directCmdTmuxLs(opts);
+        return;
+      }
+      const result = await directLsFederated({
+        json: opts.json,
+        node: opts.filter,
+        active: opts.active,
+        activeThresholdSec: opts.activeThresholdSec,
+      });
+      if (result.output) log(result.output);
+      if (!result.ok) {
+        if (result.error) error(result.error);
+        throw new UserError(result.error ?? "ls failed");
+      }
     } catch (e) {
       const missingArg = missingLongArgName(e);
       if (!missingArg) throw e;

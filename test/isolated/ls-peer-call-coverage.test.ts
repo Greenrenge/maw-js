@@ -11,15 +11,22 @@ import { tmpdir } from "os";
 
 let curlFetchCalls: Array<{ url: string; options: any }> = [];
 let curlFetchHandler: (url: string, options: any) => any = () => ({ ok: true, status: 200, data: [] });
+let localSessions: any[] = [];
+let localConfig: Record<string, unknown> = { node: "m5", oracle: "mawjs" };
+let hostExecHandler: (cmd: string) => string | Promise<string> = () => "";
 
 mock.module("maw-js/sdk", () => ({
   curlFetch: async (url: string, options: any) => {
     curlFetchCalls.push({ url, options });
     return await curlFetchHandler(url, options);
   },
+  listSessions: async () => localSessions,
+  loadConfig: () => localConfig,
+  hostExec: async (cmd: string) => await hostExecHandler(cmd),
+  tmuxCmd: () => "tmux",
 }));
 
-const { fetchPeerSessions, lsAllPeers, lsPeer } = await import("../../src/vendor/mpr-plugins/ls/internal/peer-call");
+const { fetchPeerSessions, localLsPayload, lsAllPeers, lsFederated, lsPeer } = await import("../../src/vendor/mpr-plugins/ls/internal/peer-call");
 
 let tempDir = "";
 let previousPeersFile: string | undefined;
@@ -35,6 +42,9 @@ beforeEach(() => {
   process.env.PEERS_FILE = join(tempDir, "missing-peers.json");
   curlFetchCalls = [];
   curlFetchHandler = () => ({ ok: true, status: 200, data: [] });
+  localSessions = [];
+  localConfig = { node: "m5", oracle: "mawjs" };
+  hostExecHandler = () => "";
 });
 
 afterEach(() => {
@@ -44,7 +54,7 @@ afterEach(() => {
 });
 
 describe("fetchPeerSessions", () => {
-  test("calls /api/sessions with federation signing and the default timeout", async () => {
+  test("calls /api/ls with federation signing and the 2s default timeout", async () => {
     curlFetchHandler = () => ({ ok: true, status: 200, data: [{ name: "alpha", windows: [] }] });
 
     const result = await fetchPeerSessions("http://peer.local:3456");
@@ -52,8 +62,8 @@ describe("fetchPeerSessions", () => {
     expect(result).toEqual({ ok: true, status: 200, data: [{ name: "alpha", windows: [] }] });
     expect(curlFetchCalls).toEqual([
       {
-        url: "http://peer.local:3456/api/sessions",
-        options: { method: "GET", from: "auto", timeout: 5000 },
+        url: "http://peer.local:3456/api/ls",
+        options: { method: "GET", from: "auto", timeout: 2000 },
       },
     ]);
   });
@@ -64,11 +74,70 @@ describe("fetchPeerSessions", () => {
     await fetchPeerSessions("http://peer.local", 123);
 
     expect(curlFetchCalls[0]).toEqual({
-      url: "http://peer.local/api/sessions",
+      url: "http://peer.local/api/ls",
       options: { method: "GET", from: "auto", timeout: 123 },
     });
   });
 });
+
+
+describe("localLsPayload and lsFederated", () => {
+  test("returns this node session data for the /api/ls payload", async () => {
+    localSessions = [{ name: "77-mawjs", windows: [{ name: "main", index: 1, active: true }] }];
+
+    const payload = await localLsPayload();
+
+    expect(payload).toEqual({
+      alias: "m5",
+      node: "m5",
+      oracle: "mawjs",
+      local: true,
+      sessions: [{ name: "77-mawjs", windows: [{ name: "main", index: 1, active: true }] }],
+    });
+  });
+
+  test("renders local plus peers by default and keeps unreachable peers as warning rows", async () => {
+    writePeers({
+      white: { url: "http://white.local", node: "white" },
+      slow: { url: "http://slow.local", node: "slow" },
+    });
+    localSessions = [{ name: "77-mawjs", windows: [] }];
+    curlFetchHandler = (url) => {
+      if (url.startsWith("http://white.local")) {
+        return { ok: true, status: 200, data: { ok: true, output: JSON.stringify({ node: "white", sessions: [{ name: "alpha", windows: [] }] }) } };
+      }
+      return { ok: false, status: 0, data: null };
+    };
+
+    const result = await lsFederated({ json: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("fleet view · 2/3 nodes reachable · 2 sessions total");
+    expect(result.output).toContain("77-mawjs");
+    expect(result.output).toContain("alpha");
+    expect(result.output).toContain("slow");
+    expect(result.output).toContain("no response");
+    expect(curlFetchCalls.map((call) => call.url)).toEqual([
+      "http://white.local/api/ls",
+      "http://slow.local/api/ls",
+    ]);
+  });
+
+  test("emits machine-readable federation JSON", async () => {
+    writePeers({ white: { url: "http://white.local" } });
+    localSessions = [{ name: "local", windows: [] }];
+    curlFetchHandler = () => ({ ok: true, status: 200, data: [{ name: "remote", windows: [] }] });
+
+    const result = await lsFederated({ json: true });
+    const parsed = JSON.parse(result.output ?? "{}");
+
+    expect(result.ok).toBe(true);
+    expect(parsed.totalSessions).toBe(2);
+    expect(parsed.reachableNodes).toBe(2);
+    expect(parsed.nodes.map((node: any) => node.sessions.map((s: any) => s.name))).toEqual([["local"], ["remote"]]);
+  });
+});
+
 
 describe("lsPeer", () => {
   test("renders a successful peer session listing", async () => {
@@ -156,7 +225,7 @@ describe("lsPeer", () => {
 
     await expect(lsPeer("old", { json: false })).resolves.toEqual({
       ok: false,
-      error: "peer old does not support /api/sessions (HTTP 404 at http://old.local)",
+      error: "peer old does not support /api/ls (HTTP 404 at http://old.local)",
     });
     await expect(lsPeer("locked", { json: false })).resolves.toEqual({
       ok: false,
@@ -175,14 +244,14 @@ describe("lsPeer", () => {
   test("reports thrown timeout errors without a stack trace", async () => {
     writePeers({ slow: { url: "http://slow.local" } });
     curlFetchHandler = () => {
-      throw new Error("request timed out after 5000ms");
+      throw new Error("request timed out after 2000ms");
     };
 
     const result = await lsPeer("slow", { json: false });
 
     expect(result).toEqual({
       ok: false,
-      error: "peer ls failed (slow http://slow.local): request timed out after 5000ms",
+      error: "peer ls failed (slow http://slow.local): request timed out after 2000ms",
     });
   });
 });
@@ -214,14 +283,14 @@ describe("lsAllPeers", () => {
     expect(JSON.parse(result.output ?? "{}")).toEqual({
       peers: [
         { alias: "white", url: "http://white.local", sessions: [{ name: "alpha", windows: [] }] },
-        { alias: "slow", url: "http://slow.local", error: "timeout" },
-        { alias: "broken", url: "http://broken.local", error: "offline" },
+        { alias: "slow", url: "http://slow.local", error: "peer ls failed (slow http://slow.local): timeout" },
+        { alias: "broken", url: "http://broken.local", error: "peer ls failed (broken http://broken.local): offline" },
       ],
     });
     expect(curlFetchCalls.map((call) => call.url)).toEqual([
-      "http://white.local/api/sessions",
-      "http://slow.local/api/sessions",
-      "http://broken.local/api/sessions",
+      "http://white.local/api/ls",
+      "http://slow.local/api/ls",
+      "http://broken.local/api/ls",
     ]);
   });
 

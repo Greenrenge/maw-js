@@ -11,6 +11,7 @@ let tmuxLayoutCalls: unknown[][] = [];
 let wakeCalls: unknown[][] = [];
 let newCalls: unknown[][] = [];
 let preflightCalls: unknown[] = [];
+let lsFederatedCalls: unknown[] = [];
 let loadConfigCalls = 0;
 let logs: string[] = [];
 let errors: string[] = [];
@@ -52,6 +53,13 @@ mock.module(import.meta.resolve("../../src/commands/shared/preflight"), () => ({
   cmdPreflight: async (opts: unknown) => { preflightCalls.push(opts); },
 }));
 
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/ls/internal/peer-call"), () => ({
+  lsFederated: async (opts: unknown) => {
+    lsFederatedCalls.push(opts);
+    return { ok: true, output: "federated output" };
+  },
+}));
+
 mock.module(import.meta.resolve("../../src/config"), () => ({
   loadConfig: () => {
     loadConfigCalls += 1;
@@ -73,6 +81,7 @@ beforeEach(() => {
   wakeCalls = [];
   newCalls = [];
   preflightCalls = [];
+  lsFederatedCalls = [];
   loadConfigCalls = 0;
   logs = [];
   errors = [];
@@ -159,6 +168,7 @@ describe("top alias option parsers", () => {
     expect(parseLsAliasOpts(["--node", "alpha"])).toMatchObject({ filter: "alpha" });
     expect(parseLsAliasOpts(["alpha"])).toMatchObject({ filter: "alpha" });
     expect(parseLsAliasOpts(["--channels"])).toMatchObject({ channels: true });
+    expect(parseLsAliasOpts(["--federation"])).toMatchObject({ federation: true });
   });
 
   test("bring opts default to split and reject missing oracle", () => {
@@ -172,7 +182,7 @@ describe("top alias option parsers", () => {
 });
 
 describe("direct handler invocation", () => {
-  test("cmdLs dispatches parsed ls options to tmux ls", async () => {
+  test("cmdLs dispatches parsed default ls options to local tmux ls", async () => {
     await invokeDirectHandler("cmdLs", ["--json", "-r", "5", "--active", "45m", "-v"]);
     expect(tmuxLsCalls).toEqual([{
       all: true,
@@ -185,6 +195,19 @@ describe("direct handler invocation", () => {
       active: true,
       activeThresholdSec: 2700,
     }]);
+    expect(lsFederatedCalls).toEqual([]);
+  });
+
+  test("cmdLs uses federation only when --federation is explicit", async () => {
+    await invokeDirectHandler("cmdLs", ["--federation", "--json", "--active", "45m", "--node", "white"]);
+    expect(lsFederatedCalls).toEqual([{
+      json: true,
+      node: "white",
+      active: true,
+      activeThresholdSec: 2700,
+    }]);
+    expect(tmuxLsCalls).toEqual([]);
+    expect(logs).toEqual(["federated output"]);
   });
 
 
