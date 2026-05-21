@@ -2,8 +2,6 @@ import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { parseFlags } from "maw-js/cli/parse-args";
 import { cmdFollow, FOLLOW_USAGE, type FollowOptions } from "./impl";
 
-export const DEPRECATED_STREAM_WARNING = "warning: maw stream is deprecated; use maw follow";
-
 export const command = {
   name: "follow",
   description: "Follow live pane output through the PTY websocket bridge.",
@@ -50,9 +48,6 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const parsed = ctx.source === "cli"
       ? cliOptions(ctx.args as string[])
       : apiOptions(ctx.args as Record<string, unknown>);
-    if (ctx.source === "cli" && ctx.matchedName === "stream") {
-      process.stderr.write(`${DEPRECATED_STREAM_WARNING}\n`);
-    }
     await cmdFollow(parsed.target, parsed.opts);
     return { ok: true };
   } catch (e: any) {

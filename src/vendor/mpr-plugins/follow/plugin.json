@@ -6,7 +6,6 @@
   "description": "Follow live pane output through the PTY websocket bridge.",
   "cli": {
     "command": "follow",
-    "aliases": ["stream"],
     "help": "maw follow <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>] - follow live pane output",
     "flags": {
       "--since": "string",

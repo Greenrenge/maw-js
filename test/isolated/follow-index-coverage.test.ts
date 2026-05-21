@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const followCalls: Array<{ target: string; opts: Record<string, unknown> }> = [];
 
@@ -12,24 +12,12 @@ mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/follow/impl"), () 
 
 const { command, default: handler } = await import("../../src/vendor/mpr-plugins/follow/index.ts?follow-index-coverage");
 
-const originalStderrWrite = process.stderr.write.bind(process.stderr);
-let stderr: string[];
-
-function ctx(source: "cli" | "api", args: unknown, matchedName?: string) {
-  return { source, args, matchedName } as never;
+function ctx(source: "cli" | "api", args: unknown) {
+  return { source, args } as never;
 }
 
 beforeEach(() => {
   followCalls.length = 0;
-  stderr = [];
-  (process.stderr as any).write = (chunk: string) => {
-    stderr.push(String(chunk));
-    return true;
-  };
-});
-
-afterEach(() => {
-  (process.stderr as any).write = originalStderrWrite;
 });
 
 describe("maw follow plugin index", () => {
@@ -55,13 +43,6 @@ describe("maw follow plugin index", () => {
       target: "50-mawjs:1.0",
       opts: { since: "5m", json: true, grep: "ready", quitOnIdle: "10s" },
     });
-    expect(stderr).toEqual([]);
-  });
-
-  test("keeps maw stream as a deprecated alias", async () => {
-    await expect(handler(ctx("cli", ["legacy-pane"], "stream"))).resolves.toEqual({ ok: true });
-    expect(followCalls).toEqual([{ target: "legacy-pane", opts: { since: undefined, json: false, grep: undefined, quitOnIdle: undefined } }]);
-    expect(stderr.join("")).toContain("warning: maw stream is deprecated; use maw follow\n");
   });
 
   test("rejects CLI help and flag-shaped targets with usage", async () => {

@@ -111,6 +111,10 @@ describe("Tmux command wrapper coverage", () => {
     await t.selectWindow("oracle:child");
     await t.switchClient("oracle");
     await t.killWindow("oracle:child");
+    await t.linkWindow("oracle:main", "maw-view:1");
+    await t.unlinkWindow("maw-view:linked");
+    await t.renameWindow("maw-view:1", "linked");
+    await t.setWindowOption("maw-view:1", "@maw-linked-from", "oracle:main");
     await t.killSession("maw-pty-1");
 
     expect(t.callStrings()).toEqual([
@@ -124,6 +128,10 @@ describe("Tmux command wrapper coverage", () => {
       "select-window -t oracle:child",
       "switch-client -t oracle",
       "kill-window -t oracle:child",
+      "link-window -d -s oracle:main -t maw-view:1",
+      "unlink-window -t maw-view:linked",
+      "rename-window -t maw-view:1 linked",
+      "set-window-option -t maw-view:1 @maw-linked-from oracle:main",
       "kill-session -t maw-pty-1",
     ]);
   });

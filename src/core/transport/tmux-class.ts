@@ -186,6 +186,28 @@ export class Tmux {
     await this.tryRun("kill-window", "-t", target);
   }
 
+  async linkWindow(source: string, target: string, opts: { detached?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.detached !== false) args.push("-d");
+    args.push("-s", source, "-t", target);
+    await this.run("link-window", ...args);
+  }
+
+  async unlinkWindow(target: string, opts: { killLastLink?: boolean } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    if (opts.killLastLink) args.push("-k");
+    args.push("-t", target);
+    await this.run("unlink-window", ...args);
+  }
+
+  async renameWindow(target: string, name: string): Promise<void> {
+    await this.run("rename-window", "-t", target, name);
+  }
+
+  async setWindowOption(target: string, option: string, value: string): Promise<void> {
+    await this.run("set-window-option", "-t", target, option, value);
+  }
+
   // --- Panes ---
 
   /** Get all pane IDs across all sessions — single tmux call. */
