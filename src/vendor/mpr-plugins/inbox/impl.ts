@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, utimesSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import { loadConfig } from "maw-js/config";
@@ -55,6 +55,29 @@ export interface InboxStatus {
   reasons: string[];
 }
 
+export interface InboxDrainItem {
+  id: string;
+  filename: string;
+  reason: string;
+  age_seconds: number;
+  destination: string | null;
+  action: "archived" | "would_archive";
+}
+
+export interface InboxDrainResult {
+  oracle: string;
+  scanned: number;
+  matched: number;
+  archived: number;
+  remaining_matches: number;
+  max: number;
+  dry_run: boolean;
+  safe: true;
+  older_than_seconds: number;
+  processed_dir: string;
+  items: InboxDrainItem[];
+}
+
 interface InboxCursorEntry {
   unread: number;
   latestArchiveMtimeMs: number | null;
@@ -71,6 +94,20 @@ interface InboxStatusTarget {
 const UNREAD_RED_THRESHOLD = 50;
 const OLDEST_RED_SECONDS = 4 * 60 * 60;
 const ARCHIVE_RED_SECONDS = 8 * 60 * 60;
+const SAFE_DRAIN_DEFAULT_MAX = 25;
+const SAFE_DRAIN_DEFAULT_MIN_AGE_SECONDS = OLDEST_RED_SECONDS;
+
+const SAFE_DRAIN_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
+  { reason: "ci-green", pattern: /\bci green confirmed\b/i },
+  { reason: "local-ship", pattern: /\blocal ship commit\b/i },
+  { reason: "alpha-pushed", pattern: /\balpha (?:coverage batch )?pushed\b/i },
+  { reason: "coverage-pushed", pattern: /\bcoverage batch pushed\b/i },
+  { reason: "coverage-shipped", pattern: /\bcoverage batch shipped to alpha\b/i },
+  { reason: "green-batch", pattern: /\bgreen batch\b/i },
+  { reason: "verified", pattern: /(?:✅|🏆).{0,120}\bverified\b|\b(?:verified\s+[0-9a-f]{7,}|[0-9a-f]{7,}\s+verified)\b|\bslice\s+\d+.{0,80}\bverified\b|\b#\d+\s+verified\b|\bbatch verified\b/i },
+  { reason: "next-slice-shipped", pattern: /\bshipped next slice\b/i },
+  { reason: "slice-shipped", pattern: /\bshipped\b.{0,80}\bslice\b/i },
+];
 
 export function resolveInboxDir(): string {
   const config = loadConfig();
@@ -405,6 +442,143 @@ export async function cmdInboxStatus(
   const status = await getInboxStatus(oracle);
   console.log(opts.json ? JSON.stringify(status, null, 2) : formatInboxStatus(status));
   return status;
+}
+
+function firstContentLine(body: string): string {
+  return body.split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? "";
+}
+
+function safeDrainReason(msg: InboxMessage): string | null {
+  const line = firstContentLine(msg.body);
+  if (!/^\[[^\]]+\]/.test(line)) return null;
+  if (/\?/.test(line)) return null;
+  if (/\b(nat asked|please advise|questions?:|which issue|want your read|directive|nat says|stop checking|do not|only task)\b/i.test(line)) {
+    return null;
+  }
+
+  const haystack = `${msg.filename}\n${line}`;
+  for (const { reason, pattern } of SAFE_DRAIN_PATTERNS) {
+    if (pattern.test(haystack)) return reason;
+  }
+  return null;
+}
+
+function drainTimestampMs(msg: InboxMessage): number | null {
+  const fromFilename = parseInboxFilenameTimestamp(msg.filename);
+  if (fromFilename) return fromFilename.getTime();
+  const fromFrontmatter = msg.frontmatter.timestamp ? new Date(msg.frontmatter.timestamp) : null;
+  if (fromFrontmatter && !isNaN(fromFrontmatter.getTime())) return fromFrontmatter.getTime();
+  return null;
+}
+
+function archiveDay(nowMs: number): string {
+  return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+function uniqueArchivePath(processedDir: string, filename: string): string {
+  const stem = filename.endsWith(".md") ? filename.slice(0, -3) : filename;
+  const ext = filename.endsWith(".md") ? ".md" : "";
+  let candidate = join(processedDir, filename);
+  let suffix = 2;
+  while (existsSync(candidate)) {
+    candidate = join(processedDir, `${stem}-${suffix}${ext}`);
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function parsePositiveInt(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || value === undefined) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
+export async function cmdInboxDrain(
+  oracle?: string,
+  opts: { safe?: boolean; max?: number; dryRun?: boolean; json?: boolean; olderThanSeconds?: number } = {},
+  nowMs = Date.now(),
+): Promise<InboxDrainResult> {
+  if (!opts.safe) throw new Error("usage: maw inbox drain [oracle-name] --safe [--max N] [--older-than-hours H] [--json] [--dry-run]");
+
+  const target = await resolveInboxStatusTarget(oracle);
+  const max = parsePositiveInt(opts.max, SAFE_DRAIN_DEFAULT_MAX);
+  const olderThanSeconds = parsePositiveInt(opts.olderThanSeconds, SAFE_DRAIN_DEFAULT_MIN_AGE_SECONDS);
+  const processedDir = join(target.inboxDir, "processed", archiveDay(nowMs));
+  const messages = loadInboxMessages(target.inboxDir);
+  const candidates = messages
+    .map((msg) => {
+      const reason = safeDrainReason(msg);
+      const timestampMs = drainTimestampMs(msg);
+      const ageSecondsValue = timestampMs === null ? null : ageSeconds(timestampMs, nowMs);
+      return { msg, reason, timestampMs, ageSecondsValue };
+    })
+    .filter((candidate): candidate is {
+      msg: InboxMessage;
+      reason: string;
+      timestampMs: number;
+      ageSecondsValue: number;
+    } => (
+      candidate.reason !== null &&
+      candidate.timestampMs !== null &&
+      candidate.ageSecondsValue !== null &&
+      candidate.ageSecondsValue >= olderThanSeconds
+    ))
+    .sort((a, b) => a.timestampMs - b.timestampMs);
+
+  const selected = candidates.slice(0, max);
+  if (selected.length && !opts.dryRun) mkdirSync(processedDir, { recursive: true });
+
+  const items: InboxDrainItem[] = [];
+  for (const candidate of selected) {
+    const destination = uniqueArchivePath(processedDir, candidate.msg.filename);
+    if (!opts.dryRun) {
+      renameSync(candidate.msg.path, destination);
+      const archiveTime = new Date(nowMs);
+      utimesSync(destination, archiveTime, archiveTime);
+    }
+    items.push({
+      id: candidate.msg.id,
+      filename: candidate.msg.filename,
+      reason: candidate.reason,
+      age_seconds: candidate.ageSecondsValue,
+      destination,
+      action: opts.dryRun ? "would_archive" : "archived",
+    });
+  }
+
+  const result: InboxDrainResult = {
+    oracle: target.oracle,
+    scanned: messages.length,
+    matched: candidates.length,
+    archived: items.length,
+    remaining_matches: Math.max(0, candidates.length - items.length),
+    max,
+    dry_run: Boolean(opts.dryRun),
+    safe: true,
+    older_than_seconds: olderThanSeconds,
+    processed_dir: processedDir,
+    items,
+  };
+
+  console.log(opts.json ? JSON.stringify(result, null, 2) : formatInboxDrainResult(result));
+  return result;
+}
+
+export function formatInboxDrainResult(result: InboxDrainResult): string {
+  const verb = result.dry_run ? "would archive" : "archived";
+  const lines = [
+    `${result.oracle}: ${verb} ${result.archived}/${result.matched} safe stale inbox message(s) (scanned ${result.scanned}, max ${result.max})`,
+  ];
+  if (result.remaining_matches > 0) lines.push(`   → ${result.remaining_matches} safe match(es) remain after max cap`);
+  if (!result.items.length) {
+    lines.push(`   → no messages matched the safe stale-ack filter`);
+    return lines.join("\n");
+  }
+  for (const item of result.items.slice(0, 10)) {
+    lines.push(`   - ${item.filename} [${item.reason}, ${formatDuration(item.age_seconds)}]`);
+  }
+  if (result.items.length > 10) lines.push(`   - … ${result.items.length - 10} more`);
+  lines.push(`   → ${result.dry_run ? "preview" : "processed"}: ${result.processed_dir}`);
+  return lines.join("\n");
 }
 
 export function writeInboxFile(inboxDir: string, from: string, to: string, body: string): string {

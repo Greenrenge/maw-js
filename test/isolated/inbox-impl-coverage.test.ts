@@ -58,7 +58,7 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleetEntries: () => fleetEntries,
 }));
 
-const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, getAllInboxStatuses, formatInboxStatus, formatInboxStatusList, cmdInboxStatus, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
+const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, getAllInboxStatuses, formatInboxStatus, formatInboxStatusList, cmdInboxStatus, cmdInboxDrain, formatInboxDrainResult, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
   await import("../../src/vendor/mpr-plugins/inbox/impl");
 
 beforeEach(() => {
@@ -385,6 +385,54 @@ describe("inbox impl utility surface", () => {
       "red-oracle",
       "green-oracle",
     ]);
+  });
+
+  test("safe drain archives only stale slice acknowledgements up to the max cap", async () => {
+    const now = Date.parse("2026-05-21T12:00:00Z");
+    const inbox = join(rootDir, "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const oldVerified = inboxFilenameAt(now - 48 * 60 * 60_000, "mawjs_slice-1-verified.md");
+    const oldShip = inboxFilenameAt(now - 36 * 60 * 60_000, "mawjscodex_local-ship.md");
+    const consultation = inboxFilenameAt(now - 72 * 60 * 60_000, "xiaoer_question.md");
+    const freshVerified = inboxFilenameAt(now - 60 * 60_000, "mawjs_fresh-verified.md");
+    writeFileSync(join(inbox, oldVerified), "[m5:mawjs] ✅ slice 1 verified (abcdef1). CI green confirmed.");
+    writeFileSync(join(inbox, oldShip), "[m5:mawjscodex_maw-rs] local ship commit 123abcd: ported a slice. Verified cargo test.");
+    writeFileSync(join(inbox, consultation), "[m5:xiaoer-oracle] Nat asked: should maw brew be core? Please advise.");
+    writeFileSync(join(inbox, freshVerified), "[m5:mawjs] ✅ slice 2 verified (abcdef2). CI green confirmed.");
+
+    const dryOut = captureLogs();
+    const dryRun = await cmdInboxDrain(undefined, { safe: true, dryRun: true, max: 1 }, now);
+    dryOut.restore();
+
+    expect(dryRun).toMatchObject({
+      scanned: 4,
+      matched: 2,
+      archived: 1,
+      remaining_matches: 1,
+      dry_run: true,
+      older_than_seconds: 4 * 60 * 60,
+    });
+    expect(existsSync(join(inbox, oldVerified))).toBe(true);
+    expect(formatInboxDrainResult(dryRun)).toContain("would archive 1/2");
+
+    const out = captureLogs();
+    const result = await cmdInboxDrain(undefined, { safe: true, max: 1, json: true }, now);
+    out.restore();
+
+    expect(result).toMatchObject({
+      scanned: 4,
+      matched: 2,
+      archived: 1,
+      remaining_matches: 1,
+      dry_run: false,
+    });
+    expect(JSON.parse(out.logs.join("\n"))).toMatchObject({ archived: 1, matched: 2 });
+    expect(result.items[0]).toMatchObject({ filename: oldVerified, action: "archived" });
+    expect(existsSync(join(inbox, oldVerified))).toBe(false);
+    expect(existsSync(join(inbox, "processed", "2026-05-21", oldVerified))).toBe(true);
+    expect(existsSync(join(inbox, oldShip))).toBe(true);
+    expect(existsSync(join(inbox, consultation))).toBe(true);
+    expect(existsSync(join(inbox, freshVerified))).toBe(true);
   });
 });
 
