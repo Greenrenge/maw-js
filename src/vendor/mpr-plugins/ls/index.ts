@@ -52,7 +52,9 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         activeThresholdSec: numberish(query.activeThresholdSec),
         filter: typeof query.node === "string" ? query.node : undefined,
       });
-      return { ok: true, output: JSON.stringify(payload) };
+      // API callers need structured data, not ANSI CLI presentation or an
+      // InvokeResult.output string wrapper (#1874).
+      return { ok: true, ...payload } as InvokeResult;
     }
 
     if (ctx.source !== "cli") {

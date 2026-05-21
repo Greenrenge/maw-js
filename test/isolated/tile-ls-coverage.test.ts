@@ -231,8 +231,8 @@ describe("ls plugin index coverage", () => {
       name: "ls",
       description: "List live sessions locally by default; use --federation for peers.",
     });
-    expect(result.ok).toBe(true);
-    expect(JSON.parse(result.output ?? "{}")).toEqual({
+    expect(result).toEqual({
+      ok: true,
       node: "m5",
       oracle: "mawjs",
       local: true,

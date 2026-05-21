@@ -136,6 +136,24 @@ describe("localLsPayload and lsFederated", () => {
     expect(parsed.reachableNodes).toBe(2);
     expect(parsed.nodes.map((node: any) => node.sessions.map((s: any) => s.name))).toEqual([["local"], ["remote"]]);
   });
+
+  test("parses legacy /api/ls InvokeResult output with ANSI presentation instead of dropping sessions", async () => {
+    writePeers({ alpha: { url: "http://alpha.local", node: "alpha" } });
+    curlFetchHandler = () => ({
+      ok: true,
+      status: 200,
+      data: { ok: true, output: "\x1b[36mvolt-oracle\x1b[0m\n  \x1b[32m●\x1b[0m 0: claude\n  \x1b[90m●\x1b[0m 1: logs" },
+    });
+
+    const result = await lsFederated({ json: true, includeLocal: false });
+    const parsed = JSON.parse(result.output ?? "{}");
+
+    expect(result.ok).toBe(true);
+    expect(parsed.totalSessions).toBe(1);
+    expect(parsed.nodes[0].sessions).toEqual([
+      { name: "volt-oracle", windows: [{ index: 0, name: "claude", active: true }, { index: 1, name: "logs", active: false }] },
+    ]);
+  });
 });
 
 

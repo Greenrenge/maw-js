@@ -77,14 +77,40 @@ function sessionsFromPayload(data: any): PeerSession[] {
   return payloadFromData(data).sessions;
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
+
+function sessionsFromFormattedOutput(output: string): PeerSession[] {
+  const sessions: PeerSession[] = [];
+  let current: PeerSession | null = null;
+  for (const originalLine of output.split("\n")) {
+    const rawLine = stripAnsi(originalLine);
+    const line = rawLine.trimEnd();
+    if (!line.trim()) continue;
+    const pane = line.match(/^\s*[●•]\s+(\d+):\s+(.+)$/);
+    if (pane && current) {
+      current.windows.push({ index: Number(pane[1]), name: pane[2].trim(), active: originalLine.includes("\x1b[32m") });
+      continue;
+    }
+    if (!/^\s/.test(rawLine)) {
+      current = { name: line.trim(), windows: [] };
+      sessions.push(current);
+    }
+  }
+  return sessions;
+}
+
 function payloadFromData(data: any): LsNodePayload {
-  // Plugin API auto-mounts return InvokeResult JSON. The real payload is
-  // intentionally encoded in `output` so CLI and API use the same plugin entry.
+  // Compatibility: older/plugin-wrapped peers may still return InvokeResult JSON.
+  // Prefer structured payloads, but salvage JSON output and legacy ANSI output.
   if (data && typeof data === "object" && typeof data.output === "string") {
     try {
       return payloadFromData(JSON.parse(data.output));
     } catch {
-      return { sessions: [] };
+      return { sessions: sessionsFromFormattedOutput(data.output) };
     }
   }
 
@@ -328,4 +354,4 @@ export async function lsFederated(opts: LsFederatedOpts = {}): Promise<InvokeRes
   return { ok: true, output: lines.join("\n") };
 }
 
-export const __private = { payloadFromData, sessionsFromPayload, responseError };
+export const __private = { payloadFromData, sessionsFromPayload, responseError, sessionsFromFormattedOutput };
