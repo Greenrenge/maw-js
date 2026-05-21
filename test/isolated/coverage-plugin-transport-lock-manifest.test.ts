@@ -8,6 +8,8 @@ import type { OracleEntry } from "../../src/core/fleet/oracle-registry";
 import type { OracleManifestEntry } from "../../src/lib/oracle-manifest";
 
 const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const originalCacheDir = process.env.MAW_CACHE_DIR;
+const originalStateDir = process.env.MAW_STATE_DIR;
 const originalHome = process.env.MAW_HOME;
 const originalTestMode = process.env.MAW_TEST_MODE;
 const originalLock = process.env.MAW_PLUGINS_LOCK;
@@ -18,6 +20,8 @@ const CONFIG_FILE = join(TEST_CONFIG_DIR, "maw.config.json");
 const ORACLES_JSON = join(TEST_CONFIG_DIR, "oracles.json");
 
 process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_CACHE_DIR = TEST_CONFIG_DIR;
+process.env.MAW_STATE_DIR = TEST_CONFIG_DIR;
 process.env.MAW_TEST_MODE = "1";
 delete process.env.MAW_HOME;
 
@@ -33,6 +37,10 @@ afterAll(() => {
   rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
   if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
   else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalCacheDir === undefined) delete process.env.MAW_CACHE_DIR;
+  else process.env.MAW_CACHE_DIR = originalCacheDir;
+  if (originalStateDir === undefined) delete process.env.MAW_STATE_DIR;
+  else process.env.MAW_STATE_DIR = originalStateDir;
   if (originalHome === undefined) delete process.env.MAW_HOME;
   else process.env.MAW_HOME = originalHome;
   if (originalTestMode === undefined) delete process.env.MAW_TEST_MODE;
