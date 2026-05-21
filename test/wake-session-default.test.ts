@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readlinkSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, relative } from "path";
 import {
   attachToSession,
   createWorktree,
   wakeSessionDeps,
   ensureSessionRunning,
   isPaneIdle,
+  reconcileParentClaudeDir,
 } from "../src/commands/shared/wake-session";
 
 const originalTmux = process.env.TMUX;
@@ -309,6 +310,28 @@ describe("createWorktree", () => {
       expect(result.wtPath).toBe(wtPath);
       expect(readlinkSync(join(wtPath, ".claude"))).toBe("../repo/.claude");
       expect(logs.join("\n")).toContain(".claude:");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("backfills existing worktree .claude/skills directories from the parent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "maw-wt-skills-"));
+    const repoPath = join(root, "repo");
+    const wtPath = join(root, "repo.wt-1-white");
+    const logs: string[] = [];
+
+    try {
+      mkdirSync(join(repoPath, ".claude", "skills", "dig"), { recursive: true });
+      mkdirSync(join(repoPath, ".claude", "skills", "calver"), { recursive: true });
+      mkdirSync(join(wtPath, ".claude", "skills", "dig"), { recursive: true });
+
+      await reconcileParentClaudeDir(repoPath, wtPath, (...args: unknown[]) => logs.push(args.map(String).join(" ")));
+
+      expect(readlinkSync(join(wtPath, ".claude", "skills"))).toBe(
+        relative(join(wtPath, ".claude"), join(repoPath, ".claude", "skills")),
+      );
+      expect(logs.join("\n")).toContain(".claude/skills:");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

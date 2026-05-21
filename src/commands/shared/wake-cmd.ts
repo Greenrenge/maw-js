@@ -7,7 +7,7 @@ import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
 import { canonicalSessionName } from "../../core/fleet/session-name";
 import { resolveOracle, findWorktrees, findReusableWorktreeBySlug, getSessionMap, resolveFleetSession, detectSession, setSessionEnv, sanitizeBranchName } from "./wake-resolve";
-import { attachToSession, ensureSessionRunning, createWorktree } from "./wake-session";
+import { attachToSession, ensureSessionRunning, createWorktree, reconcileParentClaudeDir } from "./wake-session";
 import { maybeOpenWindow, maybeSplit } from "./wake-maybe-split";
 import { runWakeLifecycleHooks } from "../../plugin/lifecycle";
 import { parseWakeTarget, ensureCloned } from "./wake-target";
@@ -892,6 +892,7 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
 
     if (match) {
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);
+      await reconcileParentClaudeDir(repoPath, match.path, console.log.bind(console));
       targetPath = match.path;
       windowName = `${oracle}-${name}`;
     } else {

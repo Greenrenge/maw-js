@@ -210,6 +210,8 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       const existing = existingWorktrees.find(w => w.name === sharedWtName || w.path === expectedPath);
       if (existing) {
         sharedWtPath = existing.path;
+        const { reconcileParentClaudeDir } = await import("../../shared/wake-session");
+        await reconcileParentClaudeDir(repoPath, sharedWtPath, console.log.bind(console));
       } else {
         const { createWorktree } = await import("../../shared/wake-session");
         const oracle = repoName.replace(/-oracle$/, "");
