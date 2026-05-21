@@ -33,6 +33,7 @@ export interface ViewOpts {
   windowHint?: string;
   clean?: boolean;
   kill?: boolean;
+  readonly?: boolean;
   splitAnchor?: string | true;
   wake?: boolean;
   noWake?: boolean;
@@ -48,7 +49,7 @@ export async function cmdView(
   clean = false,
   kill = false,
   splitAnchor?: string | true,
-  extraOpts: Pick<ViewOpts, "wake" | "noWake" | "ask" | "wakeImpl"> = {},
+  extraOpts: Pick<ViewOpts, "readonly" | "wake" | "noWake" | "ask" | "wakeImpl"> = {},
 ) {
   // Backward-compatible signature: callers pass either a windowHint string
   // OR a full ViewOpts object as the second arg.
@@ -59,6 +60,7 @@ export async function cmdView(
     kill = windowHintOrOpts.kill ?? kill;
     splitAnchor = windowHintOrOpts.splitAnchor ?? splitAnchor;
     extraOpts = {
+      readonly: windowHintOrOpts.readonly,
       wake: windowHintOrOpts.wake,
       noWake: windowHintOrOpts.noWake,
       ask: windowHintOrOpts.ask,
@@ -66,6 +68,10 @@ export async function cmdView(
     };
   } else {
     windowHint = windowHintOrOpts;
+  }
+  const readonly = extraOpts.readonly === true;
+  if (readonly && splitAnchor !== undefined) {
+    throw new Error("maw view --readonly cannot be combined with --split yet; split attaches through a writable nested tmux client");
   }
   // Find the session
   const sessions = await listSessions();
@@ -176,6 +182,9 @@ export async function cmdView(
   const host = process.env.MAW_HOST || loadConfig().host || "local";
   const isLocal = host === "local" || host === "localhost";
   const socket = resolveSocket();
+  if (readonly && !isLocal) {
+    throw new Error("maw view --readonly is currently local-only; remote readonly attach needs attach-ssh support");
+  }
 
   // If the resolved session is already a view, attach directly — skip the
   // grouped-session dance that would otherwise create X-view-view.
@@ -215,16 +224,17 @@ export async function cmdView(
       await cmdSplit(sessionName, { anchorPane });
       return;
     }
-    console.log(`\x1b[36mattach\x1b[0m  → ${sessionName}${clean ? " (clean)" : ""}`);
+    console.log(`\x1b[36mattach\x1b[0m  → ${sessionName}${clean ? " (clean)" : ""}${readonly ? " (read-only)" : ""}`);
     if (isLocal && process.env.TMUX) {
-      await t.switchClient(sessionName);
+      if (readonly) await t.switchClient(sessionName, { readonly: true });
+      else await t.switchClient(sessionName);
       console.log(
         `\x1b[90mhint\x1b[0m    → detach with prefix+d, then \`tmux kill-session -t ${sessionName}\` when done`,
       );
       return;
     }
     try {
-      attachViaTmux({ isLocal, socket, host, target: sessionName });
+      attachViaTmux({ isLocal, socket, host, target: sessionName, readonly });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`\x1b[33mwarn\x1b[0m: attach exited non-zero — ${msg}`);
@@ -284,14 +294,15 @@ export async function cmdView(
   }
 
   // Attach interactively
-  console.log(`\x1b[36mattach\x1b[0m  → ${viewName}${clean ? " (clean)" : ""}`);
+  console.log(`\x1b[36mattach\x1b[0m  → ${viewName}${clean ? " (clean)" : ""}${readonly ? " (read-only)" : ""}`);
 
   // Already inside tmux? switch-client is the only option — nested
   // `attach-session` would fail with "sessions should be nested with care".
   // Fire-and-forget: we can't block until the user detaches, so we skip the
   // automatic kill-session cleanup and print a hint instead.
   if (isLocal && process.env.TMUX) {
-    await t.switchClient(viewName);
+    if (readonly) await t.switchClient(viewName, { readonly: true });
+    else await t.switchClient(viewName);
     console.log(
       `\x1b[90mhint\x1b[0m    → detach with prefix+d, then \`tmux kill-session -t ${viewName}\` when done`,
     );
@@ -305,7 +316,7 @@ export async function cmdView(
   // (attachToSession helper, e07b7e9). argv form avoids local shell
   // interpretation of session names (js/indirect-command-line-injection, #474).
   try {
-    attachViaTmux({ isLocal, socket, host, target: viewName });
+    attachViaTmux({ isLocal, socket, host, target: viewName, readonly });
   } catch (err) {
     // tmux exits non-zero when attach fails (session gone, socket missing,
     // etc). Log but do NOT re-throw — a failed attach should not cascade
@@ -366,14 +377,18 @@ function attachViaTmux(opts: {
   socket: string | undefined;
   host: string;
   target: string;
+  readonly?: boolean;
 }): void {
-  const { isLocal, socket, host, target } = opts;
+  const { isLocal, socket, host, target, readonly } = opts;
   if (isLocal) {
     const args = socket
-      ? ["-S", socket, "attach-session", "-t", target]
-      : ["attach-session", "-t", target];
+      ? ["-S", socket, "attach-session", ...(readonly ? ["-r"] : []), "-t", target]
+      : ["attach-session", ...(readonly ? ["-r"] : []), "-t", target];
     execFileSync("tmux", args, { stdio: "inherit" });
     return;
+  }
+  if (readonly) {
+    throw new Error("maw view --readonly is currently local-only; remote readonly attach needs attach-ssh support");
   }
   // Remote — funnel through the shared helper. `host` doubles as both the
   // logical node label and the SSH alias for view's case (config.host is the

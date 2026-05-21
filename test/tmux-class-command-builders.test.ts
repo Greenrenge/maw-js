@@ -110,6 +110,7 @@ describe("Tmux command wrapper coverage", () => {
     await t.newWindow("oracle", "child", { cwd: "/repo/child" });
     await t.selectWindow("oracle:child");
     await t.switchClient("oracle");
+    await t.switchClient("oracle-view", { readonly: true });
     await t.killWindow("oracle:child");
     await t.linkWindow("oracle:main", "maw-view:1");
     await t.unlinkWindow("maw-view:linked");
@@ -127,6 +128,8 @@ describe("Tmux command wrapper coverage", () => {
       "new-window -t oracle: -n child -c /repo/child",
       "select-window -t oracle:child",
       "switch-client -t oracle",
+      "display-message -p #{client_readonly}",
+      "switch-client -r -t oracle-view",
       "kill-window -t oracle:child",
       "link-window -d -s oracle:main -t maw-view:1",
       "unlink-window -t maw-view:linked",
@@ -141,6 +144,19 @@ describe("Tmux command wrapper coverage", () => {
 
     expect(await t.hasSession("missing")).toBe(false);
     expect(await t.tryRun("kill-window", "-t", "missing:0")).toBe("");
+  });
+
+  test("read-only switch preserves an already read-only client instead of toggling it off", async () => {
+    const t = new FakeTmux(byCommand({
+      "display-message -p #{client_readonly}": "1\n",
+    }));
+
+    await t.switchClient("oracle-view", { readonly: true });
+
+    expect(t.callStrings()).toEqual([
+      "display-message -p #{client_readonly}",
+      "switch-client -t oracle-view",
+    ]);
   });
 
   test("pane list/info helpers parse optional fields and tolerate failures", async () => {

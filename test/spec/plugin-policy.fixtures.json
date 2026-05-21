@@ -47,6 +47,13 @@
       "migration": "defaultActivePlugins1531",
       "expectedPlugins": ["learn", "find", "talk-to", "project", "workon", "cleanup"],
       "excludedPlugins": ["team", "split", "shellenv", "completions", "dream"]
+    },
+    {
+      "name": "#1854 view stays active for observer attach",
+      "key": "1854",
+      "migration": "defaultActivePlugins1854",
+      "expectedPlugins": ["view"],
+      "excludedPlugins": ["team", "split", "shellenv", "completions", "dream"]
     }
   ]
 }

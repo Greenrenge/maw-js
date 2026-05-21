@@ -40,8 +40,8 @@ class FakeTmux {
     this.calls.push({ method: "set", args: [target, option, value] });
   }
 
-  async switchClient(target: string): Promise<void> {
-    this.calls.push({ method: "switchClient", args: [target] });
+  async switchClient(target: string, opts?: unknown): Promise<void> {
+    this.calls.push({ method: "switchClient", args: opts === undefined ? [target] : [target, opts] });
   }
 
   async killSession(target: string): Promise<void> {
@@ -272,6 +272,45 @@ describe("view impl coverage", () => {
       ["-S", "/tmp/maw.sock", "attach-session", "-t", "mawjs-view"],
       { stdio: "inherit" },
     ]]);
+  });
+
+  test("attaches read-only inside tmux and outside tmux", async () => {
+    sessionsRef.push({ name: "101-mawjs", windows: [{ index: 0, name: "shell" }] });
+    resolveImpl = () => ({ kind: "exact", match: sessionsRef[0] });
+
+    await cmdView("mawjs", { readonly: true });
+
+    expect(tmuxInstances[0].calls).toContainEqual({
+      method: "switchClient",
+      args: ["mawjs-view", { readonly: true }],
+    });
+    expect(logs.join("\n")).toContain("read-only");
+
+    delete process.env.TMUX;
+    tmuxInstances.length = 0;
+    execFileCalls.length = 0;
+
+    await cmdView("mawjs", { readonly: true });
+
+    expect(execFileCalls).toEqual([[
+      "tmux",
+      ["attach-session", "-r", "-t", "mawjs-view"],
+      { stdio: "inherit" },
+    ]]);
+  });
+
+  test("rejects read-only split and remote read-only until those paths can enforce it", async () => {
+    await expect(cmdView("mawjs", { readonly: true, splitAnchor: true }))
+      .rejects.toThrow("--readonly cannot be combined with --split");
+
+    delete process.env.TMUX;
+    configHost = "whitebox";
+    sessionsRef.push({ name: "101-mawjs", windows: [{ index: 0, name: "shell" }] });
+    resolveImpl = () => ({ kind: "exact", match: sessionsRef[0] });
+
+    await expect(cmdView("mawjs", { readonly: true }))
+      .rejects.toThrow("remote readonly attach needs attach-ssh support");
+    expect(attachRemoteCalls).toEqual([]);
   });
 
   test("force-wakes a missing target without prompting", async () => {

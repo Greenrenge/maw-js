@@ -178,8 +178,17 @@ export class Tmux {
   }
 
   /** Switch the current tmux client to a different session. Only works when inside tmux. */
-  async switchClient(session: string): Promise<void> {
-    await this.tryRun("switch-client", "-t", session);
+  async switchClient(session: string, opts: { readonly?: boolean } = {}): Promise<void> {
+    if (!opts.readonly) {
+      await this.tryRun("switch-client", "-t", session);
+      return;
+    }
+
+    const readonly = await this.tryRun("display-message", "-p", "#{client_readonly}");
+    const args: (string | number)[] = readonly.trim() === "1"
+      ? ["-t", session]
+      : ["-r", "-t", session];
+    await this.tryRun("switch-client", ...args);
   }
 
   async killWindow(target: string): Promise<void> {

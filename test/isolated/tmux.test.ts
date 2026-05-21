@@ -274,6 +274,23 @@ describe("Tmux", () => {
       expect(commands[0]).toBe("tmux attach-session -r -t oracles");
     });
 
+    test("switches clients read-only without toggling an already read-only client off", async () => {
+      sshResult = "0";
+      await t.switchClient("oracles-view", { readonly: true });
+      expect(commands).toEqual([
+        "tmux display-message -p '#{client_readonly}'",
+        "tmux switch-client -r -t oracles-view",
+      ]);
+
+      commands = [];
+      sshResult = "1";
+      await t.switchClient("oracles-view", { readonly: true });
+      expect(commands).toEqual([
+        "tmux display-message -p '#{client_readonly}'",
+        "tmux switch-client -t oracles-view",
+      ]);
+    });
+
     test("generates pipe-pane output, input, close, and only-if-closed variants", async () => {
       await t.pipePane("oracles:0.1", "cat > /tmp/out file", { onlyIfClosed: true });
       await t.pipePane("oracles:0.1", "cat", { input: true, output: false });
