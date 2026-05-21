@@ -4,7 +4,7 @@ import { ACTIVITY_USAGE, cmdActivity, type ActivityOptions } from "./impl";
 
 export const command = {
   name: "activity",
-  description: "Classify pane activity by diffing follow/PTTY snapshots.",
+  description: "Classify pane activity by diffing peek snapshots.",
 };
 
 function numberFlag(value: string | undefined): number | undefined {
@@ -20,6 +20,7 @@ function cliOptions(args: string[]): { target?: string; opts: ActivityOptions } 
     "--json": Boolean,
     "--window": String,
     "--samples": String,
+    "--sampler": String,
   }, 0);
   const target = flags._[0];
   if (target === "--help" || target === "-h") throw new Error(ACTIVITY_USAGE);
@@ -35,6 +36,7 @@ function cliOptions(args: string[]): { target?: string; opts: ActivityOptions } 
       json: Boolean(flags["--json"]),
       window: flags["--window"],
       samples: numberFlag(flags["--samples"]),
+      sampler: flags["--sampler"],
     },
   };
 }
@@ -52,6 +54,7 @@ function apiOptions(args: Record<string, unknown>): { target?: string; opts: Act
       json: Boolean(args.json),
       window: typeof args.window === "string" ? args.window : undefined,
       samples: typeof args.samples === "number" ? args.samples : undefined,
+      sampler: typeof args.sampler === "string" ? args.sampler : undefined,
     },
   };
 }

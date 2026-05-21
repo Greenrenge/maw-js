@@ -1,5 +1,5 @@
 import { loadConfig } from "maw-js/config";
-import { listSessions } from "maw-js/sdk";
+import { capture, findWindow, listSessions } from "maw-js/sdk";
 import { loadFleet, loadFleetEntries, type FleetEntry } from "maw-js/commands/shared/fleet-load";
 import {
   followUrlFromConfig,
@@ -9,10 +9,11 @@ import {
   type FollowDeps,
 } from "../follow/impl";
 
-export const ACTIVITY_USAGE = "usage: maw activity <pane> [--watch] [--json] [--window=<dur>] [--samples=N] | maw activity --all [--watch] [--json] [--window=<dur>] [--samples=N]";
+export const ACTIVITY_USAGE = "usage: maw activity <pane> [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow]";
 
 export type ActivityState = "busy" | "idle" | "stuck";
 export type ActivityConfidence = "low" | "medium" | "high";
+export type ActivitySampler = "peek" | "follow";
 
 export interface ActivityOptions {
   all?: boolean;
@@ -20,6 +21,7 @@ export interface ActivityOptions {
   json?: boolean;
   window?: string;
   samples?: number;
+  sampler?: string;
   watchIterations?: number;
 }
 
@@ -49,6 +51,8 @@ type Timer = ReturnType<typeof setTimeout>;
 
 export interface ActivityDeps {
   WebSocketCtor: WebSocketCtor;
+  capture: typeof capture;
+  findWindow: typeof findWindow;
   loadConfig: typeof loadConfig;
   listSessions: typeof listSessions;
   loadFleet: typeof loadFleet;
@@ -62,6 +66,7 @@ export interface ActivityDeps {
   processOn: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
   processOff: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
   snapshotPane: (pane: string, windowMs: number, deps: ActivityDeps) => Promise<string>;
+  followSnapshotPane: (pane: string, windowMs: number, deps: ActivityDeps) => Promise<string>;
   snapshotSettleMs: number;
   snapshotTimeoutMs: number;
   allConcurrency: number;
@@ -83,14 +88,37 @@ export function activityDeps(overrides: Partial<ActivityDeps> = {}): ActivityDep
   };
   return {
     ...base,
+    capture,
+    findWindow,
     loadFleetEntries,
     sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-    snapshotPane: collectFollowSnapshot,
+    snapshotPane: collectPeekSnapshot,
+    followSnapshotPane: collectFollowSnapshot,
     snapshotSettleMs: 150,
     snapshotTimeoutMs: 1_000,
     allConcurrency: 8,
     ...overrides,
   };
+}
+
+const ACTIVITY_PEEK_LINES = 80;
+
+export async function collectPeekSnapshot(pane: string, _windowMs: number, deps: ActivityDeps = activityDeps()): Promise<string> {
+  return await deps.capture(pane, ACTIVITY_PEEK_LINES);
+}
+
+async function resolvePeekTarget(pane: string, deps: Pick<ActivityDeps, "findWindow" | "listSessions">): Promise<string> {
+  const colon = pane.indexOf(":");
+  if (colon < 0) return pane;
+  const session = pane.slice(0, colon);
+  const windowPart = pane.slice(colon + 1);
+  if (/^\d+(?:\.\d+)?$/.test(windowPart)) return pane;
+
+  const paneSuffix = /^(.*)\.(\d+)$/.exec(windowPart);
+  const windowName = paneSuffix ? paneSuffix[1] : windowPart;
+  const numeric = deps.findWindow(await deps.listSessions(), `${session}:${windowName}`);
+  if (!numeric) return pane;
+  return paneSuffix ? `${numeric}.${paneSuffix[2]}` : numeric;
 }
 
 async function frameToText(data: unknown): Promise<string> {
@@ -192,6 +220,7 @@ export async function collectFollowSnapshot(pane: string, windowMs: number, deps
 interface ParsedActivityOptions {
   windowMs: number;
   samples: number;
+  sampler: ActivitySampler;
 }
 
 export function parseActivityOptions(opts: ActivityOptions = {}): ParsedActivityOptions {
@@ -201,7 +230,11 @@ export function parseActivityOptions(opts: ActivityOptions = {}): ParsedActivity
   if (!Number.isInteger(samples) || samples < 2 || samples > 50) {
     throw new Error("activity: --samples must be an integer from 2 to 50");
   }
-  return { windowMs, samples };
+  const sampler = opts.sampler ?? "peek";
+  if (sampler !== "peek" && sampler !== "follow") {
+    throw new Error("activity: --sampler must be peek or follow");
+  }
+  return { windowMs, samples, sampler };
 }
 
 function stripAnsi(input: string): string {
@@ -275,12 +308,14 @@ export async function sampleActivity(target: string, opts: ActivityOptions = {},
   const deps = activityDeps(overrides);
   const parsed = parseActivityOptions(opts);
   const pane = await resolveFollowTarget(target, deps);
+  const snapshotTarget = parsed.sampler === "peek" ? await resolvePeekTarget(pane, deps) : pane;
   const intervalMs = parsed.samples === 1 ? 0 : Math.round(parsed.windowMs / (parsed.samples - 1));
   const samples: SnapshotSample[] = [];
+  const snapshot = parsed.sampler === "follow" ? deps.followSnapshotPane : deps.snapshotPane;
 
   for (let i = 0; i < parsed.samples; i += 1) {
     if (i > 0) await deps.sleep(intervalMs);
-    const text = await deps.snapshotPane(pane, parsed.windowMs, deps);
+    const text = await snapshot(snapshotTarget, parsed.windowMs, deps);
     samples.push({ text, at: deps.now() });
   }
 
@@ -306,7 +341,10 @@ function allTargets(entries: FleetEntry[]): string[] {
   const targets: string[] = [];
   for (const entry of entries) {
     const windows = entry.session.windows?.length ? entry.session.windows : [{ name: entry.session.name, repo: "" }];
-    for (const window of windows) targets.push(window.name || entry.session.name);
+    for (const window of windows) {
+      const name = window.name || entry.session.name;
+      targets.push(name.includes(":") ? name : `${entry.session.name}:${name}`);
+    }
   }
   return [...new Set(targets)].sort((a, b) => a.localeCompare(b));
 }
@@ -333,9 +371,15 @@ function formatDuration(seconds: number): string {
   return `${hours}h`;
 }
 
+function formatDurationMs(ms: number): string {
+  if (ms < 1_000) return `${ms}ms`;
+  if (ms % 1_000 === 0) return formatDuration(ms / 1_000);
+  return `${(ms / 1_000).toFixed(1).replace(/\.0$/, "")}s`;
+}
+
 function samplingDescription(opts: ActivityOptions): string {
   const parsed = parseActivityOptions(opts);
-  return `window=${formatDuration(Math.max(1, Math.round(parsed.windowMs / 1000)))}, samples=${parsed.samples}`;
+  return `window=${formatDurationMs(parsed.windowMs)}, samples=${parsed.samples}, sampler=${parsed.sampler}`;
 }
 
 export function formatActivityHuman(result: ActivityResult): string {
@@ -348,6 +392,23 @@ export function formatActivityHuman(result: ActivityResult): string {
 
 function emit(result: ActivityResult, opts: ActivityOptions, deps: Pick<ActivityDeps, "stdoutWrite">) {
   deps.stdoutWrite(opts.json ? `${JSON.stringify(result)}\n` : `${formatActivityHuman(result)}\n`);
+}
+
+function renderedLineCount(text: string): number {
+  if (!text) return 0;
+  return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
+}
+
+function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions): string {
+  const rows = results.map(formatActivityHuman);
+  const body = rows.length ? rows.join("\n") : "(no panes resolved)";
+  return `activity: watching ${scope} (${samplingDescription(opts)}); press Ctrl-C to stop\n${body}\n`;
+}
+
+function redrawWatchTable(renderedLines: number, text: string, deps: Pick<ActivityDeps, "stdoutWrite">): number {
+  if (renderedLines > 0) deps.stdoutWrite(`\x1b[${renderedLines}A\r\x1b[J`);
+  deps.stdoutWrite(text);
+  return renderedLineCount(text);
 }
 
 async function cmdActivityOnce(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
@@ -365,12 +426,10 @@ async function cmdActivityOnce(target: string | undefined, opts: ActivityOptions
 
 async function cmdActivityWatch(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
   if (!opts.all && !target) throw new Error(ACTIVITY_USAGE);
-  if (!opts.json) {
-    const scope = opts.all ? "fleet" : target;
-    deps.stderrWrite(`activity: watching ${scope} transitions only (${samplingDescription(opts)}); press Ctrl-C to stop\n`);
-  }
+  const scope = opts.all ? "fleet" : target || "";
   const emitted: ActivityResult[] = [];
   const previous = new Map<string, ActivityState>();
+  let renderedLines = 0;
   let stopped = false;
   const onSignal = () => { stopped = true; };
   deps.processOn("SIGINT", onSignal);
@@ -381,6 +440,12 @@ async function cmdActivityWatch(target: string | undefined, opts: ActivityOption
       const results = opts.all
         ? await sampleAllActivity(opts, deps)
         : [await sampleActivity(target || "", opts, deps)];
+      if (stopped) break;
+      if (!opts.json) {
+        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, results, opts), deps);
+        if (Number.isFinite(max)) emitted.push(...results);
+        continue;
+      }
       for (const result of results) {
         const prev = previous.get(result.pane);
         previous.set(result.pane, result.state);
