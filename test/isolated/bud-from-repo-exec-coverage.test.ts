@@ -40,6 +40,7 @@ mock.module("maw-js/config/ghq-root", () => ({
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   fleetDirForWrite: () => fleetDir,
   loadFleetEntries: () => fleetEntries,
+  loadFleet: () => [],
 }));
 
 mock.module("maw-js/commands/shared/wake", () => ({
@@ -61,6 +62,7 @@ mock.module("maw-js/commands/shared/should-auto-wake", () => ({
 }));
 
 mock.module("maw-js/commands/shared/wake-target", () => ({
+  parseWakeTarget: () => null,
   ensureCloned: async (repo: string) => {
     ensureClonedCalls.push(repo);
   },
