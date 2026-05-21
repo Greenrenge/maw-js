@@ -13,14 +13,17 @@
  * not deleted. The entry is preserved with a retired_at timestamp.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { CONFIG_DIR, listSessions } from "../../../sdk";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
+import { listSessions } from "../../../sdk";
 import { runStaleScan, type StaleEntry } from "./impl-stale";
 import type { OracleEntry } from "../../../sdk";
 import { createInterface } from "readline";
+import {
+  registryCacheFilePath,
+  legacyRegistryCacheFilePath,
+} from "../../../core/fleet/registry-oracle-types";
 
-const CACHE_FILE = join(CONFIG_DIR, "oracles.json");
 
 export interface PruneOpts {
   stale?: boolean;
@@ -104,11 +107,16 @@ export function buildStaleCandidates(staleEntries: StaleEntry[]): PruneCandidate
 export function readRawRegistry(file: string): Record<string, unknown> {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));
+    if (file === registryCacheFilePath()) {
+      const legacyFile = legacyRegistryCacheFilePath();
+      if (existsSync(legacyFile)) return JSON.parse(readFileSync(legacyFile, "utf-8"));
+    }
   } catch { /* fall through */ }
   return {};
 }
 
 export function writeRawRegistry(file: string, data: Record<string, unknown>): void {
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
@@ -131,7 +139,8 @@ export async function runPrune(
   opts: PruneOpts = {},
   deps: PruneDeps = {},
 ): Promise<PruneCandidate[]> {
-  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
+  const registryFile = registryCacheFilePath();
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(registryFile));
 
   const rawCache = readRawCache();
   const entries: OracleEntry[] = (rawCache.oracles as OracleEntry[] | undefined) ?? [];
@@ -159,8 +168,9 @@ export async function cmdOraclePrune(
   opts: PruneOpts = {},
   deps: PruneDeps = {},
 ): Promise<void> {
-  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(CACHE_FILE));
-  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(CACHE_FILE, data));
+  const registryFile = registryCacheFilePath();
+  const readRawCache = deps.readRawCache ?? (() => readRawRegistry(registryFile));
+  const writeRawCache = deps.writeRawCache ?? ((data) => writeRawRegistry(registryFile, data));
 
   const candidates = await runPrune(opts, deps);
 

@@ -4,7 +4,6 @@ import type { WSData } from "./types";
 import { loadConfig } from "../config";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { serveStatic } from "hono/bun";
 import { api } from "../api";
 import { feedBuffer, feedListeners } from "../api/feed";
@@ -23,6 +22,7 @@ import {
   proxyEnginePluginRequest,
   startEnginePluginHealthPolling,
 } from "./engine-plugin-registry";
+import { mawDataPath } from "./xdg";
 
 // --- Version info (computed once at startup) ---
 
@@ -51,7 +51,7 @@ import { resolveBindHost } from "./bind-host";
 // --- Views + static (Hono keeps these) ---
 
 export function createViews(
-  mawUiDir = process.env.MAW_UI_DIR || join(homedir(), ".maw", "ui", "dist"),
+  mawUiDir = process.env.MAW_UI_DIR || mawDataPath("ui", "dist"),
   doorHtmlPath = join(import.meta.dir, "static", "door.html"),
 ) {
   const views = new Hono();
@@ -136,8 +136,7 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   // Plugin system — built-in + user plugins
   try {
     const { PluginSystem, loadPlugins, reloadUserPlugins, watchUserPlugins, registerManifestHooks } = require("../plugins/index");
-    const { homedir } = require("os");
-    const { join, resolve, dirname } = require("path");
+    const { resolve, dirname } = require("path");
     const plugins = new PluginSystem({
       shouldSkipHandler: (eventName: string, pluginName: string | undefined) =>
         hasEnginePluginEventSink(pluginName, eventName),
@@ -147,8 +146,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
     await loadPlugins(plugins, builtinDir, "builtin");
 
-    // User plugins (file-drop: ~/.oracle/plugins/)
-    const userPluginsDir = join(homedir(), ".oracle", "plugins");
+    // User plugins (file-drop: XDG data plugin dir; overridable for tests/dev)
+    const userPluginsDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
     await loadPlugins(plugins, userPluginsDir, "user");
 
     // Package plugin hooks (manifest.hooks) — lets bundled/MPR plugins

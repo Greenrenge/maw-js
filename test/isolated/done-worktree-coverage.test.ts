@@ -17,6 +17,7 @@ type HostExecHandler = (command: string) => string | Promise<string>;
 
 let hostExecCalls: string[] = [];
 let hostExecHandler: HostExecHandler = () => "";
+let fleetReadDirs: string[] = [FLEET_DIR];
 
 mock.module("maw-js/sdk", () => ({
   FLEET_DIR,
@@ -24,6 +25,10 @@ mock.module("maw-js/sdk", () => ({
     hostExecCalls.push(command);
     return await hostExecHandler(command);
   },
+}));
+
+mock.module("maw-js/commands/shared/fleet-load", () => ({
+  fleetDirsForRead: () => fleetReadDirs,
 }));
 
 const {
@@ -66,6 +71,7 @@ beforeEach(() => {
   resetSandbox();
   hostExecCalls = [];
   hostExecHandler = () => "";
+  fleetReadDirs = [FLEET_DIR];
 });
 
 afterAll(() => {
@@ -97,6 +103,32 @@ describe("removeWorktreeViaConfig", () => {
     ]);
     expect(output).toContain("removed worktree Soul-Brews-Studio/maw-js.wt-123-feature");
     expect(output).toContain("deleted branch feature/done-cleanup");
+  });
+
+  test("uses state fleet configs before duplicate legacy configs", async () => {
+    const stateFleetDir = join(SANDBOX, "state-fleet");
+    mkdirSync(stateFleetDir, { recursive: true });
+    fleetReadDirs = [stateFleetDir, FLEET_DIR];
+    writeFileSync(
+      join(stateFleetDir, "oracle.json"),
+      JSON.stringify({ windows: [{ name: "FeaturePane", repo: "StateOrg/state-repo.wt-feature" }] }),
+      "utf-8",
+    );
+    writeFleetConfig("oracle.json", {
+      windows: [{ name: "FeaturePane", repo: "LegacyOrg/legacy-repo.wt-feature" }],
+    });
+
+    hostExecHandler = (command) => {
+      if (command.includes("rev-parse --abbrev-ref HEAD")) return "main\n";
+      return "";
+    };
+
+    expect(await removeWorktreeViaConfig("featurepane", REPOS_ROOT)).toBe(true);
+
+    expect(hostExecCalls).toContain(
+      `git -C '${join(REPOS_ROOT, "StateOrg/state-repo.wt-feature")}' rev-parse --abbrev-ref HEAD`,
+    );
+    expect(hostExecCalls.join("\n")).not.toContain("LegacyOrg/legacy-repo");
   });
 
   test("returns false after reporting a worktree removal failure", async () => {
@@ -133,7 +165,7 @@ describe("removeWorktreeByGhqScan", () => {
     const other = join(REPOS_ROOT, "github.com", "org", "other.wt-bugfix");
 
     hostExecHandler = (command) => {
-      if (command.startsWith(`find ${REPOS_ROOT}`)) {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) {
         return [exact, substringOnly, other].join("\n");
       }
       if (command.includes("rev-parse --abbrev-ref HEAD")) return "feature/done\n";
@@ -147,7 +179,7 @@ describe("removeWorktreeByGhqScan", () => {
 
     const mainPath = exact.replace("repo.wt-123-feature", "repo");
     expect(hostExecCalls).toEqual([
-      `find ${REPOS_ROOT} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`,
+      `find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`,
       `git -C '${exact}' rev-parse --abbrev-ref HEAD`,
       `git -C '${mainPath}' worktree remove '${exact}' --force`,
       `git -C '${mainPath}' worktree prune`,
@@ -155,6 +187,27 @@ describe("removeWorktreeByGhqScan", () => {
     ]);
     expect(output).toContain("removed worktree repo.wt-123-feature");
     expect(output).not.toContain("repo.wt-feature-extra");
+  });
+
+
+  test("refuses ambiguous exact suffix matches without mutating worktrees", async () => {
+    const one = join(REPOS_ROOT, "github.com", "org", "repo.wt-feature");
+    const two = join(REPOS_ROOT, "github.com", "other", "repo.wt-feature");
+
+    hostExecHandler = (command) => {
+      if (command.startsWith(`find '${REPOS_ROOT}'`)) return [one, two].join("\n");
+      throw new Error(`unexpected mutation: ${command}`);
+    };
+
+    const output = await captureConsole(async () => {
+      expect(await removeWorktreeByGhqScan("mother-feature", REPOS_ROOT)).toBe(false);
+    });
+
+    expect(hostExecCalls).toEqual([`find '${REPOS_ROOT}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`]);
+    expect(output).toContain("refusing to remove worktree 'feature' — matches 2 repos");
+    expect(output).toContain(one);
+    expect(output).toContain(two);
+    expect(output).toContain("use fleet config or remove the exact worktree manually");
   });
 
   test("reports scan failures and returns false", async () => {
@@ -191,6 +244,34 @@ describe("removeFromFleetConfig", () => {
     expect(readFleetConfig("one.json").windows).toEqual([{ name: "Keep", repo: "org/keep" }]);
     expect(readFleetConfig("two.json").windows).toEqual([]);
     return expect(output).resolves.toContain("removed from one.json");
+  });
+
+  test("removes matching windows from state before duplicate legacy configs", () => {
+    const stateFleetDir = join(SANDBOX, "state-fleet-remove");
+    mkdirSync(stateFleetDir, { recursive: true });
+    fleetReadDirs = [stateFleetDir, FLEET_DIR];
+    writeFileSync(
+      join(stateFleetDir, "one.json"),
+      JSON.stringify({
+        windows: [
+          { name: "DonePane", repo: "state/repo.wt-done" },
+          { name: "Keep", repo: "state/repo" },
+        ],
+      }),
+      "utf-8",
+    );
+    writeFleetConfig("one.json", {
+      windows: [{ name: "DonePane", repo: "legacy/repo.wt-done" }],
+    });
+
+    expect(removeFromFleetConfig("donepane")).toBe(true);
+
+    expect(JSON.parse(readFileSync(join(stateFleetDir, "one.json"), "utf-8")).windows).toEqual([
+      { name: "Keep", repo: "state/repo" },
+    ]);
+    expect(readFleetConfig("one.json").windows).toEqual([
+      { name: "DonePane", repo: "legacy/repo.wt-done" },
+    ]);
   });
 
   test("returns false when no fleet config contains the window", () => {

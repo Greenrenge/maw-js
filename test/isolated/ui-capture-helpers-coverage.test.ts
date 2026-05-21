@@ -10,9 +10,9 @@ type Session = {
 };
 
 type ResolveResult =
-  | { kind: "ambiguous"; candidates: Array<{ name: string }> }
-  | { kind: "none"; hints?: Array<{ name: string }> }
-  | { kind: "match"; match: Session };
+  | { tier: 1; sessionName: string; ambiguousCandidates?: string[] }
+  | { tier: 2; fleetName: string; ambiguousCandidates?: string[] }
+  | null;
 
 let namedPeers: Array<{ name: string; url: string }> = [];
 let configValue: any;
@@ -34,6 +34,7 @@ let tempDirs: string[] = [];
 
 const originalHome = process.env.HOME;
 const originalMawUiSrc = process.env.MAW_UI_SRC;
+const originalMawDataDir = process.env.MAW_DATA_DIR;
 const originalLog = console.log;
 const originalError = console.error;
 
@@ -62,12 +63,15 @@ mock.module("maw-js/sdk", () => ({
   tmuxCmd: () => tmuxBin,
 }));
 
-mock.module("maw-js/core/matcher/resolve-target", () => ({
-  resolveSessionTarget: (target: string, currentSessions: Session[]) => {
+mock.module("maw-js/commands/shared/fleet-load", () => ({
+  loadFleet: () => [],
+}));
+
+mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/attach/resolve-attach-target.ts"), () => ({
+  resolveAttachTarget: async (target: string, deps: any) => {
+    const currentSessions = await deps.listSessions();
     resolveCalls.push({ target, sessions: currentSessions });
-    const result = resolveResults.shift();
-    if (!result) throw new Error(`unexpected resolve call: ${target}`);
-    return result;
+    return resolveResults.shift() ?? null;
   },
 }));
 
@@ -91,7 +95,7 @@ function makeTempDir(prefix: string) {
   return dir;
 }
 
-function restoreEnv(name: "HOME" | "MAW_UI_SRC", value: string | undefined) {
+function restoreEnv(name: "HOME" | "MAW_UI_SRC" | "MAW_DATA_DIR", value: string | undefined) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
@@ -119,6 +123,7 @@ beforeEach(() => {
   tempDirs = [];
   restoreEnv("HOME", originalHome);
   restoreEnv("MAW_UI_SRC", originalMawUiSrc);
+  delete process.env.MAW_DATA_DIR;
   console.log = (...args: any[]) => logs.push(args.map(String).join(" "));
   console.error = (...args: any[]) => errors.push(args.map(String).join(" "));
 });
@@ -128,6 +133,7 @@ afterEach(() => {
   console.error = originalError;
   restoreEnv("HOME", originalHome);
   restoreEnv("MAW_UI_SRC", originalMawUiSrc);
+  restoreEnv("MAW_DATA_DIR", originalMawDataDir);
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -174,6 +180,25 @@ describe("ui impl helpers coverage", () => {
     expect(isUiDistInstalled()).toBe(true);
   });
 
+  test("isUiDistInstalled follows MAW_DATA_DIR before the legacy home fallback", () => {
+    const home = makeTempDir("maw-ui-legacy-home-");
+    const dataDir = makeTempDir("maw-ui-data-");
+    mockHomeDir = home;
+    process.env.MAW_DATA_DIR = dataDir;
+
+    const legacyDistDir = join(home, ".maw", "ui", "dist");
+    mkdirSync(legacyDistDir, { recursive: true });
+    writeFileSync(join(legacyDistDir, "index.html"), "<!doctype html>", "utf-8");
+
+    expect(isUiDistInstalled()).toBe(false);
+
+    const xdgDistDir = join(dataDir, "ui", "dist");
+    mkdirSync(xdgDistDir, { recursive: true });
+    writeFileSync(join(xdgDistDir, "index.html"), "<!doctype html>", "utf-8");
+
+    expect(isUiDistInstalled()).toBe(true);
+  });
+
   test("findMawUiSrcDir prefers ghq, then env override, otherwise null", () => {
     const ghqDir = makeTempDir("maw-ui-ghq-");
     mkdirSync(ghqDir, { recursive: true });
@@ -209,7 +234,7 @@ describe("capture impl coverage", () => {
 
   test("reports ambiguous colon targets with all candidate names", async () => {
     sessions = [{ name: "mawjs" }, { name: "mawjs-alpha" }];
-    resolveResults = [{ kind: "ambiguous", candidates: sessions }];
+    resolveResults = [{ tier: 1, sessionName: "mawjs", ambiguousCandidates: ["mawjs", "mawjs-alpha"] }];
 
     await expect(cmdCapture("maw:2")).rejects.toThrow("'maw' is ambiguous — matches 2 sessions");
 
@@ -222,32 +247,30 @@ describe("capture impl coverage", () => {
 
   test("reports missing colon targets with hints", async () => {
     sessions = [{ name: "clinic" }];
-    resolveResults = [{ kind: "none", hints: [{ name: "clinic" }, { name: "clinic-alpha" }] }];
+    resolveResults = [null];
 
     await expect(cmdCapture("clnic:1")).rejects.toThrow("session 'clnic' not found");
 
     expect(resolveCalls).toEqual([{ target: "clnic", sessions }]);
-    expect(errors.join("\n")).toContain("did you mean:");
-    expect(errors.join("\n")).toContain("• clinic");
-    expect(errors.join("\n")).toContain("• clinic-alpha");
+    expect(errors.join("\n")).toContain("try: maw ls");
     expect(hostExecCalls).toEqual([]);
   });
 
   test("reports missing colon targets without hints", async () => {
     sessions = [{ name: "neo" }];
-    resolveResults = [{ kind: "none", hints: [] }];
+    resolveResults = [null];
 
     await expect(cmdCapture("missing:4")).rejects.toThrow("session 'missing' not found");
 
     expect(resolveCalls).toEqual([{ target: "missing", sessions }]);
     expect(errors.join("\n")).not.toContain("did you mean:");
-    expect(errors.join("\n")).not.toContain("try: maw ls");
+    expect(errors.join("\n")).toContain("try: maw ls");
     expect(hostExecCalls).toEqual([]);
   });
 
   test("reports ambiguous bare targets with all candidate names", async () => {
     sessions = [{ name: "neo" }, { name: "neo-alpha" }];
-    resolveResults = [{ kind: "ambiguous", candidates: sessions }];
+    resolveResults = [{ tier: 1, sessionName: "neo", ambiguousCandidates: ["neo", "neo-alpha"] }];
 
     await expect(cmdCapture("neo")).rejects.toThrow("'neo' is ambiguous — matches 2 sessions");
 
@@ -260,7 +283,7 @@ describe("capture impl coverage", () => {
 
   test("reports missing bare targets with maw ls guidance when no hints exist", async () => {
     sessions = [{ name: "neo" }];
-    resolveResults = [{ kind: "none" }];
+    resolveResults = [null];
 
     await expect(cmdCapture("missing")).rejects.toThrow("session 'missing' not found");
 
@@ -271,7 +294,7 @@ describe("capture impl coverage", () => {
 
   test("captures default bare target window with requested tail lines and prints raw output", async () => {
     sessions = [{ name: "Neo", windows: [{ index: 7, name: "shell" }] }];
-    resolveResults = [{ kind: "match", match: sessions[0] }];
+    resolveResults = [{ tier: 1, sessionName: sessions[0]!.name }];
     hostExecResult = "hello\nworld";
 
     await cmdCapture("neo", { lines: 2 });
@@ -283,7 +306,7 @@ describe("capture impl coverage", () => {
 
   test("captures colon target with pane suffix and full scrollback", async () => {
     sessions = [{ name: "Neo", windows: [] }];
-    resolveResults = [{ kind: "match", match: sessions[0] }];
+    resolveResults = [{ tier: 1, sessionName: sessions[0]!.name }];
     hostExecResult = "full history";
 
     await cmdCapture("neo:3", { pane: 2, full: true, lines: 1 });
@@ -295,7 +318,7 @@ describe("capture impl coverage", () => {
 
   test("uses pane zero and default tail length when a match has an empty windows list", async () => {
     sessions = [{ name: "Sparse", windows: [] }];
-    resolveResults = [{ kind: "match", match: sessions[0] }];
+    resolveResults = [{ tier: 1, sessionName: sessions[0]!.name }];
     hostExecResult = "";
 
     await cmdCapture("sparse");
@@ -307,7 +330,7 @@ describe("capture impl coverage", () => {
 
   test("wraps tmux capture failures with capture failed context", async () => {
     sessions = [{ name: "Neo", windows: [{ index: 0 }] }];
-    resolveResults = [{ kind: "match", match: sessions[0] }];
+    resolveResults = [{ tier: 1, sessionName: sessions[0]!.name }];
     hostExecError = new Error("tmux missing");
 
     await expect(cmdCapture("neo")).rejects.toThrow("capture failed: tmux missing");
@@ -317,11 +340,31 @@ describe("capture impl coverage", () => {
 
   test("wraps non-Error tmux failures", async () => {
     sessions = [{ name: "Neo", windows: [{ index: 0 }] }];
-    resolveResults = [{ kind: "match", match: sessions[0] }];
+    resolveResults = [{ tier: 1, sessionName: sessions[0]!.name }];
     hostExecError = "string boom";
 
     await expect(cmdCapture("neo")).rejects.toThrow("capture failed: string boom");
 
     expect(hostExecCalls).toEqual(["tmux-test capture-pane -t 'Neo:0' -p -S -50"]);
   });
+  test("cmdCapture treats node-qualified targets as oracle aliases", async () => {
+    resolveResults = [{ tier: 1, sessionName: "50-mawjs" }];
+    sessions = [{ name: "50-mawjs", windows: [{ index: 0, name: "mawjs-oracle" }] }];
+
+    await cmdCapture("m5:mawjs", { lines: 3 });
+
+    expect(resolveCalls.at(-1)?.target).toBe("mawjs");
+    expect(hostExecCalls.at(-1)).toContain("50-mawjs:0");
+  });
+
+  test("cmdCapture preserves numeric tmux window suffixes", async () => {
+    resolveResults = [{ tier: 1, sessionName: "neo" }];
+    sessions = [{ name: "neo", windows: [{ index: 0, name: "main" }] }];
+
+    await cmdCapture("neo:2", { pane: 1, full: true });
+
+    expect(resolveCalls.at(-1)?.target).toBe("neo");
+    expect(hostExecCalls.at(-1)).toContain("neo:2.1");
+  });
+
 });

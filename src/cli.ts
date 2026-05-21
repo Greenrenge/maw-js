@@ -16,8 +16,7 @@ import { runBootstrap } from "./cli/plugin-bootstrap";
 import { maybeAutoRestore } from "./cli/auto-restore";
 import { dispatchCommand } from "./cli/dispatch";
 import { handleTopLevelError } from "./cli/error-handler";
-import { join } from "path";
-import { homedir } from "os";
+import { mawDataPath } from "./core/xdg";
 
 // Strip verbosity flags up-front so they don't collide with cmd detection or
 // leak into plugin argv. Task #3 will flip call sites to honor these.
@@ -42,12 +41,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Auto-bootstrap: if ~/.maw/plugins/ is empty, symlink bundled + install from pluginSources.
+  // Auto-bootstrap: if the XDG data plugin dir is empty, symlink bundled +
+  // install from pluginSources. In legacy mode this still resolves to
+  // ~/.maw/plugins; in MAW_XDG=1 it resolves to ~/.local/share/maw/plugins.
   // import.meta.dir must resolve to src/ — keep the call here, not in a child module.
-  const pluginDir = process.env.MAW_PLUGINS_DIR || join(homedir(), ".maw", "plugins");
+  const pluginDir = process.env.MAW_PLUGINS_DIR || mawDataPath("plugins");
   await runBootstrap(pluginDir, import.meta.dir);
 
-  // Load plugins from ~/.maw/plugins/ — the single source of truth
+  // Load plugins from the resolved data plugin dir — the single source of truth.
   await scanCommands(pluginDir, "user");
 
   await maybeAutoRestore(cmd);

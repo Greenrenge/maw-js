@@ -1,8 +1,7 @@
 import { hostExec } from "maw-js/sdk";
 import { cmdSoulSync } from "./internal/soul-sync-impl";
 import { cmdWake } from "maw-js/commands/shared/wake";
-import { loadFleetEntries } from "maw-js/commands/shared/fleet-load";
-import { FLEET_DIR } from "maw-js/sdk";
+import { fleetDirForWrite, loadFleetEntries } from "maw-js/commands/shared/fleet-load";
 import { getGhqRoot } from "maw-js/config/ghq-root";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
@@ -63,7 +62,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   for (const entry of parentName ? loadFleetEntries() : []) {
     const entryName = entry.session.name.replace(/^\d+-/, "");
     if (entryName === parentName) {
-      const parentFile = join(FLEET_DIR, entry.file);
+      const parentFile = entry.path ?? join(fleetDirForWrite(), entry.file);
       const parentConfig = JSON.parse(readFileSync(parentFile, "utf-8"));
       const peers: string[] = parentConfig.sync_peers || [];
       if (!peers.includes(name)) {
@@ -117,7 +116,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   // failed inside tmux (nested attach-session refused to nest, pane died immediately).
   if (opts.split && process.env.TMUX) {
     try {
-      const { cmdSplit } = await import("./internal/split-impl");
+      const { cmdSplit } = await import("../split/impl");
       await cmdSplit(name);
     } catch (e: any) {
       console.log(`  \x1b[33m⚠\x1b[0m split failed: ${e.message || e}`);

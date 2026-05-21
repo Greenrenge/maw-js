@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Database } from "bun:sqlite";
 import type { InvokeResult } from "../../src/plugin/types";
 
 const saved = {
   home: process.env.MAW_HOME,
   config: process.env.MAW_CONFIG_DIR,
+  data: process.env.MAW_DATA_DIR,
   engineUrl: process.env.MAW_ENGINE_URL,
   mawPort: process.env.MAW_PORT,
   messagesPort: process.env.MAW_MESSAGES_PORT,
@@ -19,6 +21,7 @@ const saved = {
 let tmpRoot = "";
 let tmpHome = "";
 let tmpConfig = "";
+let tmpData = "";
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
@@ -87,8 +90,10 @@ beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "maw-messages-ledger-index-extra-"));
   tmpHome = join(tmpRoot, "home");
   tmpConfig = join(tmpRoot, "config");
+  tmpData = join(tmpRoot, "data");
   process.env.MAW_HOME = tmpHome;
   delete process.env.MAW_CONFIG_DIR;
+  delete process.env.MAW_DATA_DIR;
   delete process.env.MAW_ENGINE_URL;
   delete process.env.MAW_PORT;
   delete process.env.MAW_MESSAGES_PORT;
@@ -101,6 +106,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv("MAW_HOME", saved.home);
   restoreEnv("MAW_CONFIG_DIR", saved.config);
+  restoreEnv("MAW_DATA_DIR", saved.data);
   restoreEnv("MAW_ENGINE_URL", saved.engineUrl);
   restoreEnv("MAW_PORT", saved.mawPort);
   restoreEnv("MAW_MESSAGES_PORT", saved.messagesPort);
@@ -112,12 +118,13 @@ afterEach(() => {
 });
 
 describe("messages ledger and index extra coverage", () => {
-  test("ledger honors MAW_CONFIG_DIR and maps optional row fields only when present", async () => {
+  test("ledger honors MAW_DATA_DIR and maps optional row fields only when present", async () => {
     delete process.env.MAW_HOME;
     process.env.MAW_CONFIG_DIR = tmpConfig;
+    process.env.MAW_DATA_DIR = tmpData;
     const ledger = await importLedger("config-dir");
 
-    expect(ledger.messageLedgerDbPath()).toBe(join(tmpConfig, "message-ledger.sqlite"));
+    expect(ledger.messageLedgerDbPath()).toBe(join(tmpData, "message-ledger.sqlite"));
 
     ledger.recordMessageLedgerEvent({
       id: "full-row",
@@ -163,6 +170,38 @@ describe("messages ledger and index extra coverage", () => {
     expect(minimal).not.toHaveProperty("peerUrl");
     expect(minimal).not.toHaveProperty("error");
     expect(minimal).not.toHaveProperty("lastLine");
+  });
+
+  test("ledger copies a legacy config database into the XDG data path on first open", async () => {
+    delete process.env.MAW_HOME;
+    process.env.MAW_CONFIG_DIR = tmpConfig;
+    process.env.MAW_DATA_DIR = tmpData;
+    mkdirSync(tmpConfig, { recursive: true });
+    const legacyPath = join(tmpConfig, "message-ledger.sqlite");
+    const legacyDb = new Database(legacyPath);
+    try {
+      legacyDb.exec("CREATE TABLE messages (id TEXT PRIMARY KEY, ts TEXT NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL, channel TEXT NOT NULL, route TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, target TEXT, peer_url TEXT, text TEXT NOT NULL, error TEXT, last_line TEXT, signed INTEGER NOT NULL DEFAULT 0)");
+      legacyDb.query("INSERT INTO messages (id, ts, direction, state, channel, route, from_id, to_id, text, signed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+        "legacy-row",
+        "2026-05-19T02:00:00.000Z",
+        "outbound",
+        "sent",
+        "hey",
+        "direct",
+        "m5:from",
+        "white:to",
+        "copied from legacy",
+        1,
+      );
+    } finally {
+      legacyDb.close();
+    }
+
+    const ledger = await importLedger("legacy-copy");
+    const [row] = ledger.listMessageLedgerEvents({ q: "legacy", limit: 10 });
+
+    expect(existsSync(join(tmpData, "message-ledger.sqlite"))).toBe(true);
+    expect(row).toMatchObject({ id: "legacy-row", text: "copied from legacy", signed: true });
   });
 
   test("api query object validates filters, boolish json, and invalid url filters", async () => {

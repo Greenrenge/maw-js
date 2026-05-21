@@ -1,7 +1,23 @@
 import { hostExec } from "maw-js/sdk";
-import { FLEET_DIR } from "maw-js/sdk";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { fleetDirsForRead } from "maw-js/commands/shared/fleet-load";
+
+function activeFleetConfigFiles(): Array<{ file: string; path: string }> {
+  const filesByName = new Map<string, { file: string; path: string }>();
+  for (const fleetDir of fleetDirsForRead()) {
+    let files: string[];
+    try {
+      files = readdirSync(fleetDir).filter(f => f.endsWith(".json")).sort();
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!filesByName.has(file)) filesByName.set(file, { file, path: join(fleetDir, file) });
+    }
+  }
+  return [...filesByName.values()].sort((a, b) => a.file.localeCompare(b.file));
+}
 
 /**
  * Remove a git worktree via fleet config lookup.
@@ -12,8 +28,11 @@ export async function removeWorktreeViaConfig(
   reposRoot: string,
 ): Promise<boolean> {
   try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8"));
+    for (const { file, path } of activeFleetConfigFiles()) {
+      let config: any;
+      try {
+        config = JSON.parse(readFileSync(path, "utf-8"));
+      } catch { continue; }
       const win = (config.windows || []).find((w: any) => w.name.toLowerCase() === windowNameLower);
       if (!win?.repo) continue;
 
@@ -57,13 +76,20 @@ export async function removeWorktreeByGhqScan(
   let removed = false;
   try {
     const suffix = windowName.replace(/^[^-]+-/, ""); // e.g. "mother-schedule" → "schedule"
-    const ghqOut = await hostExec(`find ${reposRoot} -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
+    const safeRoot = reposRoot.replace(/'/g, "'\''");
+    const ghqOut = await hostExec(`find '${safeRoot}' -maxdepth 3 -name '*.wt-*' -type d 2>/dev/null`);
     const allWtPaths = ghqOut.trim().split("\n").filter(Boolean);
     const exactMatch = allWtPaths.filter(p => {
       const base = p.split("/").pop()!;
       const wtSuffix = base.replace(/^.*\.wt-(?:\d+-)?/, "");
       return wtSuffix.toLowerCase() === suffix.toLowerCase();
     });
+    if (exactMatch.length > 1) {
+      console.error(`  \x1b[31m✗\x1b[0m refusing to remove worktree '${suffix}' — matches ${exactMatch.length} repos:`);
+      for (const wtPath of exactMatch) console.error(`  \x1b[90m    • ${wtPath}\x1b[0m`);
+      console.error(`  \x1b[90m  use fleet config or remove the exact worktree manually\x1b[0m`);
+      return false;
+    }
     for (const wtPath of exactMatch) {
       const base = wtPath.split("/").pop()!;
       const mainRepo = base.split(".wt-")[0];
@@ -88,8 +114,7 @@ export async function removeWorktreeByGhqScan(
 export function removeFromFleetConfig(windowNameLower: string): boolean {
   let removed = false;
   try {
-    for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
-      const filePath = join(FLEET_DIR, file);
+    for (const { file, path: filePath } of activeFleetConfigFiles()) {
       const config = JSON.parse(readFileSync(filePath, "utf-8"));
       const before = config.windows?.length || 0;
       config.windows = (config.windows || []).filter((w: any) => w.name.toLowerCase() !== windowNameLower);

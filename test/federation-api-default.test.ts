@@ -21,11 +21,15 @@ describe("federation API identity/status/snapshot routes", () => {
       loadSnapshot: (id: string) => id === "s1" ? ({ id, sessions: [] }) as any : null,
       loadConfig: (() => ({
         node: "m5",
+        nodeUser: "codex",
+        port: 4567,
         oracle: "mawjs-oracle",
-        agents: { codex: { repo: "/repo", session: "54-mawjs" } },
+        agents: { codex: "m5", buddy: "codex@m5" },
         federationToken: "abcd-secret",
       })) as any,
-      hostedAgents: ((agents: any, node: string) => [{ node, name: Object.keys(agents)[0] }]) as any,
+      hostedAgents: ((agents: any, node: string) => Object.entries(agents)
+        .filter(([, n]) => n === node)
+        .map(([name]) => ({ node, name }))) as any,
       getPeerKey: () => "peer-public-key",
       packageVersion: "v.test",
       uptime: () => 42.9,
@@ -41,10 +45,13 @@ describe("federation API identity/status/snapshot routes", () => {
     expect(await readJson(missing)).toEqual({ error: "snapshot not found" });
 
     expect(await readJson(await app.handle(new Request("http://localhost/identity")))).toEqual({
-      node: "m5",
+      node: "codex@m5",
+      host: "m5",
+      user: "codex",
+      port: 4567,
       oracle: "mawjs-oracle",
       version: "v.test",
-      agents: [{ node: "m5", name: "codex" }],
+      agents: [{ node: "codex@m5", name: "buddy" }, { node: "m5", name: "codex" }],
       uptime: 42,
       clockUtc: "2026-05-17T00:00:00.000Z",
       endpoints: [
@@ -94,8 +101,10 @@ describe("federation API identity/status/snapshot routes", () => {
     const tmp = mkdtempSync(join(tmpdir(), "maw-federation-api-"));
     const savedPeerKey = process.env.MAW_PEER_KEY;
     const savedConfigDir = process.env.MAW_CONFIG_DIR;
+    const savedDataDir = process.env.MAW_DATA_DIR;
     process.env.MAW_PEER_KEY = "test-peer-key";
     process.env.MAW_CONFIG_DIR = tmp;
+    process.env.MAW_DATA_DIR = join(tmp, "data");
     try {
       const app = makeApp({
         homedir: () => tmp,
@@ -114,6 +123,8 @@ describe("federation API identity/status/snapshot routes", () => {
       else process.env.MAW_PEER_KEY = savedPeerKey;
       if (savedConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
       else process.env.MAW_CONFIG_DIR = savedConfigDir;
+      if (savedDataDir === undefined) delete process.env.MAW_DATA_DIR;
+      else process.env.MAW_DATA_DIR = savedDataDir;
       rmSync(tmp, { recursive: true, force: true });
     }
   });
@@ -144,14 +155,16 @@ describe("federation API messages route", () => {
   });
 
   test("falls back to legacy JSONL log with filters, invalid-line skip, and limit", async () => {
+    const readPaths: string[] = [];
     const app = makeApp({
-      homedir: () => "/home/test",
-      join: ((...parts: string[]) => parts.join("/")) as any,
+      messageLogPaths: () => ["/home/test/.maw/maw-log.jsonl", "/home/test/.oracle/maw-log.jsonl"],
       loadLedger: async () => ({
         listMessageLedgerEvents: () => [],
         messageLedgerDbPath: () => "/unused",
       }),
       readFileSync: ((path: string) => {
+        readPaths.push(path);
+        if (path === "/home/test/.maw/maw-log.jsonl") throw new Error("missing new log");
         expect(path).toBe("/home/test/.oracle/maw-log.jsonl");
         return [
           JSON.stringify({ ts: "1", from: "alice", to: "maw", msg: "old" }),
@@ -168,6 +181,7 @@ describe("federation API messages route", () => {
       messages: [{ ts: "2", from: "alice", to: "maw", msg: "newer" }],
       total: 2,
     });
+    expect(readPaths).toEqual(["/home/test/.maw/maw-log.jsonl", "/home/test/.oracle/maw-log.jsonl"]);
   });
 
   test("falls back to empty messages when sqlite and JSONL both fail", async () => {
@@ -200,9 +214,60 @@ describe("federation API fleet route", () => {
     });
   });
 
+  test("serves XDG state fleet configs before duplicate legacy configs", async () => {
+    const reads: string[] = [];
+    const app = makeApp({
+      fleetDirs: ["/state/fleet", "/legacy/fleet"],
+      join: ((...parts: string[]) => parts.join("/")) as any,
+      readdirSync: ((dir: string) => {
+        if (dir === "/state/fleet") return ["01-state.json", "bad.json"] as any;
+        if (dir === "/legacy/fleet") return ["01-state.json", "02-legacy.json"] as any;
+        return [] as any;
+      }) as any,
+      readFileSync: ((path: string) => {
+        reads.push(path);
+        if (path === "/state/fleet/01-state.json") return JSON.stringify({ node: "state" });
+        if (path === "/state/fleet/bad.json") throw new Error("bad json");
+        if (path === "/legacy/fleet/01-state.json") throw new Error("duplicate legacy should be skipped");
+        if (path === "/legacy/fleet/02-legacy.json") return JSON.stringify({ node: "legacy" });
+        return "{}";
+      }) as any,
+    });
+
+    expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({
+      fleet: [
+        { file: "01-state.json", node: "state" },
+        { file: "02-legacy.json", node: "legacy" },
+      ],
+    });
+    expect(reads).toEqual([
+      "/state/fleet/01-state.json",
+      "/state/fleet/bad.json",
+      "/legacy/fleet/02-legacy.json",
+    ]);
+  });
+
   test("returns an empty fleet when the fleet directory cannot be read", async () => {
     const app = makeApp({ readdirSync: (() => { throw new Error("missing fleet"); }) as any });
 
     expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({ fleet: [] });
+  });
+
+  test("returns an empty fleet when unexpected bookkeeping fails mid-scan", async () => {
+    const originalHas = Set.prototype.has;
+    const app = makeApp({
+      fleetDir: "/fleet",
+      readdirSync: (() => ["m5.json"]) as any,
+      readFileSync: (() => JSON.stringify({ node: "m5" })) as any,
+    });
+    Set.prototype.has = function patchedHas(value: unknown): boolean {
+      if (value === "m5.json") throw new Error("set bookkeeping failed");
+      return originalHas.call(this, value);
+    };
+    try {
+      expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({ fleet: [] });
+    } finally {
+      Set.prototype.has = originalHas;
+    }
   });
 });

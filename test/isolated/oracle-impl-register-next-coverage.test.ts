@@ -7,9 +7,14 @@ import type { OracleEntry } from "../../src/sdk";
 
 const TEST_ROOT = mkdtempSync(join(tmpdir(), "maw-oracle-impl-register-next-"));
 const TEST_CONFIG_DIR = join(TEST_ROOT, "config");
+const TEST_CACHE_DIR = join(TEST_ROOT, "cache");
 const TEST_FLEET_DIR = join(TEST_ROOT, "fleet");
 const TEST_GHQ_ROOT = join(TEST_ROOT, "ghq");
-const REGISTRY_FILE = join(TEST_CONFIG_DIR, "oracles.json");
+const REGISTRY_FILE = join(TEST_CACHE_DIR, "oracles.json");
+const originalConfigDir = process.env.MAW_CONFIG_DIR;
+const originalCacheDir = process.env.MAW_CACHE_DIR;
+process.env.MAW_CONFIG_DIR = TEST_CONFIG_DIR;
+process.env.MAW_CACHE_DIR = TEST_CACHE_DIR;
 
 type Session = { name: string; windows: Array<{ name: string; index?: number }> };
 
@@ -61,6 +66,7 @@ function stripAnsi(value: string): string {
 beforeEach(() => {
   rmSync(TEST_ROOT, { recursive: true, force: true });
   mkdirSync(TEST_CONFIG_DIR, { recursive: true });
+  mkdirSync(TEST_CACHE_DIR, { recursive: true });
   mkdirSync(TEST_FLEET_DIR, { recursive: true });
   mkdirSync(join(TEST_GHQ_ROOT, "github.com"), { recursive: true });
   sessions = [];
@@ -74,6 +80,10 @@ afterEach(() => {
 
 afterAll(() => {
   rmSync(TEST_ROOT, { recursive: true, force: true });
+  if (originalConfigDir === undefined) delete process.env.MAW_CONFIG_DIR;
+  else process.env.MAW_CONFIG_DIR = originalConfigDir;
+  if (originalCacheDir === undefined) delete process.env.MAW_CACHE_DIR;
+  else process.env.MAW_CACHE_DIR = originalCacheDir;
 });
 
 describe("oracle impl-register next coverage", () => {
@@ -127,6 +137,40 @@ describe("oracle impl-register next coverage", () => {
       budded_at: null,
     });
     expect(register.findInFleet("direct", join(TEST_ROOT, "missing-fleet"))).toBeNull();
+  });
+
+  test("findInFleet accepts state-first read dirs and ignores duplicate legacy files", () => {
+    const stateFleetDir = join(TEST_ROOT, "state-fleet-register");
+    const legacyFleetDir = join(TEST_ROOT, "legacy-fleet-register");
+    mkdirSync(stateFleetDir, { recursive: true });
+    mkdirSync(legacyFleetDir, { recursive: true });
+    writeFileSync(
+      join(stateFleetDir, "01-stateful.json"),
+      JSON.stringify({
+        windows: [{ name: "stateful-oracle" }],
+        project_repos: ["StateOrg/stateful-oracle"],
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      join(legacyFleetDir, "01-stateful.json"),
+      JSON.stringify({
+        windows: [{ name: "stateful-oracle" }],
+        project_repos: ["LegacyOrg/stateful-oracle"],
+      }),
+      "utf8",
+    );
+
+    const found = register.findInFleet("stateful", [stateFleetDir, legacyFleetDir]);
+
+    expect(found).toMatchObject({
+      source: "fleet",
+      entry: {
+        org: "StateOrg",
+        repo: "stateful-oracle",
+        name: "stateful",
+      },
+    });
   });
 
   test("findInFilesystem skips non-directories and finds direct repo names without psi", () => {

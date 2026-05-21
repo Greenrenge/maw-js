@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-19T03:53:56.932Z
+Generated: 2026-05-21T02:08:37.099Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (30331/30331)
-Overall function coverage: **100.0%** (5037/5037)
+Overall line coverage: **100.0%** (32561/32561)
+Overall function coverage: **100.0%** (5553/5553)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 91 | 0 | 100.0% (5352/5352) | 100.0% (807/807) | n/a (0/0) |
-| config/runtime | 19 | 0 | 100.0% (763/763) | 100.0% (133/133) | n/a (0/0) |
-| fleet | 17 | 0 | 100.0% (648/648) | 100.0% (103/103) | n/a (0/0) |
+| cli/dispatch | 95 | 0 | 100.0% (6123/6123) | 100.0% (982/982) | n/a (0/0) |
+| config/runtime | 19 | 0 | 100.0% (799/799) | 100.0% (140/140) | n/a (0/0) |
+| fleet | 20 | 0 | 100.0% (728/728) | 100.0% (121/121) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
-| other | 172 | 5 | 100.0% (8430/8430) | 100.0% (1447/1447) | n/a (0/0) |
-| plugin dispatch | 15 | 1 | 100.0% (677/677) | 100.0% (89/89) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 100.0% (421/421) | 100.0% (76/76) | n/a (0/0) |
-| transport | 28 | 0 | 100.0% (1669/1669) | 100.0% (444/444) | n/a (0/0) |
-| vendor plugins | 245 | 2 | 100.0% (12298/12298) | 100.0% (1920/1920) | n/a (0/0) |
+| other | 175 | 5 | 100.0% (9198/9198) | 100.0% (1611/1611) | n/a (0/0) |
+| plugin dispatch | 15 | 1 | 100.0% (705/705) | 100.0% (91/91) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 100.0% (453/453) | 100.0% (78/78) | n/a (0/0) |
+| transport | 28 | 0 | 100.0% (1721/1721) | 100.0% (457/457) | n/a (0/0) |
+| vendor plugins | 247 | 2 | 100.0% (12761/12761) | 100.0% (2055/2055) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -64,12 +64,14 @@ Overall function coverage: **100.0%** (5037/5037)
 | cli/dispatch | `src/commands/shared/agents.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/artifacts.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/audit.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/bring-flags.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-list.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-log-feed.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-peek.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm-send.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/comm.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/context-limit.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/discover-live-state.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/done.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-apply.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/federation-diff.ts` | 100.0% | 100.0% |
@@ -81,6 +83,7 @@ Overall function coverage: **100.0%** (5037/5037)
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks-repo.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-checks.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-fixer.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/fleet-doctor-reboot.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor-stale-peers.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-doctor.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet-load.ts` | 100.0% | 100.0% |
@@ -92,6 +95,7 @@ Overall function coverage: **100.0%** (5037/5037)
 | cli/dispatch | `src/commands/shared/fleet-wake.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/fleet.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/pane-target-resolver.ts` | 100.0% | 100.0% |
+| cli/dispatch | `src/commands/shared/peer-sources.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-as.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-cmd.ts` | 100.0% | 100.0% |
 | cli/dispatch | `src/commands/shared/plugin-create-rust.ts` | 100.0% | 100.0% |
@@ -136,12 +140,15 @@ Overall function coverage: **100.0%** (5037/5037)
 | fleet | `src/core/fleet/claude-sessions.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/leaf.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/nicknames.ts` | 100.0% | 100.0% |
+| fleet | `src/core/fleet/node-identity.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/oracle-registry.ts` | 100.0% | 100.0% |
+| fleet | `src/core/fleet/paths.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-cache.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-orchestrate.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-scan-local.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-scan-remote.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/registry-oracle-types.ts` | 100.0% | 100.0% |
+| fleet | `src/core/fleet/session-name.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/snapshot.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/tab-order.ts` | 100.0% | 100.0% |
 | fleet | `src/core/fleet/validate.ts` | 100.0% | 100.0% |

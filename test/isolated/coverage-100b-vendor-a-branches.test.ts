@@ -85,6 +85,7 @@ mock.module("maw-js/commands/shared/wake-target", () => ({
   ensureCloned: async (slug: string) => { hostExecCalls.push(`ensureCloned:${slug}`); },
 }));
 mock.module("maw-js/commands/shared/fleet-load", () => ({
+  fleetDirForWrite: () => join(tmpRoot || tmpdir(), "fleet"),
   loadFleetEntries: () => fleetEntries,
   loadFleet: () => [],
 }));
@@ -92,7 +93,7 @@ mock.module(join(budRoot, "internal/soul-sync-impl"), () => ({
   cmdSoulSync: async (...args: unknown[]) => { soulSyncCalls.push(args); throw new Error("empty psi"); },
   syncDir: (src: string, dst: string) => { hostExecCalls.push(`syncDir:${src}->${dst}`); },
 }));
-mock.module(join(budRoot, "internal/split-impl"), () => ({
+mock.module(join(root, "src/vendor/mpr-plugins/split/impl"), () => ({
   cmdSplit: async (name: string) => { if (splitThrows) throw new Error(`split nope ${name}`); },
 }));
 mock.module("maw-js/config", () => ({ loadConfig: () => ({ githubOrg: "ConfigOrg" }) }));
