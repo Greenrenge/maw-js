@@ -219,12 +219,13 @@ describe("messages plugin additional coverage", () => {
     global.fetch = (async () => new Response("ignored", { status: 503 })) as typeof fetch;
 
     try {
-      const shutdown = installServeShutdown("http://engine.local", { stop: (force?: boolean) => stops.push(Boolean(force)) });
+      const shutdown = installServeShutdown("http://engine.local", { stop: (force?: boolean) => stops.push(Boolean(force)) }, {
+        timeoutMs: 5,
+        warn: (() => {}) as typeof console.warn,
+      });
       expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
-      callbacks.SIGINT();
-      shutdown();
-      await Promise.resolve();
-      await Bun.sleep(0);
+      await callbacks.SIGINT();
+      await shutdown();
     } finally {
       process.once = originalOnce;
       process.exit = originalExit;

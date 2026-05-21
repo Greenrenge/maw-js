@@ -314,7 +314,7 @@ describe("messages ledger and index extra coverage", () => {
       });
 
       expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
-      shutdown();
+      await shutdown();
       callbacks.SIGINT();
       await Promise.resolve();
       await Promise.resolve();

@@ -382,7 +382,7 @@ describe("messages plugin coverage slice", () => {
     });
 
     expect(Object.keys(callbacks).sort()).toEqual(["SIGINT", "SIGTERM"]);
-    shutdown();
+    await shutdown();
     callbacks.SIGTERM();
     await Promise.resolve();
     await Promise.resolve();
@@ -869,15 +869,88 @@ describe("messages plugin coverage slice", () => {
         callbacks[event] = callback;
         return process;
       }) as typeof process.once,
+      timeoutMs: 5,
+      warn: (() => {}) as typeof console.warn,
       exit: ((code?: number) => {
         exits.push(code ?? 0);
         return undefined as never;
       }) as typeof process.exit,
     });
 
-    callbacks.SIGTERM();
-    await Promise.resolve();
-    await Bun.sleep(0);
+    await callbacks.SIGTERM();
+    expect(stopped).toEqual([true]);
+    expect(exits).toEqual([0]);
+  });
+
+  test("shutdown hook retries engine unregister before exiting", async () => {
+    const callbacks: Record<string, () => void> = {};
+    const stopped: boolean[] = [];
+    const exits: number[] = [];
+    const warnings: string[] = [];
+    let calls = 0;
+    global.fetch = (async () => {
+      calls++;
+      if (calls === 1) throw new Error("engine not ready");
+      return Response.json({ ok: true, removed: true });
+    }) as typeof fetch;
+
+    installServeShutdown("http://engine.local", {
+      stop: (force?: boolean) => {
+        stopped.push(Boolean(force));
+      },
+    }, {
+      once: ((event: string, callback: () => void) => {
+        callbacks[event] = callback;
+        return process;
+      }) as typeof process.once,
+      timeoutMs: 75,
+      warn: ((message?: unknown) => {
+        warnings.push(String(message));
+      }) as typeof console.warn,
+      exit: ((code?: number) => {
+        exits.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit,
+    });
+
+    await callbacks.SIGTERM();
+
+    expect(calls).toBe(2);
+    expect(warnings).toEqual([]);
+    expect(stopped).toEqual([true]);
+    expect(exits).toEqual([0]);
+  });
+
+  test("shutdown hook does not hang forever when engine unregister stalls", async () => {
+    const callbacks: Record<string, () => void> = {};
+    const stopped: boolean[] = [];
+    const exits: number[] = [];
+    const warnings: string[] = [];
+
+    installServeShutdown("http://engine.local", {
+      stop: (force?: boolean) => {
+        stopped.push(Boolean(force));
+      },
+    }, {
+      once: ((event: string, callback: () => void) => {
+        callbacks[event] = callback;
+        return process;
+      }) as typeof process.once,
+      unregister: async () => new Promise(() => undefined),
+      timeoutMs: 5,
+      warn: ((message?: unknown) => {
+        warnings.push(String(message));
+      }) as typeof console.warn,
+      exit: ((code?: number) => {
+        exits.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit,
+    });
+
+    callbacks.SIGINT();
+    await Bun.sleep(20);
+
+    expect(warnings.join("\n")).toContain("engine unregister did not confirm");
     expect(stopped).toEqual([true]);
     expect(exits).toEqual([0]);
   });
