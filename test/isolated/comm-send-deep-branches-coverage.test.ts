@@ -306,7 +306,7 @@ describe("comm-send deep isolated branches", () => {
     };
     resolveTargetHandler = () => ({ type: "local", target: "sleepy-session:sleepy-oracle.0" });
     cmdWakeCalls = [];
-    captureResponses = ["❯ ", new Error("capture after send unavailable")];
+    captureResponses = [new Error("capture after send unavailable")];
 
     await runCmd(() => cmdSend("local:sleepy", "wake then send"));
 
@@ -348,12 +348,12 @@ describe("comm-send deep isolated branches", () => {
     expect(curlFetchCalls).toEqual([]);
   });
 
-  test("receiver inbox queue handles non-agent panes without tmux delivery", async () => {
+  test("--inbox queues without tmux delivery on non-agent panes", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
     getPaneCommandReturn = "vim";
     defaultInboxResult = { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/msg.md", filename: "msg.md" };
 
-    await runCmd(() => cmdSend("local:session:oracle", "queued draft"));
+    await runCmd(() => cmdSend("local:session:oracle", "queued draft", false, { inboxOnly: true }));
 
     expect(exitCode).toBeUndefined();
     expect(defaultInboxCalls[0]).toMatchObject({
@@ -363,22 +363,22 @@ describe("comm-send deep isolated branches", () => {
       message: "[test-node:sender] queued draft",
     });
     expect(logMessageCalls).toEqual([{ from: "sender", to: "local:session:oracle", message: "[test-node:sender] queued draft", route: "inbox" }]);
-    expect(emitFeedCalls[0].data).toMatchObject({ state: "queued", route: "inbox", lastLine: "pane not running an agent (vim)" });
+    expect(emitFeedCalls[0].data).toMatchObject({ state: "queued", route: "inbox", lastLine: "--inbox requested; pane injection skipped" });
     expect(sendKeysCalls).toEqual([]);
     expect(logs.join("\n")).toContain("queued");
   });
 
-  test("receiver inbox queue handles persistently busy panes after retry", async () => {
+  test("--inbox queues without checking persistently busy panes", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
     captureResponses = ["❯ composing reply", "❯ still typing"];
     defaultInboxResult = { ok: true, oracle: "oracle", inboxDir: "/tmp/inbox", path: "/tmp/inbox/busy.md", filename: "busy.md" };
 
-    await runCmd(() => cmdSend("local:session:oracle", "please read later"));
+    await runCmd(() => cmdSend("local:session:oracle", "please read later", false, { inboxOnly: true }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toEqual([500]);
+    expect(sleepCalls).toEqual([]);
     expect(defaultInboxCalls).toHaveLength(1);
-    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", lastLine: "pane not idle: still typing" });
+    expect(emitFeedCalls[0].data).toMatchObject({ route: "inbox", lastLine: "--inbox requested; pane injection skipped" });
     expect(sendKeysCalls).toEqual([]);
   });
 

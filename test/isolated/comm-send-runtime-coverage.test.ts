@@ -186,20 +186,21 @@ afterAll(() => {
 });
 
 describe("cmdSend — targeted runtime coverage", () => {
-  test("idle guard retries once and proceeds when the pane becomes idle", async () => {
+  test("default delivery proceeds without idle guard", async () => {
     captureResponses = ["❯ partially typed", "❯ ", "delivered line"];
 
     await runCmd(() => cmdSend("local:session:oracle", "recover", false, { receiverInbox: false }));
 
     expect(exitCode).toBeUndefined();
-    expect(sleepCalls).toEqual([500, 150]);
-    expect(captureCalls.map((call) => call.lines)).toEqual([5, 5, 3]);
+    expect(sleepCalls).toEqual([150]);
+    expect(captureCalls.map((call) => call.lines)).toEqual([3]);
     expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] recover" }]);
     expect(logs.join("\n")).toContain("delivered");
   });
 
-  test("receiver inbox writer errors do not hide the non-agent pane refusal", async () => {
+  test("receiver inbox writer errors do not block default local delivery", async () => {
     getPaneCommandReturn = "zsh";
+    captureResponses = ["delivered"];
 
     await runCmd(() => cmdSend("local:session:oracle", "offline", false, {
       receiverInbox: async () => {
@@ -207,11 +208,10 @@ describe("cmdSend — targeted runtime coverage", () => {
       },
     }));
 
-    expect(exitCode).toBe(1);
-    expect(sendKeysCalls).toEqual([]);
-    expect(logMessageCalls).toEqual([]);
-    expect(errs.join("\n")).toContain("no active Claude session");
-    expect(errs.join("\n")).toContain("running: zsh");
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "session:oracle.0", text: "[test-node:sender] offline" }]);
+    expect(logMessageCalls[0]).toMatchObject({ route: "local" });
+    expect(errs.join("\n")).not.toContain("no active Claude session");
   });
 
   test("ACL evaluation failures warn and still allow peer delivery", async () => {

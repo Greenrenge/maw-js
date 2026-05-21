@@ -238,7 +238,7 @@ describe("comm-send helpers", () => {
 });
 
 describe("cmdSend fallback/runtime branches", () => {
-  test("queues to receiver inbox when a local pane is not running an agent", async () => {
+  test("--inbox queues to receiver inbox without local pane injection", async () => {
     resolveTargetReturn = { type: "local", target: "session:oracle.0" };
     getPaneCommandReturn = "zsh";
     defaultInboxResult = {
@@ -249,13 +249,13 @@ describe("cmdSend fallback/runtime branches", () => {
       filename: "msg.md",
     };
 
-    await runCmd(() => cmdSend("local:oracle", "queued local"));
+    await runCmd(() => cmdSend("local:oracle", "queued local", false, { inboxOnly: true }));
 
     expect(exitCode).toBeUndefined();
     expect(sendKeysCalls).toEqual([]);
     expect(defaultInboxCalls[0]).toMatchObject({ target: "session:oracle.0", message: "[test-node:sender] queued local" });
     expect(logMessageCalls[0]).toMatchObject({ route: "inbox", to: "local:oracle" });
-    expect(logs.join("\n")).toContain("pane not running an agent (zsh)");
+    expect(logs.join("\n")).toContain("--inbox requested; pane injection skipped");
   });
 
   test("discovery fallback delivers successfully and runs after_send", async () => {

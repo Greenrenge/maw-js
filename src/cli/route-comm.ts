@@ -2,7 +2,10 @@ import { cmdPeek, cmdSend } from "../commands/shared/comm";
 import { UserError } from "../core/util/user-error";
 
 function printCommUsage(cmd: "hey" | "send", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${cmd} <target> <message> [--force] [--approve] [--trust]`);
+  write(`usage: maw ${cmd} <target> <message> [--inbox] [--force deprecated] [--approve] [--trust]`);
+  write("  default: write receiver inbox and inject into the target pane");
+  write("  --inbox: write receiver inbox only; skip pane injection");
+  write("  --force: deprecated compatibility alias; delivery is already forced by default");
   write("  target forms:");
   write("    <oracle-window>              same-node window name (local-only)");
   write("    local:<agent>                explicit same-node target");
@@ -34,6 +37,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     }
 
     const force = args.includes("--force");
+    const inboxOnly = args.includes("--inbox");
     // #842 Sub-C — `--approve` bypasses the cross-scope ACL queue gate.
     // Operator-explicit opt-in for THIS message; mirrors the consent
     // `--pin` escape hatch already wired in #644. Optional `--trust`
@@ -44,7 +48,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     const target = args[1];
     const msgArgs = args
       .slice(2)
-      .filter(a => a !== "--force" && a !== "--approve" && a !== "--trust");
+      .filter(a => a !== "--force" && a !== "--inbox" && a !== "--approve" && a !== "--trust");
 
     // Distinguish: zero-args usage error vs missing-message error (#388.3)
     // A user who typed `maw hey mawjs` (just the target, no message) was
@@ -61,7 +65,10 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
       console.error(`  (if '${target}' isn't a valid target, run 'maw ls' to see available ones)`);
       throw new UserError(`missing message for '${target}'`);
     }
-    await cmdSend(target, msgArgs.join(" "), force, { approve, trust });
+    if (force) {
+      console.error("\x1b[90mnote: --force is deprecated; maw hey delivers by default. Use --inbox to queue without pane injection.\x1b[0m");
+    }
+    await cmdSend(target, msgArgs.join(" "), force, { approve, trust, inboxOnly });
     return true;
   }
   return false;

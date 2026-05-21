@@ -3,7 +3,7 @@
  */
 
 import {
-  listSessions, capture, sendKeys, getPaneCommand, isAgentCommand, findPeerForTarget, resolveTarget,
+  listSessions, capture, sendKeys, isAgentCommand, findPeerForTarget, resolveTarget,
   curlFetch, runHook,
 } from "../../sdk";
 import { Tmux } from "../../core/transport/tmux";
@@ -292,10 +292,13 @@ function assertBareLocalTarget(
  * - `trust` (#842 Sub-C): paired with `approve` — also append the
  *   sender↔target pair to the on-disk trust list so subsequent sends in
  *   either direction skip the gate without operator intervention.
+ * - `inboxOnly` (#1860): persist to the receiver inbox without injecting
+ *   into the live pane. Normal sends now always inject by default.
  */
 export interface CmdSendOptions {
   approve?: boolean;
   trust?: boolean;
+  inboxOnly?: boolean;
   receiverInbox?: ReceiverInboxWriter | false;
 }
 
@@ -348,7 +351,7 @@ export async function cmdSend(
         memberFailed = true;
       }) as never;
       try {
-        await cmdSend(routedMember, message, force);
+        await cmdSend(routedMember, message, force, opts);
         if (!memberFailed) delivered++;
         else failed++;
       } catch (e: any) {
@@ -617,27 +620,12 @@ export async function cmdSend(
   // oracle's claude pane. See resolveOraclePane.
   if (result?.type === "local" || result?.type === "self-node") {
     const target = await resolveOraclePane(result.target);
-    if (!force) {
-      const cmd = await getPaneCommand(target);
-      const isAgent = isAgentCommand(cmd);
-      if (!isAgent) {
-        if (logQueuedInbox(await writeReceiverInbox(target), target, `pane not running an agent (${cmd})`)) return;
-        console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
-        console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
-        process.exit(1);
-      }
-      // #405: idle guard — abort if user has in-progress input on the prompt line
-      let idleCheck = await checkPaneIdle(target);
-      if (!idleCheck.idle) {
-        await Bun.sleep(500);
-        idleCheck = await checkPaneIdle(target);
-        if (!idleCheck.idle) {
-          if (logQueuedInbox(await writeReceiverInbox(target), target, `pane not idle: ${idleCheck.lastInput.slice(0, 60)}`)) return;
-          console.error(`\x1b[31merror\x1b[0m: pane ${target} is not idle — user appears to be typing: "${idleCheck.lastInput.slice(0, 60)}"`);
-          console.error(`\x1b[33mhint\x1b[0m:  use \x1b[36m--force\x1b[0m to send anyway`);
-          process.exit(1);
-        }
-      }
+    if (opts.inboxOnly) {
+      const inbox = await writeReceiverInbox(target);
+      if (logQueuedInbox(inbox, target, "--inbox requested; pane injection skipped")) return;
+      const reason = inbox && !inbox.ok && inbox.reason ? `: ${inbox.reason}` : "";
+      console.error(`\x1b[31merror\x1b[0m: --inbox requested but receiver inbox is unavailable for ${target}${reason}`);
+      process.exit(1);
     }
     await sendKeys(target, outboundMessage);
     await writeReceiverInbox(target);
@@ -668,7 +656,7 @@ export async function cmdSend(
   if (result?.type === "peer") {
     const res = await curlFetch(`${result.peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: result.target, text: outboundMessage }),
+      body: JSON.stringify({ target: result.target, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
       from: "auto", // #804 Step 4 SIGN — sign cross-node /api/send
     });
     if (res.ok && res.data?.ok) {
@@ -719,7 +707,7 @@ export async function cmdSend(
   if (peerUrl) {
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      body: JSON.stringify({ target: query, text: outboundMessage }),
+      body: JSON.stringify({ target: query, text: outboundMessage, ...(opts.inboxOnly ? { inbox: true } : {}) }),
       from: "auto", // #804 Step 4 SIGN — sign discovery-fallback /api/send
     });
     if (res.ok && res.data?.ok) {

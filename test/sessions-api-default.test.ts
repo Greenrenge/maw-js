@@ -181,18 +181,20 @@ describe("sessions, capture, and mirror routes", () => {
 });
 
 describe("POST /send", () => {
-  test("rejects local sends when pane remains busy and records signed attachment lifecycle", async () => {
+  test("delivers local sends by default even when pane looks busy and records signed attachment lifecycle", async () => {
     const idleChecks = [{ idle: false, lastInput: "draft" }, { idle: false, lastInput: "still typing" }] as any[];
     const h = makeHarness({
-      checkPaneIdle: async () => idleChecks.shift() as any,
+      checkPaneIdle: async (target: string) => { h.calls.push(["idle", target]); return idleChecks.shift() as any; },
       resolveTarget: (() => ({ type: "local", target: "local:main" })) as any,
     });
 
     const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hello", attachments: ["a", "b"] }, { "x-maw-from": "sender:white" }));
 
-    expect(res.status).toBe(409);
-    expect(await readJson(res)).toMatchObject({ ok: false, error: "pane not idle", lastInput: "still typing" });
-    expect(h.lifecycle[0]).toMatchObject({ state: "failed", from: "white:sender", signed: true, text: "a\nb\nhello" });
+    expect(res.status).toBe(200);
+    expect(await readJson(res)).toMatchObject({ ok: true, target: "local:main", source: "local", state: "delivered" });
+    expect(h.calls.some((c) => c[0] === "idle")).toBe(false);
+    expect(h.calls).toContainEqual(["sendKeys", "local:main", "a\nb\nhello"]);
+    expect(h.lifecycle[0]).toMatchObject({ state: "delivered", from: "white:sender", signed: true, text: "a\nb\nhello" });
   });
 
   test("delivers local sends, detects queued prompts, and supports stripped -oracle fallback", async () => {
@@ -255,7 +257,39 @@ describe("POST /send", () => {
     expect(h.calls.some((c) => c[0] === "idle")).toBe(false);
   });
 
-  test("waits once when a local pane is briefly busy then delivers", async () => {
+  test("--inbox writes receiver inbox without sending keys", async () => {
+    const inboxCalls: any[] = [];
+    const h = makeHarness({
+      resolveTarget: (() => ({ type: "local", target: "local:main" })) as any,
+      writeReceiverInbox: (input) => {
+        inboxCalls.push(input);
+        return {
+          ok: true,
+          oracle: "neo",
+          inboxDir: "/repo/ψ/inbox",
+          path: "/repo/ψ/inbox/inbox-only.md",
+          filename: "inbox-only.md",
+        };
+      },
+    });
+
+    const res = await h.app.handle(jsonRequest("/send", { target: "neo", text: "hello", inbox: true }, { "x-maw-from": "sender:white" }));
+
+    expect(await readJson(res)).toMatchObject({
+      ok: true,
+      target: "local:main",
+      source: "inbox",
+      state: "queued",
+      inbox: "/repo/ψ/inbox/inbox-only.md",
+      reason: "--inbox requested; pane injection skipped",
+    });
+    expect(h.calls.some((c) => c[0] === "sendKeys")).toBe(false);
+    expect(inboxCalls).toHaveLength(1);
+    expect(inboxCalls[0]).toMatchObject({ query: "neo", target: "local:main", from: "white:sender", message: "hello" });
+    expect(h.lifecycle[0]).toMatchObject({ route: "inbox", state: "queued" });
+  });
+
+  test("does not wait when a local pane looks briefly busy", async () => {
     const idleChecks = [{ idle: false, lastInput: "typing" }, { idle: true, lastInput: "" }] as any[];
     const h = makeHarness({
       resolveTarget: (() => ({ type: "local", target: "local:main" })) as any,
@@ -263,7 +297,8 @@ describe("POST /send", () => {
     });
 
     expect(await readJson(await h.app.handle(jsonRequest("/send", { target: "neo", text: "hello" })))).toMatchObject({ ok: true, target: "local:main" });
-    expect(h.calls).toContainEqual(["sleep", 500]);
+    expect(h.calls.some((c) => c[0] === "idle")).toBe(false);
+    expect(h.calls.some((c) => c[0] === "sleep" && c[1] === 500)).toBe(false);
     expect(h.calls).toContainEqual(["sendKeys", "local:main", "hello"]);
   });
 
@@ -326,7 +361,7 @@ describe("POST /send", () => {
     expect(fail.lifecycle[0]).toMatchObject({ route: "discovery", state: "failed", error: "receiver rejected delivery" });
   });
 
-  test("auto-wakes fleet-known targets, retries local resolution, and handles retry busy failure", async () => {
+  test("auto-wakes fleet-known targets, retries local resolution, and delivers without idle guard", async () => {
     let resolveCalls = 0;
     const ok = makeHarness({
       resolveFleetSession: () => "54-neo",
@@ -344,11 +379,10 @@ describe("POST /send", () => {
       shouldAutoWake: () => ({ wake: true }),
       resolveTarget: (() => (++busyResolveCalls <= 2 ? { type: "error", reason: "missing" } : { type: "local", target: "54-neo:main" })) as any,
       listSessions: async () => [session("54-neo", [{ index: 0, name: "main", active: true }])] as any,
-      checkPaneIdle: async () => ({ idle: false, lastInput: "busy" }) as any,
+      checkPaneIdle: async (target: string) => { busy.calls.push(["idle", target]); return { idle: false, lastInput: "busy" } as any; },
     });
-    const res = await busy.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" }));
-    expect(res.status).toBe(409);
-    expect(await readJson(res)).toMatchObject({ ok: false, error: "pane not idle", target: "54-neo:main" });
+    expect(await readJson(await busy.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" })))).toMatchObject({ ok: true, target: "54-neo:main", wokeFor: "neo" });
+    expect(busy.calls.some((c) => c[0] === "idle")).toBe(false);
 
     let transientResolveCalls = 0;
     const transientIdle = [{ idle: false, lastInput: "typing" }, { idle: true, lastInput: "" }] as any[];
@@ -361,7 +395,8 @@ describe("POST /send", () => {
       capture: async () => "after wake\nready",
     });
     expect(await readJson(await transient.app.handle(jsonRequest("/send", { target: "neo", text: "wake hi" })))).toMatchObject({ ok: true, target: "54-neo:main", wokeFor: "neo" });
-    expect(transient.calls).toContainEqual(["sleep", 500]);
+    expect(transient.calls.some((c) => c[0] === "idle")).toBe(false);
+    expect(transient.calls.some((c) => c[0] === "sleep" && c[1] === 500)).toBe(false);
   });
 
   test("falls through after wake errors and returns detailed 404s", async () => {

@@ -1,28 +1,28 @@
 # Coverage gap analysis
 
-Generated: 2026-05-21T08:13:09.743Z
+Generated: 2026-05-21T11:03:02.616Z
 
 Input: `coverage/lcov.info`
 
 Coverage scope: source-line-normalized Bun LCOV plus zero-coverage accounting for tracked `src/**/*.ts` files absent from LCOV.
 Excluded from Bun LCOV accounting: non-Bun-runtime AssemblyScript sources compiled to WebAssembly and covered by AssemblyScript harness tests instead of Bun line instrumentation.
 
-Overall line coverage: **100.0%** (33174/33174)
-Overall function coverage: **100.0%** (5667/5667)
+Overall line coverage: **100.0%** (33165/33169)
+Overall function coverage: **100.0%** (5666/5668)
 
 ## Module summary
 
 | Module | Files | Missing from LCOV | Lines | Functions | Branches |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| cli/dispatch | 95 | 0 | 100.0% (6189/6189) | 100.0% (983/983) | n/a (0/0) |
+| cli/dispatch | 95 | 0 | 100.0% (6178/6178) | 100.0% (982/982) | n/a (0/0) |
 | config/runtime | 19 | 0 | 100.0% (795/795) | 100.0% (140/140) | n/a (0/0) |
 | fleet | 21 | 0 | 100.0% (759/759) | 100.0% (125/125) | n/a (0/0) |
 | matcher | 3 | 0 | 100.0% (73/73) | 100.0% (18/18) | n/a (0/0) |
-| other | 175 | 5 | 100.0% (9222/9222) | 100.0% (1616/1616) | n/a (0/0) |
+| other | 175 | 5 | 100.0% (9203/9203) | 100.0% (1616/1616) | n/a (0/0) |
 | plugin dispatch | 15 | 1 | 100.0% (705/705) | 100.0% (91/91) | n/a (0/0) |
-| routing/aliases | 4 | 0 | 100.0% (458/458) | 100.0% (78/78) | n/a (0/0) |
-| transport | 28 | 0 | 100.0% (1722/1722) | 100.0% (459/459) | n/a (0/0) |
-| vendor plugins | 249 | 2 | 100.0% (13251/13251) | 100.0% (2157/2157) | n/a (0/0) |
+| routing/aliases | 4 | 0 | 100.0% (464/464) | 100.0% (78/78) | n/a (0/0) |
+| transport | 28 | 0 | 100.0% (1724/1724) | 100.0% (459/459) | n/a (0/0) |
+| vendor plugins | 249 | 2 | 100.0% (13264/13268) | 99.9% (2157/2159) | n/a (0/0) |
 
 ## Source handled outside Bun LCOV
 
@@ -36,6 +36,7 @@ Overall function coverage: **100.0%** (5667/5667)
 
 | Rank | Risk | Module | File | Uncovered | Line coverage | Function coverage | Note |
 | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
+| 1 | low | vendor plugins | `src/vendor/mpr-plugins/attach/resolve-attach-target.ts` | 4 | 92.5% | 88.9% | partial coverage |
 
 ## Critical files at or above the 80% line target
 

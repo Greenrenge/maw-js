@@ -40,16 +40,26 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
 
     expect(handled).toBe(true);
     expect(calls).toEqual([
-      ["local:mawjs", "hello world", false, { approve: false, trust: false }],
+      ["local:mawjs", "hello world", false, { approve: false, trust: false, inboxOnly: false }],
     ]);
   });
 
-  test("--force is preserved and stripped from the delivered message", async () => {
+  test("--force is preserved as deprecated compatibility and stripped from the delivered message", async () => {
     const handled = await routeComm("send", ["send", "local:mawjs", "hello", "--force"]);
 
     expect(handled).toBe(true);
     expect(calls).toEqual([
-      ["local:mawjs", "hello", true, { approve: false, trust: false }],
+      ["local:mawjs", "hello", true, { approve: false, trust: false, inboxOnly: false }],
+    ]);
+    expect(errors.join("\n")).toContain("--force is deprecated");
+  });
+
+  test("--inbox is stripped from the delivered message and opts out of pane injection", async () => {
+    const handled = await routeComm("hey", ["hey", "local:mawjs", "hello", "--inbox"]);
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual([
+      ["local:mawjs", "hello", false, { approve: false, trust: false, inboxOnly: true }],
     ]);
   });
 
@@ -58,7 +68,7 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
 
     expect(handled).toBe(true);
     expect(calls).toEqual([
-      ["local:mawjs", "ping", false, { approve: false, trust: false }],
+      ["local:mawjs", "ping", false, { approve: false, trust: false, inboxOnly: false }],
     ]);
   });
 
@@ -84,7 +94,7 @@ describe("routeComm — top-level send uses core delivery (#1388)", () => {
 
     expect(handled).toBe(true);
     expect(calls).toEqual([
-      ["local:mawjs", "hello", false, { approve: true, trust: true }],
+      ["local:mawjs", "hello", false, { approve: true, trust: true, inboxOnly: false }],
     ]);
   });
 

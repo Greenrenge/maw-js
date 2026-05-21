@@ -871,19 +871,17 @@ describe("cmdSend — local target (happy path + error branches)", () => {
     expect(outs.some((o) => o.includes("⤷ hello back"))).toBe(true);
   });
 
-  test("local target + non-agent pane without --force → exit 1 + hint, no sendKeys", async () => {
+  test("local target + non-agent pane sends by default", async () => {
     configOverride = { node: "white" };
     resolveTargetReturn = { type: "local", target: "08-mawjs:0" };
     getPaneCommandMap = { "08-mawjs:0": "zsh" };
+    captureResponses = [{ match: /08-mawjs:0/, result: "shell\n" }];
 
     await run(() => cmdSend("white:mawjs", "ping", false, { receiverInbox: false }));
 
-    expect(exitCode).toBe(1);
-    expect(sendKeysCalls).toEqual([]);
-    const joined = errs.join("\n");
-    expect(joined).toContain("no active Claude session in 08-mawjs:0");
-    expect(joined).toContain("running: zsh");
-    expect(joined).toContain("maw wake white:mawjs");
+    expect(exitCode).toBeUndefined();
+    expect(sendKeysCalls).toEqual([{ target: "08-mawjs:0", text: "[white:test-oracle] ping" }]);
+    expect(errs.join("\n")).not.toContain("no active Claude session");
   });
 
   test("local target + non-agent pane WITH --force → sends anyway", async () => {
