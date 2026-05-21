@@ -540,6 +540,19 @@ async function resolveExistingWindowBringTarget(
   return null;
 }
 
+async function resolveExistingSessionBringTarget(
+  targetName: string,
+  opts: WakeOptions,
+  preResolvedSession: string | null,
+): Promise<string | null> {
+  if (!opts.bringAlias) return null;
+  if (opts.task || opts.wt || opts.incubate || opts.repoPath || opts.urlRepoName) return null;
+  const sessionName = (preResolvedSession || targetName).trim();
+  if (!sessionName || sessionName.includes(":")) return null;
+  const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
+  return sessions.some(s => s.name === sessionName) ? sessionName : null;
+}
+
 async function chooseWakeSessionName(oracle: string, urlRepoName?: string): Promise<string> {
   const mappedOrFleet = getSessionMap()[oracle] || resolveFleetSession(oracle);
   const baseName = mappedOrFleet || canonicalSessionName(urlRepoName || oracle);
@@ -598,6 +611,19 @@ export async function cmdWake(oracle: string, opts: WakeOptions): Promise<string
   if (requestedForeignSession) validateForeignSessionName(requestedForeignSession);
 
   console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
+
+  const existingSessionBringTarget = await resolveExistingSessionBringTarget(oracle, opts, preResolvedSession);
+  if (existingSessionBringTarget) {
+    console.log(`\x1b[36m→\x1b[0m live tmux session: ${existingSessionBringTarget}`);
+    if (opts.dryRun) {
+      console.log(`\x1b[90mdry-run — no tmux sessions/windows will be changed\x1b[0m`);
+      return existingSessionBringTarget;
+    }
+    await maybeSplit(existingSessionBringTarget, opts);
+    await maybeOpenWindow(existingSessionBringTarget, opts);
+    await recordWakeSnapshot();
+    return existingSessionBringTarget;
+  }
 
   const existingWindowBringTarget = await resolveExistingWindowBringTarget(oracle, opts, preResolvedSession);
   if (existingWindowBringTarget) {

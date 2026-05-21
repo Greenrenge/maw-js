@@ -753,6 +753,39 @@ describe("cmdWake main-suite coverage", () => {
     expect(takeSnapshotCalls).toEqual(["wake"]);
   });
 
+  test("#1862 bring resolves an exact live tmux session before repo lookup", async () => {
+    sessions.push({ name: "cool" });
+    hasSessions.add("cool");
+    detectSessionReturn = null;
+    shouldWakeDecision = { wake: true, reason: "missing" };
+
+    const { result, logs } = await captureLogs(() =>
+      cmdWake("cool", {
+        bringAlias: true,
+        split: true,
+        splitTarget: "54-mawjs:maw-js-1816",
+      }),
+    );
+
+    expect(result).toBe("cool");
+    expect(logs.join("\n")).toContain("live tmux session: cool");
+    expect(detectSessionCalls).toEqual([]);
+    expect(findWorktreesCalls).toEqual([]);
+    expect(newSessionCalls).toEqual([]);
+    expect(newWindowCalls).toEqual([]);
+    expect(maybeSplitCalls).toEqual([
+      {
+        target: "cool",
+        opts: expect.objectContaining({
+          bringAlias: true,
+          split: true,
+          splitTarget: "54-mawjs:maw-js-1816",
+        }),
+      },
+    ]);
+    expect(takeSnapshotCalls).toEqual(["wake"]);
+  });
+
   test("#1816 bring dry-run resolves exact windows from --to session:window", async () => {
     addWindow("54-mawjs", "mawjs-features");
 
