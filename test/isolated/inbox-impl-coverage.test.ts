@@ -17,6 +17,7 @@ let originalStateDir: string | undefined;
 const commSendCalls: Array<{ query: string; message: string }> = [];
 let psiPath: string | undefined = "";
 const originalCwd = process.cwd();
+let ghqRepos: Record<string, string> = {};
 
 function captureLogs() {
   const logs: string[] = [];
@@ -45,7 +46,14 @@ mock.module("maw-js/commands/shared/comm-send", () => ({
   },
 }));
 
-const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
+mock.module("maw-js/core/ghq", () => ({
+  ghqFind: async (pattern: string) => {
+    const normalized = pattern.replace(/^\//, "").replace(/\$$/, "");
+    return ghqRepos[normalized] ?? null;
+  },
+}));
+
+const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, formatInboxStatus, cmdInboxStatus, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
   await import("../../src/vendor/mpr-plugins/inbox/impl");
 
 beforeEach(() => {
@@ -55,8 +63,28 @@ beforeEach(() => {
   process.env.MAW_CONFIG_DIR = rootDir;
   process.env.MAW_STATE_DIR = join(rootDir, "state");
   psiPath = rootDir;
+  ghqRepos = {};
   commSendCalls.length = 0;
 });
+
+function inboxFilenameAt(ms: number, suffix: string): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return [
+    d.getFullYear(),
+    "-",
+    pad(d.getMonth() + 1),
+    "-",
+    pad(d.getDate()),
+    "_",
+    pad(d.getHours()),
+    "-",
+    pad(d.getMinutes()),
+    "_",
+    suffix,
+    ".md",
+  ].join("");
+}
 
 describe("inbox impl utility surface", () => {
   test("resolves inbox directory using psiPath, local ψ, and psi fallback", () => {
@@ -217,6 +245,80 @@ describe("inbox impl utility surface", () => {
     await cmdInboxWrite("persisted note");
     outOk.restore();
     expect(outOk.logs.join("\\n")).toContain("wrote");
+  });
+
+  test("parses status timestamps from inbox filenames only", () => {
+    expect(parseInboxFilenameTimestamp("2026-05-21_09-30_alpha_subject.md")?.toISOString()).toContain("2026-05-21T");
+    expect(parseInboxFilenameTimestamp("no-timestamp.md")).toBeNull();
+  });
+
+  test("reports red inbox backpressure and writes a cursor", async () => {
+    const now = Date.now();
+    const inbox = join(rootDir, "inbox");
+    const processed = join(inbox, "processed", "2026-05-21");
+    mkdirSync(processed, { recursive: true });
+    writeFileSync(join(inbox, inboxFilenameAt(now - 5 * 60 * 60_000, "oldest.md")), "old");
+    writeFileSync(join(inbox, inboxFilenameAt(now - 10 * 60_000, "newest.md")), "new");
+    writeFileSync(join(inbox, "processed-should-not-count.md"), "top-level unread");
+    const archived = join(processed, "archived.md");
+    writeFileSync(archived, "archived");
+    const archiveTime = new Date(now - 9 * 60 * 60_000);
+    utimesSync(archived, archiveTime, archiveTime);
+
+    const status = await getInboxStatus(undefined, now);
+
+    expect(status).toMatchObject({
+      oracle: "node-oracle",
+      unread: 3,
+      delta_since_last_check: 0,
+      level: "red",
+    });
+    expect(status.oldest_age_seconds).toBeGreaterThanOrEqual(5 * 60 * 60 - 60);
+    expect(status.last_archive_age_seconds).toBeGreaterThanOrEqual(9 * 60 * 60 - 1);
+    expect(status.reasons).toEqual(["oldest>4h", "since_archive>8h"]);
+    expect(readFileSync(join(rootDir, "state", "inbox-cursor.json"), "utf-8")).toContain(`"unread": 3`);
+    expect(formatInboxStatus(status)).toContain("🔴 UNREAD 3");
+  });
+
+  test("marks growing unread with no archive activity as red delta", async () => {
+    const now = Date.now();
+    const inbox = join(rootDir, "inbox");
+    const processed = join(inbox, "processed", "2026-05-21");
+    mkdirSync(processed, { recursive: true });
+    writeFileSync(join(inbox, inboxFilenameAt(now - 10 * 60_000, "one.md")), "one");
+    const archived = join(processed, "archived.md");
+    writeFileSync(archived, "archived");
+    const archiveTime = new Date(now - 60 * 60_000);
+    utimesSync(archived, archiveTime, archiveTime);
+
+    const first = await getInboxStatus(undefined, now);
+    expect(first.level).toBe("green");
+    expect(first.delta_since_last_check).toBe(0);
+
+    writeFileSync(join(inbox, inboxFilenameAt(now - 5 * 60_000, "two.md")), "two");
+    const second = await getInboxStatus(undefined, now + 60_000);
+    expect(second.delta_since_last_check).toBe(1);
+    expect(second.level).toBe("red");
+    expect(second.reasons).toContain("delta>0_no_archive_activity");
+  });
+
+  test("uses named oracle repo resolution and prints json status", async () => {
+    const repo = join(rootDir, "named-oracle");
+    const inbox = join(repo, "ψ", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    ghqRepos["named-oracle"] = repo;
+
+    const out = captureLogs();
+    const status = await cmdInboxStatus("named-oracle", { json: true });
+    out.restore();
+
+    expect(status).toMatchObject({ oracle: "named-oracle", unread: 0, level: "green" });
+    expect(JSON.parse(out.logs.join("\\n"))).toMatchObject({
+      oracle: "named-oracle",
+      unread: 0,
+      level: "green",
+      reasons: [],
+    });
   });
 });
 

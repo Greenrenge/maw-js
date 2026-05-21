@@ -28,6 +28,7 @@ let inboxLsCalls: Array<{ unread?: boolean; from?: string; last?: number }> = []
 let markReadCalls: string[] = [];
 let inboxReadCalls: Array<string | undefined> = [];
 let inboxWriteCalls: string[] = [];
+let inboxStatusCalls: Array<{ oracle?: string; json?: boolean }> = [];
 
 mock.module(implPath, () => ({
   cmdQueueList: () => {
@@ -79,6 +80,11 @@ mock.module(implPath, () => ({
     console.error(`read stderr ${id ?? "latest"}`);
     if (throwLabel === "inbox-read") throw new Error("inbox read exploded");
   },
+  cmdInboxStatus: async (oracle?: string, opts?: { json?: boolean }) => {
+    inboxStatusCalls.push({ oracle, json: opts?.json });
+    console.log(opts?.json ? `json status ${oracle ?? "current"}` : `status ${oracle ?? "current"}`);
+    if (throwLabel === "inbox-status") throw new Error("inbox status exploded");
+  },
   cmdInboxWrite: async (note: string) => {
     inboxWriteCalls.push(note);
     console.log(`wrote ${note}`);
@@ -111,6 +117,7 @@ beforeEach(() => {
   markReadCalls = [];
   inboxReadCalls = [];
   inboxWriteCalls = [];
+  inboxStatusCalls = [];
 });
 
 function invoke(args: string[] | Record<string, unknown>, writer?: (...args: unknown[]) => void) {
@@ -223,6 +230,18 @@ describe("inbox plugin index", () => {
     expect(showResultWithWriter).toEqual({ ok: true, output: undefined });
     expect(inboxReadCalls).toEqual(["2"]);
     expect(writes).toEqual(["read 2", "read stderr 2"]);
+
+    expect(await invoke(["status"])).toEqual({ ok: true, output: "status current" });
+    expect(await invoke(["status", "mawjs-codex-oracle", "--json"])).toEqual({
+      ok: true,
+      output: "json status mawjs-codex-oracle",
+    });
+    expect(await invoke(["status", "--json"])).toEqual({ ok: true, output: "json status current" });
+    expect(inboxStatusCalls).toEqual([
+      { oracle: undefined, json: false },
+      { oracle: "mawjs-codex-oracle", json: true },
+      { oracle: undefined, json: true },
+    ]);
 
     expect(await invoke(["write", "hello", "world"])).toEqual({ ok: true, output: "wrote hello world" });
     expect(inboxWriteCalls).toEqual(["hello world"]);

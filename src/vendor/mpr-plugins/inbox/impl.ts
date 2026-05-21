@@ -1,6 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { basename, dirname, join } from "path";
 import { loadConfig } from "maw-js/config";
+import { ghqFind } from "maw-js/core/ghq";
 import {
   deletePending,
   loadPending,
@@ -41,6 +43,28 @@ export interface InboxMessage {
   body: string;
   timestamp: Date;
 }
+
+export interface InboxStatus {
+  oracle: string;
+  unread: number;
+  oldest_age_seconds: number | null;
+  last_archive_age_seconds: number | null;
+  delta_since_last_check: number;
+  level: "green" | "red";
+  reasons: string[];
+}
+
+interface InboxCursorEntry {
+  unread: number;
+  latestArchiveMtimeMs: number | null;
+  checkedAt: string;
+}
+
+type InboxCursorStore = Record<string, InboxCursorEntry>;
+
+const UNREAD_RED_THRESHOLD = 50;
+const OLDEST_RED_SECONDS = 4 * 60 * 60;
+const ARCHIVE_RED_SECONDS = 8 * 60 * 60;
 
 export function resolveInboxDir(): string {
   const config = loadConfig();
@@ -106,6 +130,191 @@ export function relativeTime(date: Date): string {
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
   return date.toISOString().slice(0, 10); // YYYY-MM-DD for older items
+}
+
+function cursorPath(): string {
+  const stateDir = process.env.MAW_STATE_DIR || join(homedir(), ".maw", "state");
+  return join(stateDir, "inbox-cursor.json");
+}
+
+function readCursorStore(): InboxCursorStore {
+  try {
+    const parsed = JSON.parse(readFileSync(cursorPath(), "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as InboxCursorStore;
+  } catch {
+    return {};
+  }
+}
+
+function writeCursorStore(store: InboxCursorStore): void {
+  const path = cursorPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(store, null, 2) + "\n", "utf-8");
+}
+
+function stripWorktreeSuffix(name: string): string {
+  return name.replace(/\.wt-.+$/, "");
+}
+
+function inferOracleNameFromCwd(): string {
+  const config = loadConfig();
+  const cwdName = stripWorktreeSuffix(basename(process.cwd()));
+  return cwdName || config.oracle || config.node || "local";
+}
+
+function canonicalRepoFromCwd(): string | null {
+  const cwd = process.cwd();
+  const cwdName = basename(cwd);
+  const stripped = stripWorktreeSuffix(cwdName);
+  if (stripped !== cwdName) {
+    const repo = join(dirname(cwd), stripped);
+    if (existsSync(repo)) return repo;
+  }
+  return null;
+}
+
+function inboxDirForRepo(repoPath: string): string {
+  const psi = join(repoPath, "ψ", "inbox");
+  if (existsSync(psi)) return psi;
+  return join(repoPath, "psi", "inbox");
+}
+
+async function resolveOracleRepo(oracle: string): Promise<string | null> {
+  return (await ghqFind(`/${oracle}-oracle$`)) ?? (await ghqFind(`/${oracle}$`));
+}
+
+async function resolveInboxStatusTarget(oracleArg?: string): Promise<{ oracle: string; inboxDir: string }> {
+  if (oracleArg) {
+    const repoPath = await resolveOracleRepo(oracleArg);
+    if (!repoPath) throw new Error(`no oracle named '${oracleArg}' — try: maw oracle ls`);
+    return { oracle: oracleArg, inboxDir: inboxDirForRepo(repoPath) };
+  }
+
+  const config = loadConfig();
+  const oracle = inferOracleNameFromCwd();
+  const repoPath = (await resolveOracleRepo(oracle)) ?? canonicalRepoFromCwd();
+  if (repoPath) return { oracle, inboxDir: inboxDirForRepo(repoPath) };
+  if (config.psiPath) return { oracle: config.oracle || oracle, inboxDir: join(config.psiPath, "inbox") };
+  return { oracle, inboxDir: resolveInboxDir() };
+}
+
+function topLevelInboxFiles(inboxDir: string): string[] {
+  if (!existsSync(inboxDir)) return [];
+  return readdirSync(inboxDir, { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith(".md"))
+    .map(entry => join(inboxDir, entry.name));
+}
+
+export function parseInboxFilenameTimestamp(filename: string): Date | null {
+  const m = basename(filename).match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})_/);
+  if (!m) return null;
+  const date = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00`);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function latestArchiveMtimeMs(inboxDir: string): number | null {
+  const processedDir = join(inboxDir, "processed");
+  if (!existsSync(processedDir)) return null;
+
+  let latest: number | null = null;
+  for (const day of readdirSync(processedDir, { withFileTypes: true })) {
+    if (!day.isDirectory() || !/^\d{4}-\d{2}-\d{2}$/.test(day.name)) continue;
+    const dayDir = join(processedDir, day.name);
+    for (const file of readdirSync(dayDir, { withFileTypes: true })) {
+      if (!file.isFile() || !file.name.endsWith(".md")) continue;
+      const mtimeMs = statSync(join(dayDir, file.name)).mtimeMs;
+      latest = latest === null ? mtimeMs : Math.max(latest, mtimeMs);
+    }
+  }
+  return latest;
+}
+
+function ageSeconds(timestampMs: number, nowMs: number): number {
+  return Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
+}
+
+export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Promise<InboxStatus> {
+  const { oracle, inboxDir } = await resolveInboxStatusTarget(oracleArg);
+  const files = topLevelInboxFiles(inboxDir);
+  const unread = files.length;
+
+  const oldestTimestampMs = files
+    .map(file => parseInboxFilenameTimestamp(file)?.getTime() ?? null)
+    .filter((time): time is number => time !== null && isFinite(time))
+    .sort((a, b) => a - b)[0] ?? null;
+  const oldestAgeSeconds = oldestTimestampMs === null ? null : ageSeconds(oldestTimestampMs, nowMs);
+
+  const archiveMtimeMs = latestArchiveMtimeMs(inboxDir);
+  const lastArchiveAgeSeconds = archiveMtimeMs === null ? null : ageSeconds(archiveMtimeMs, nowMs);
+
+  const cursor = readCursorStore();
+  const previous = cursor[oracle];
+  const delta = previous ? unread - previous.unread : 0;
+  const archiveAdvanced = previous
+    ? archiveMtimeMs !== null &&
+      (previous.latestArchiveMtimeMs === null || archiveMtimeMs > previous.latestArchiveMtimeMs)
+    : false;
+
+  const reasons: string[] = [];
+  if (unread > UNREAD_RED_THRESHOLD) reasons.push("unread>50");
+  if (oldestAgeSeconds !== null && oldestAgeSeconds > OLDEST_RED_SECONDS) reasons.push("oldest>4h");
+  if (lastArchiveAgeSeconds !== null && lastArchiveAgeSeconds > ARCHIVE_RED_SECONDS) {
+    reasons.push("since_archive>8h");
+  } else if (lastArchiveAgeSeconds === null && unread > 0) {
+    reasons.push("no_archive");
+  }
+  if (delta > 0 && !archiveAdvanced) reasons.push("delta>0_no_archive_activity");
+
+  const status: InboxStatus = {
+    oracle,
+    unread,
+    oldest_age_seconds: oldestAgeSeconds,
+    last_archive_age_seconds: lastArchiveAgeSeconds,
+    delta_since_last_check: delta,
+    level: reasons.length ? "red" : "green",
+    reasons,
+  };
+
+  cursor[oracle] = {
+    unread,
+    latestArchiveMtimeMs: archiveMtimeMs,
+    checkedAt: new Date(nowMs).toISOString(),
+  };
+  writeCursorStore(cursor);
+
+  return status;
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds === null) return "never";
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function formatDelta(delta: number): string {
+  return delta > 0 ? `+${delta}` : String(delta);
+}
+
+export function formatInboxStatus(status: InboxStatus): string {
+  const symbol = status.level === "red" ? "🔴" : "🟢";
+  const oldest = status.oldest_age_seconds === null ? "none" : formatDuration(status.oldest_age_seconds);
+  const archive = status.last_archive_age_seconds === null
+    ? "never"
+    : `${formatDuration(status.last_archive_age_seconds)} ago`;
+  const line = `${symbol} UNREAD ${status.unread} (oldest ${oldest}, last archive ${archive}, Δ ${formatDelta(status.delta_since_last_check)} last cycle)`;
+  if (status.level === "green") return line;
+  return `${line}\n   → not draining — consider escalation`;
+}
+
+export async function cmdInboxStatus(oracle?: string, opts: { json?: boolean } = {}): Promise<InboxStatus> {
+  const status = await getInboxStatus(oracle);
+  console.log(opts.json ? JSON.stringify(status, null, 2) : formatInboxStatus(status));
+  return status;
 }
 
 export function writeInboxFile(inboxDir: string, from: string, to: string, body: string): string {

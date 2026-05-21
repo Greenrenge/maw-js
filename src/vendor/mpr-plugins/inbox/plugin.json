@@ -7,7 +7,7 @@
   "author": "Soul-Brews-Studio",
   "cli": {
     "command": "inbox",
-    "help": "maw inbox [--unread] [--from <peer>] [--last N] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
+    "help": "maw inbox [--unread] [--from <peer>] [--last N] | status [oracle-name] [--json] | read <id> | show [N] | write <msg> | pending | approve <id> | reject <id> | show-pending <id>"
   },
   "weight": 30,
   "tier": "standard",
