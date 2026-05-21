@@ -252,4 +252,22 @@ describe("federation API fleet route", () => {
 
     expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({ fleet: [] });
   });
+
+  test("returns an empty fleet when unexpected bookkeeping fails mid-scan", async () => {
+    const originalHas = Set.prototype.has;
+    const app = makeApp({
+      fleetDir: "/fleet",
+      readdirSync: (() => ["m5.json"]) as any,
+      readFileSync: (() => JSON.stringify({ node: "m5" })) as any,
+    });
+    Set.prototype.has = function patchedHas(value: unknown): boolean {
+      if (value === "m5.json") throw new Error("set bookkeeping failed");
+      return originalHas.call(this, value);
+    };
+    try {
+      expect(await readJson(await app.handle(new Request("http://localhost/fleet")))).toEqual({ fleet: [] });
+    } finally {
+      Set.prototype.has = originalHas;
+    }
+  });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -64,6 +64,25 @@ describe("workspace-store XDG data paths", () => {
 
       expect(store.loadWorkspace("ws-legacy")?.name).toBe("Legacy Workspace");
       expect(store.loadAllWorkspaces().map(ws => ws.id).sort()).toEqual(["ws-data", "ws-legacy"]);
+
+      writeFileSync(join(root, "data", "workspaces", "ws-created.json"), JSON.stringify({
+        id: "ws-created",
+        createdAt: "2026-05-20T16:25:00.000Z",
+        sharedAgents: ["kept", 42, "also-kept"],
+        lastStatus: "bogus",
+      }), "utf-8");
+      expect(store.loadWorkspace("ws-created")).toEqual({
+        id: "ws-created",
+        name: "(unnamed)",
+        hubUrl: "",
+        joinCode: undefined,
+        sharedAgents: ["kept", "also-kept"],
+        joinedAt: "2026-05-20T16:25:00.000Z",
+        lastStatus: undefined,
+      });
+
+      writeFileSync(join(root, "data", "workspaces", "ws-corrupt.json"), "{ bad", "utf-8");
+      expect(store.loadWorkspace("ws-corrupt")).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

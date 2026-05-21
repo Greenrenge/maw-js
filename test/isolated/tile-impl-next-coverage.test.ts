@@ -17,6 +17,7 @@ let throwGitTop = false;
 let throwBranchDelete = false;
 let layoutCalls: string[] = [];
 let borderCalls: Array<{ paneId: string; label: string; color: string }> = [];
+const originalTileCmdSettle = process.env.MAW_TILE_CMD_SETTLE_MS;
 
 mock.module(join(root, "src/sdk"), () => ({
   hostExec: async (cmd: string) => {
@@ -71,6 +72,10 @@ mock.module(join(root, "src/core/transport/tmux-pane-lock"), () => ({
   withPaneLock: async (fn: () => Promise<void>) => fn(),
 }));
 
+mock.module(join(root, "src/config"), () => ({
+  loadConfig: () => ({ commands: { codex: "codex --model fast" } }),
+}));
+
 const { cmdTile, cmdTileClean, cmdTileSwap } = await import(
   "../../src/commands/plugins/tile/impl.ts?tile-impl-next-coverage"
 );
@@ -105,6 +110,8 @@ describe("tile impl next coverage", () => {
 
   afterEach(() => {
     logSpy.mockRestore();
+    if (originalTileCmdSettle === undefined) delete process.env.MAW_TILE_CMD_SETTLE_MS;
+    else process.env.MAW_TILE_CMD_SETTLE_MS = originalTileCmdSettle;
     rmSync(wtPath, { recursive: true, force: true });
   });
 
@@ -173,6 +180,22 @@ describe("tile impl next coverage", () => {
 
     expect(commands.some(cmd => cmd.includes("tmux send-keys") && cmd.includes("-l") && cmd.includes("reader-"))).toBe(false);
     expect(borderCalls.map((call) => call.label)).toEqual(["sess-tile-1", "sess-tile-2"]);
+  });
+
+  test("engine command dispatch covers invalid and bounded tile command settle delays", async () => {
+    process.env.MAW_TILE_CMD_SETTLE_MS = "0";
+    plainPaneList = "%lead\n%p1\n";
+    await cmdTile(1, { engine: "codex" });
+
+    expect(commands).toContain("tmux send-keys -t '%p1' -l 'codex --model fast'");
+    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
+
+    commands = [];
+    nextPane = 1;
+    process.env.MAW_TILE_CMD_SETTLE_MS = "not-a-number";
+    await cmdTile(1, { engine: "codex" });
+
+    expect(commands).toContain("tmux send-keys -t '%p1' -l 'codex --model fast'");
   });
 
   test("clean reports no-op when there are no tile panes and git discovery fails", async () => {
