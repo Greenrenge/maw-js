@@ -132,6 +132,20 @@ describe("attach resolver channel-session filtering", () => {
     expect(result).toEqual({ tier: 1, sessionName: "50-mawjs" });
   });
 
+  test("preserves exact live window matches for multi-window sessions", async () => {
+    const result = await resolveAttachTarget("mawjs-features", {
+      listSessions: async () => [
+        {
+          name: "50-mawjs",
+          windows: [{ name: "mawjs-oracle" }, { name: "mawjs-features" }],
+        },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "50-mawjs", windowName: "mawjs-features" });
+  });
+
   test("keeps tmux numeric window suffixes as session targets", async () => {
     const result = await resolveAttachTarget("neo:0", {
       listSessions: async () => [

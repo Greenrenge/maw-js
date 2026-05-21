@@ -130,6 +130,10 @@ describe("maw follow plugin", () => {
     expect(await resolveFollowTarget("codex", deps() as any)).toBe("50-codex");
     expect(await resolveFollowTarget("codex:1.2", deps() as any)).toBe("50-codex:1.2");
     expect(await resolveFollowTarget("raw:window", deps() as any)).toBe("raw:window");
+
+    sessions = [{ name: "50-mawjs", windows: [{ name: "mawjs-oracle" }, { name: "mawjs-features" }] }];
+    expect(await resolveFollowTarget("mawjs-features", deps() as any)).toBe("50-mawjs:mawjs-features");
+    expect(await resolveFollowTarget("mawjs-features:0", deps() as any)).toBe("50-mawjs:mawjs-features.0");
   });
 
   test("rejects ambiguous attach-style names before opening a websocket", async () => {

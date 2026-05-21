@@ -116,7 +116,12 @@ export async function resolveFollowTarget(target: string, deps: Pick<FollowDeps,
     if (result.ambiguousCandidates && result.ambiguousCandidates.length > 1) {
       throw new Error(`follow: '${sessionQuery}' is ambiguous: ${result.ambiguousCandidates.join(", ")}`);
     }
-    return numericTmuxTarget ? `${result.sessionName}:${numericTmuxTarget[2]}` : result.sessionName;
+    const resolved = result.windowName ? `${result.sessionName}:${result.windowName}` : result.sessionName;
+    if (!numericTmuxTarget) return resolved;
+    const paneSuffix = numericTmuxTarget[2];
+    return result.windowName && !paneSuffix.includes(".")
+      ? `${resolved}.${paneSuffix}`
+      : `${result.sessionName}:${paneSuffix}`;
   }
 
   return raw;

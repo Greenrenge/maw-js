@@ -100,8 +100,17 @@ function windowMatchesOracle(windowName: string, target: string): boolean {
   return n === t || n === `${t}-oracle` || n.endsWith(`-${t}-oracle`);
 }
 
-function sessionMatches(session: SessionLike, target: string, fuzzy: boolean): boolean {
-  return nameMatches(session.name, target, fuzzy) || session.windows.some(w => windowMatchesOracle(w.name, target));
+function exactWindowName(session: SessionLike, target: string): string | undefined {
+  const t = target.toLowerCase();
+  return session.windows.find(w => w.name.toLowerCase() === t)?.name;
+}
+
+function runningMatchFor(session: SessionLike, target: string, fuzzy: boolean): { session: SessionLike; windowName?: string } | null {
+  if (nameMatches(session.name, target, fuzzy)) return { session };
+  const windowName = exactWindowName(session, target);
+  if (windowName) return { session, windowName };
+  if (session.windows.some(w => windowMatchesOracle(w.name, target))) return { session };
+  return null;
 }
 
 export async function resolveAttachTarget(
@@ -115,15 +124,22 @@ export async function resolveAttachTarget(
     .filter(s => !isInfrastructureChannelSessionName(s.name, target));
 
   // Tier 1 — live tmux session/window matches.
-  const runningMatches = sessions.filter(s => sessionMatches(s, target, fuzzy));
+  const runningMatches = sessions
+    .map(s => runningMatchFor(s, target, fuzzy))
+    .filter((s): s is { session: SessionLike; windowName?: string } => Boolean(s));
   if (runningMatches.length === 1) {
-    return { tier: 1, sessionName: runningMatches[0].name };
+    const match = runningMatches[0];
+    return {
+      tier: 1,
+      sessionName: match.session.name,
+      ...(match.windowName ? { windowName: match.windowName } : {}),
+    };
   }
   if (runningMatches.length > 1) {
     return {
       tier: 1,
-      sessionName: runningMatches[0].name,
-      ambiguousCandidates: runningMatches.map(s => s.name),
+      sessionName: runningMatches[0].session.name,
+      ambiguousCandidates: runningMatches.map(s => s.session.name),
     };
   }
 
