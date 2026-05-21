@@ -288,10 +288,10 @@ export function classifySnapshots(pane: string, rawSamples: SnapshotSample[], wi
   const state: ActivityState = changedIndexes.size > 0
     ? "busy"
     : isStuckSnapshot(rawSamples.at(-1)?.text ?? "") ? "stuck" : "idle";
-  const sampleWindowSeconds = Math.max(1, Math.round(windowMs / 1000));
+  const sampleWindowSeconds = Number((windowMs / 1000).toFixed(3));
   const lastChangeAgoSeconds = lastChangeAt === null
     ? sampleWindowSeconds
-    : Math.max(0, Math.round((end - lastChangeAt) / 1000));
+    : Math.max(0, Number(((end - lastChangeAt) / 1000).toFixed(3)));
 
   return {
     pane,

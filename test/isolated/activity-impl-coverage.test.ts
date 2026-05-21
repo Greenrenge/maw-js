@@ -4,6 +4,7 @@ import {
   collectFollowSnapshot,
   collectPeekSnapshot,
   cmdActivity,
+  formatActivityHuman,
   isStuckSnapshot,
   normalizeSnapshot,
   parseActivityOptions,
@@ -156,6 +157,13 @@ describe("maw activity impl", () => {
       { text: "\n❯ ", at: 31_000 },
     ], 30_000);
     expect(stuck).toMatchObject({ state: "stuck", confidence: "medium", diff_samples: 0 });
+
+    const shortIdle = classifySnapshots("pane", [
+      { text: "same", at: 1_000 },
+      { text: "same", at: 1_100 },
+    ], 100);
+    expect(shortIdle).toMatchObject({ state: "idle", sample_window_seconds: 0.1, last_change_ago_seconds: 0.1 });
+    expect(formatActivityHuman(shortIdle)).toContain("no change in 0.1s");
   });
 
   test("samples a pane through peek target resolution by default", async () => {
