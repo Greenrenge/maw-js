@@ -262,6 +262,26 @@ describe("maw activity impl", () => {
     expect(handlers).toEqual({});
   });
 
+  test("filters one-shot output to stuck panes only", async () => {
+    sessions = [{ name: "50-mawjs", windows: [{ index: 1, name: "idle-pane" }, { index: 2, name: "stuck-pane" }] }];
+    fleetEntries = [
+      { file: "50-mawjs.json", path: "/fleet/50-mawjs.json", num: 50, groupName: "mawjs", session: { name: "50-mawjs", windows: [{ name: "idle-pane", repo: "Soul-Brews-Studio/maw-js" }, { name: "stuck-pane", repo: "Soul-Brews-Studio/maw-js" }] } },
+    ];
+
+    const results = await cmdActivity(undefined, {
+      all: true,
+      json: true,
+      stuckOnly: true,
+      window: "1s",
+      samples: 2,
+    }, deps({
+      snapshotPane: async (target) => target === "50-mawjs:2" ? "\n❯ " : "same",
+    }));
+
+    expect(results.map(result => result.pane)).toEqual(["50-mawjs:stuck-pane"]);
+    expect(JSON.parse(out[0])).toMatchObject([{ pane: "50-mawjs:stuck-pane", state: "stuck" }]);
+  });
+
   test("human watch mode redraws a stable current-state table", async () => {
     snapshots = ["same", "same", "same", "same"];
 
@@ -297,6 +317,23 @@ describe("maw activity impl", () => {
     expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek, refresh=1); press Ctrl-C to stop");
     expect(rendered).toContain("50-mawjs:mawjs-features: 🟡 IDLE");
     expect(rendered).toContain("\u001b[2A\r\u001b[J");
+  });
+
+  test("human watch with stuck-only redraws an empty red-pane table", async () => {
+    snapshots = ["same", "same"];
+
+    await cmdActivity("mawjs-features", {
+      stuckOnly: true,
+      watch: true,
+      watchIterations: 1,
+      window: "1s",
+      samples: 2,
+    }, deps());
+
+    const rendered = out.join("");
+    expect(rendered).toContain("(sampling...)");
+    expect(rendered).toContain("(no stuck panes)");
+    expect(rendered).not.toContain("IDLE");
   });
 
   test("collects a bounded snapshot from the follow/PTTY websocket attach protocol", async () => {

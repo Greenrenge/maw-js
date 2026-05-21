@@ -3,7 +3,7 @@ import { describe, expect, mock, test, beforeEach } from "bun:test";
 const activityCalls: Array<{ target: string | undefined; opts: Record<string, unknown> }> = [];
 
 mock.module(import.meta.resolve("../../src/vendor/mpr-plugins/activity/impl"), () => ({
-  ACTIVITY_USAGE: "usage: maw activity <pane> [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow]",
+  ACTIVITY_USAGE: "usage: maw activity <pane> [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow]",
   cmdActivity: async (target: string | undefined, opts: Record<string, unknown>) => {
     activityCalls.push({ target, opts });
     if (target === "explode") throw new Error("activity exploded");
@@ -31,6 +31,7 @@ describe("maw activity plugin index", () => {
       "50-mawjs:mawjs-features",
       "--watch",
       "--json",
+      "--stuck-only",
       "--window",
       "10s",
       "--samples",
@@ -41,7 +42,7 @@ describe("maw activity plugin index", () => {
     expect(result).toEqual({ ok: true });
     expect(activityCalls.at(-1)).toEqual({
       target: "50-mawjs:mawjs-features",
-      opts: { all: false, watch: true, json: true, window: "10s", samples: 5, sampler: "follow" },
+      opts: { all: false, watch: true, json: true, stuckOnly: true, window: "10s", samples: 5, sampler: "follow" },
     });
   });
 
@@ -49,7 +50,7 @@ describe("maw activity plugin index", () => {
     await expect(handler(ctx("cli", ["--all", "--json"]))).resolves.toEqual({ ok: true });
     expect(activityCalls.at(-1)).toEqual({
       target: undefined,
-      opts: { all: true, watch: false, json: true, window: undefined, samples: undefined, sampler: undefined },
+      opts: { all: true, watch: false, json: true, stuckOnly: false, window: undefined, samples: undefined, sampler: undefined },
     });
   });
 
@@ -65,13 +66,14 @@ describe("maw activity plugin index", () => {
       target: "api-pane",
       watch: true,
       json: true,
+      stuckOnly: true,
       window: "5s",
       samples: 4,
       sampler: "peek",
     }))).resolves.toEqual({ ok: true });
     expect(activityCalls.at(-1)).toEqual({
       target: "api-pane",
-      opts: { all: false, watch: true, json: true, window: "5s", samples: 4, sampler: "peek" },
+      opts: { all: false, watch: true, json: true, stuckOnly: true, window: "5s", samples: 4, sampler: "peek" },
     });
 
     await expect(handler(ctx("api", { all: true, json: true }))).resolves.toEqual({ ok: true });

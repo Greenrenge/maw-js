@@ -9,7 +9,7 @@ import {
   type FollowDeps,
 } from "../follow/impl";
 
-export const ACTIVITY_USAGE = "usage: maw activity <pane> [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--window=<dur>] [--samples=N] [--sampler=peek|follow]";
+export const ACTIVITY_USAGE = "usage: maw activity <pane> [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow] | maw activity --all [--watch] [--json] [--stuck-only] [--window=<dur>] [--samples=N] [--sampler=peek|follow]";
 
 export type ActivityState = "busy" | "idle" | "stuck";
 export type ActivityConfidence = "low" | "medium" | "high";
@@ -19,6 +19,7 @@ export interface ActivityOptions {
   all?: boolean;
   watch?: boolean;
   json?: boolean;
+  stuckOnly?: boolean;
   window?: string;
   samples?: number;
   sampler?: string;
@@ -420,6 +421,10 @@ function emit(result: ActivityResult, opts: ActivityOptions, deps: Pick<Activity
   deps.stdoutWrite(opts.json ? `${JSON.stringify(result)}\n` : `${formatActivityHuman(result)}\n`);
 }
 
+function filterResults(results: ActivityResult[], opts: ActivityOptions): ActivityResult[] {
+  return opts.stuckOnly ? results.filter(result => result.state === "stuck") : results;
+}
+
 function renderedLineCount(text: string): number {
   if (!text) return 0;
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
@@ -427,7 +432,8 @@ function renderedLineCount(text: string): number {
 
 function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions, status?: string): string {
   const rows = results.map(formatActivityHuman);
-  const body = rows.length ? rows.join("\n") : status === "sampling" ? "(sampling...)" : "(no panes resolved)";
+  const empty = opts.stuckOnly ? "(no stuck panes)" : "(no panes resolved)";
+  const body = rows.length ? rows.join("\n") : status === "sampling" ? "(sampling...)" : empty;
   const description = status ? `${samplingDescription(opts)}, ${status}` : samplingDescription(opts);
   return `activity: watching ${scope} (${description}); press Ctrl-C to stop\n${body}\n`;
 }
@@ -441,14 +447,14 @@ function redrawWatchTable(renderedLines: number, text: string, deps: Pick<Activi
 async function cmdActivityOnce(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
   if (opts.all) {
     if (!opts.json) deps.stderrWrite(`activity: surveying fleet (${samplingDescription(opts)})...\n`);
-    const results = await sampleAllActivity(opts, deps);
+    const results = filterResults(await sampleAllActivity(opts, deps), opts);
     deps.stdoutWrite(opts.json ? `${JSON.stringify(results)}\n` : results.map(formatActivityHuman).join("\n") + (results.length ? "\n" : ""));
     return results;
   }
   if (!target) throw new Error(ACTIVITY_USAGE);
-  const result = await sampleActivity(target, opts, deps);
-  emit(result, opts, deps);
-  return [result];
+  const results = filterResults([await sampleActivity(target, opts, deps)], opts);
+  for (const result of results) emit(result, opts, deps);
+  return results;
 }
 
 async function cmdActivityWatch(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
@@ -470,16 +476,17 @@ async function cmdActivityWatch(target: string | undefined, opts: ActivityOption
       const results = opts.all
         ? await sampleAllActivity(opts, deps)
         : [await sampleActivity(target || "", opts, deps)];
+      const visibleResults = filterResults(results, opts);
       if (stopped) break;
       if (!opts.json) {
-        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, results, opts, `refresh=${i + 1}`), deps);
-        if (Number.isFinite(max)) emitted.push(...results);
+        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, visibleResults, opts, `refresh=${i + 1}`), deps);
+        if (Number.isFinite(max)) emitted.push(...visibleResults);
         continue;
       }
       for (const result of results) {
         const prev = previous.get(result.pane);
         previous.set(result.pane, result.state);
-        if (prev !== undefined && prev !== result.state) {
+        if (prev !== undefined && prev !== result.state && (!opts.stuckOnly || result.state === "stuck")) {
           emit(result, opts, deps);
           emitted.push(result);
         }
