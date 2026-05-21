@@ -413,7 +413,9 @@ export function formatActivityHuman(result: ActivityResult): string {
   const icon = result.state === "busy" ? "🟢" : result.state === "stuck" ? "🔴" : "🟡";
   const age = result.state === "busy"
     ? `last change ${formatDuration(result.last_change_ago_seconds)} ago`
-    : `no change in ${formatDuration(result.last_change_ago_seconds)}`;
+    : result.state === "stuck"
+      ? `at prompt (no change in ${formatDuration(result.last_change_ago_seconds)})`
+      : `quiet (no change in ${formatDuration(result.last_change_ago_seconds)})`;
   return `${result.pane}: ${icon} ${result.state.toUpperCase()} (${age}, ${result.diff_samples}/${result.samples} samples diff)`;
 }
 

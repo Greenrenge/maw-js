@@ -196,6 +196,14 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
  * `--active [duration]` filters by tmux session_activity (default 30m).
  * For `wake`, parses the 9 known flags and calls cmdWake(oracle, opts).
  */
+
+function missingLongArgName(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  if ((error as { code?: string }).code !== "ARG_MISSING_REQUIRED_LONGARG") return null;
+  const match = /option requires argument: (\S+)/.exec(error.message);
+  return match?.[1] ?? "option";
+}
+
 export function parseLsAliasOpts(argv: string[]) {
   const flags = parseFlags(argv, {
     "--all": Boolean, "-a": "--all",
@@ -318,7 +326,15 @@ export async function invokeDirectHandler(
       printLsAliasUsage(log);
       return;
     }
-    await directCmdTmuxLs(parseLsAliasOpts(argv));
+    try {
+      await directCmdTmuxLs(parseLsAliasOpts(argv));
+    } catch (e) {
+      const missingArg = missingLongArgName(e);
+      if (!missingArg) throw e;
+      printLsAliasUsage(error);
+      error(`✗ maw ls: ${missingArg} requires a value`);
+      throw new UserError(`ls: missing value for ${missingArg}`);
+    }
     return;
   }
 

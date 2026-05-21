@@ -202,6 +202,16 @@ describe("direct handler invocation", () => {
     expect(calls.logs.join("\n")).toContain("--active");
   });
 
+  test("cmdLs missing --node value prints friendly usage instead of ArgError", async () => {
+    const { calls, deps } = makeDeps();
+
+    await expect(invokeDirectHandler("cmdLs", ["--node"], deps)).rejects.toThrow(UserError);
+
+    expect(calls.tmuxLs).toEqual([]);
+    expect(calls.errors.join("\n")).toContain("usage: maw ls");
+    expect(calls.errors.join("\n")).toContain("✗ maw ls: --node requires a value");
+  });
+
   test("layout help owns the top-level verb and applies presets to the current window", async () => {
     const { calls, deps } = makeDeps();
 
