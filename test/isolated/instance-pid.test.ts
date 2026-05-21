@@ -154,4 +154,59 @@ describe("maw serve PID lock UX (#1434)", () => {
     expect(text).toContain("messages: /api/message-ledger");
     expect(text).toContain("events=MessageSend");
   });
+
+  test("serve status reports a reachable listener even when the PID file is absent", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/api/_engine/registrations") {
+          return Response.json({ ok: true, registrations: [] });
+        }
+        return Response.json({ ok: false }, { status: 404 });
+      },
+    });
+    const lines: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+
+    try {
+      await printServeStatusWithPlugins(`http://127.0.0.1:${server.port}`);
+    } finally {
+      console.log = origLog;
+      server.stop(true);
+    }
+
+    const text = lines.join("\n");
+    expect(text).toContain("maw serve: listener reachable without PID file");
+    expect(text).toContain("likely: pm2 or another MAW_HOME/XDG state root owns the process");
+    expect(text).toContain("pm2 status maw");
+    expect(text).toContain("lsof -nP -iTCP:");
+    expect(text).toContain("-sTCP:LISTEN");
+    expect(text).toContain("engine plugins: none");
+  });
+
+  test("serve status reports reachable older listeners even when engine endpoint is missing", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ ok: false }, { status: 404 });
+      },
+    });
+    const lines: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+
+    try {
+      await printServeStatusWithPlugins(`http://127.0.0.1:${server.port}`);
+    } finally {
+      console.log = origLog;
+      server.stop(true);
+    }
+
+    const text = lines.join("\n");
+    expect(text).toContain("maw serve: listener reachable without PID file");
+    expect(text).toContain("engine plugins: unavailable");
+    expect(text).toContain("HTTP 404");
+  });
 });

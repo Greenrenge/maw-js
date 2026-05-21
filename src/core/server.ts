@@ -23,6 +23,7 @@ import {
   startEnginePluginHealthPolling,
 } from "./engine-plugin-registry";
 import { mawDataPath } from "./xdg";
+import { UserError } from "./util/user-error";
 
 // --- Version info (computed once at startup) ---
 
@@ -43,6 +44,27 @@ function getVersionString(): string {
 }
 
 export const VERSION = getVersionString();
+
+export function isAddressInUseError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; errno?: unknown; syscall?: unknown; message?: unknown };
+  return e.code === "EADDRINUSE"
+    || (e.syscall === "listen" && typeof e.message === "string" && /port .*in use|address.*in use|EADDRINUSE/i.test(e.message));
+}
+
+export function servePortInUseInstructions(port: number, hostname: string): string[] {
+  const bind = hostname === "0.0.0.0" ? `port ${port}` : `${hostname}:${port}`;
+  return [
+    `\x1b[31m✗\x1b[0m maw serve cannot start: ${bind} is already in use.`,
+    "  likely: another maw server, pm2 process, or dev server is already listening.",
+    "  check:  \x1b[36mmaw serve status\x1b[0m",
+    "  stop:   \x1b[36mmaw serve stop\x1b[0m",
+    `  find:   \x1b[36mlsof -nP -iTCP:${port} -sTCP:LISTEN\x1b[0m`,
+    "  pm2:    \x1b[36mpm2 status maw\x1b[0m",
+    "  force:  \x1b[36mmaw serve --force-takeover\x1b[0m  \x1b[90m(kills only the recorded maw PID)\x1b[0m",
+    `  alt:    \x1b[36mmaw serve ${port + 1}\x1b[0m`,
+  ];
+}
 
 // Bind heuristic lives in ./bind-host.ts so tests can import it without
 // pulling in server.ts's module-level auto-start side effects.
@@ -269,7 +291,16 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
     console.warn(`[startup] peer dedup scan skipped: ${e?.message || e}`);
   }
 
-  const server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({ port, hostname, fetch: fetchHandler, websocket: wsHandler });
+  } catch (err) {
+    if (isAddressInUseError(err)) {
+      for (const line of servePortInUseInstructions(port, hostname)) console.error(line);
+      throw new UserError(`maw serve port ${port} is already in use`);
+    }
+    throw err;
+  }
   setBunServer(server);
   startEnginePluginHealthPolling();
   const bindNote = reason ? ` (${reason})` : "";
