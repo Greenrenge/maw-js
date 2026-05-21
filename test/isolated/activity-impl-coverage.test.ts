@@ -169,6 +169,29 @@ describe("maw activity impl", () => {
     expect(results[0]).toMatchObject({ pane: "50-mawjs:mawjs-features", state: "idle" });
   });
 
+  test("surveys fleet targets with bounded parallelism", async () => {
+    sessions = [{ name: "50-mawjs", windows: [{ name: "pane-a" }, { name: "pane-b" }] }];
+    fleetEntries = [
+      { file: "50-mawjs.json", path: "/fleet/50-mawjs.json", num: 50, groupName: "mawjs", session: { name: "mawjs", windows: [{ name: "pane-a", repo: "Soul-Brews-Studio/maw-js" }, { name: "pane-b", repo: "Soul-Brews-Studio/maw-js" }] } },
+    ];
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const results = await sampleAllActivity({ window: "1s", samples: 2 }, deps({
+      allConcurrency: 2,
+      snapshotPane: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight -= 1;
+        return "same";
+      },
+    }));
+
+    expect(results).toHaveLength(2);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
   test("emits JSON for one-shot and transition-only watch output", async () => {
     snapshots = ["same", "same"];
     await cmdActivity("mawjs-features", { json: true, window: "1s", samples: 2 }, deps());
@@ -187,6 +210,20 @@ describe("maw activity impl", () => {
     expect(out).toHaveLength(1);
     expect(JSON.parse(out[0])).toMatchObject({ state: "busy" });
     expect(handlers).toEqual({});
+  });
+
+  test("human watch mode explains that it only emits transitions", async () => {
+    snapshots = ["same", "same"];
+
+    await cmdActivity("mawjs-features", {
+      watch: true,
+      watchIterations: 1,
+      window: "1s",
+      samples: 2,
+    }, deps());
+
+    expect(out).toEqual([]);
+    expect(err.join("")).toContain("activity: watching mawjs-features transitions only");
   });
 
   test("collects a bounded snapshot from the follow/PTTY websocket attach protocol", async () => {

@@ -64,6 +64,7 @@ export interface ActivityDeps {
   snapshotPane: (pane: string, windowMs: number, deps: ActivityDeps) => Promise<string>;
   snapshotSettleMs: number;
   snapshotTimeoutMs: number;
+  allConcurrency: number;
 }
 
 export function activityDeps(overrides: Partial<ActivityDeps> = {}): ActivityDeps {
@@ -87,6 +88,7 @@ export function activityDeps(overrides: Partial<ActivityDeps> = {}): ActivityDep
     snapshotPane: collectFollowSnapshot,
     snapshotSettleMs: 150,
     snapshotTimeoutMs: 1_000,
+    allConcurrency: 8,
     ...overrides,
   };
 }
@@ -253,7 +255,7 @@ export function classifySnapshots(pane: string, rawSamples: SnapshotSample[], wi
   const state: ActivityState = changedIndexes.size > 0
     ? "busy"
     : isStuckSnapshot(rawSamples.at(-1)?.text ?? "") ? "stuck" : "idle";
-  const sampleWindowSeconds = Math.round(windowMs / 1000);
+  const sampleWindowSeconds = Math.max(1, Math.round(windowMs / 1000));
   const lastChangeAgoSeconds = lastChangeAt === null
     ? sampleWindowSeconds
     : Math.max(0, Math.round((end - lastChangeAt) / 1000));
@@ -285,6 +287,21 @@ export async function sampleActivity(target: string, opts: ActivityOptions = {},
   return classifySnapshots(pane, samples, parsed.windowMs);
 }
 
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R | undefined>): Promise<R[]> {
+  const results: R[] = [];
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(items.length, Math.floor(limit) || 1));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      const result = await fn(item);
+      if (result !== undefined) results.push(result);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function allTargets(entries: FleetEntry[]): string[] {
   const targets: string[] = [];
   for (const entry of entries) {
@@ -296,14 +313,15 @@ function allTargets(entries: FleetEntry[]): string[] {
 
 export async function sampleAllActivity(opts: ActivityOptions = {}, overrides: Partial<ActivityDeps> = {}): Promise<ActivityResult[]> {
   const deps = activityDeps(overrides);
-  const results: ActivityResult[] = [];
-  for (const target of allTargets(deps.loadFleetEntries())) {
+  const targets = allTargets(deps.loadFleetEntries());
+  const results = await mapLimit(targets, deps.allConcurrency, async (target) => {
     try {
-      results.push(await sampleActivity(target, opts, deps));
+      return await sampleActivity(target, opts, deps);
     } catch {
       // Fleet-wide scans skip sleeping, ambiguous, or otherwise unresolvable panes.
+      return undefined;
     }
-  }
+  });
   return results.sort((a, b) => a.pane.localeCompare(b.pane));
 }
 
@@ -313,6 +331,11 @@ function formatDuration(seconds: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);
   return `${hours}h`;
+}
+
+function samplingDescription(opts: ActivityOptions): string {
+  const parsed = parseActivityOptions(opts);
+  return `window=${formatDuration(Math.max(1, Math.round(parsed.windowMs / 1000)))}, samples=${parsed.samples}`;
 }
 
 export function formatActivityHuman(result: ActivityResult): string {
@@ -329,6 +352,7 @@ function emit(result: ActivityResult, opts: ActivityOptions, deps: Pick<Activity
 
 async function cmdActivityOnce(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
   if (opts.all) {
+    if (!opts.json) deps.stderrWrite(`activity: surveying fleet (${samplingDescription(opts)})...\n`);
     const results = await sampleAllActivity(opts, deps);
     deps.stdoutWrite(opts.json ? `${JSON.stringify(results)}\n` : results.map(formatActivityHuman).join("\n") + (results.length ? "\n" : ""));
     return results;
@@ -340,6 +364,11 @@ async function cmdActivityOnce(target: string | undefined, opts: ActivityOptions
 }
 
 async function cmdActivityWatch(target: string | undefined, opts: ActivityOptions, deps: ActivityDeps): Promise<ActivityResult[]> {
+  if (!opts.all && !target) throw new Error(ACTIVITY_USAGE);
+  if (!opts.json) {
+    const scope = opts.all ? "fleet" : target;
+    deps.stderrWrite(`activity: watching ${scope} transitions only (${samplingDescription(opts)}); press Ctrl-C to stop\n`);
+  }
   const emitted: ActivityResult[] = [];
   const previous = new Map<string, ActivityState>();
   let stopped = false;
