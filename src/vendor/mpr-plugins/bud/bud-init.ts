@@ -74,6 +74,12 @@ Form: \`Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\`
 - Standard Anthropic attribution
 - Add to the commit trailer when ${name} authors the commit
 
+## Inbox Discipline
+
+- Check pending messages with \`maw inbox\` or \`maw inbox status\` before long work.
+- After acting on a \`ψ/inbox\` message, run \`maw inbox read <id>\` so consumed work stops counting as unread.
+- Leave messages unread only while they still need attention from this oracle.
+
 Run \`/awaken\` for the full identity setup ceremony.
 `);
   console.log(`  \x1b[32m✓\x1b[0m CLAUDE.md generated`);

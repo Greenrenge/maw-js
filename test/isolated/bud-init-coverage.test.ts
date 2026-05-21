@@ -62,6 +62,8 @@ describe("bud init helper coverage", () => {
     expect(first).toContain("# leaf-oracle");
     expect(first).toContain("Budded from **mawjs**");
     expect(first).toContain("**Budded from**: mawjs");
+    expect(first).toContain("## Inbox Discipline");
+    expect(first).toContain("maw inbox read <id>");
 
     writeFileSync(claude, "keep me", "utf-8");
     captureLogs(() => generateClaudeMd(repoDir, "leaf", null));
