@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  cmdStream,
+  cmdFollow,
   parseDurationMs,
   replayLinesForDuration,
-  resolveStreamTarget,
-  streamUrlFromConfig,
-  type StreamDeps,
-} from "../../src/vendor/mpr-plugins/stream/impl";
+  resolveFollowTarget,
+  followUrlFromConfig,
+  type FollowDeps,
+} from "../../src/vendor/mpr-plugins/follow/impl";
 
 type Session = { name: string; windows: Array<{ name: string }> };
 type TimerHandle = { fn: () => void; active: boolean; ms?: number };
@@ -60,12 +60,12 @@ let err: string[];
 let timers: TimerHandle[];
 let handlers: Partial<Record<"SIGINT" | "SIGTERM", () => void>>;
 
-function deps(overrides: Partial<StreamDeps> = {}): Partial<StreamDeps> {
+function deps(overrides: Partial<FollowDeps> = {}): Partial<FollowDeps> {
   return {
-    WebSocketCtor: FakeWebSocket as unknown as StreamDeps["WebSocketCtor"],
-    loadConfig: (() => ({ port: 4567 })) as StreamDeps["loadConfig"],
+    WebSocketCtor: FakeWebSocket as unknown as FollowDeps["WebSocketCtor"],
+    loadConfig: (() => ({ port: 4567 })) as FollowDeps["loadConfig"],
     listSessions: async () => sessions as any,
-    loadFleet: (() => []) as StreamDeps["loadFleet"],
+    loadFleet: (() => []) as FollowDeps["loadFleet"],
     stdoutWrite: (chunk) => { out.push(chunk); },
     stderrWrite: (chunk) => { err.push(chunk); },
     now: () => Date.parse("2026-05-21T14:23:45.000Z"),
@@ -106,7 +106,7 @@ afterEach(() => {
   restoreEnv();
 });
 
-describe("maw stream plugin", () => {
+describe("maw follow plugin", () => {
   test("parses duration flags, derives replay depth, and builds the PTY websocket URL", () => {
     expect(parseDurationMs("1m30s")).toBe(90_000);
     expect(parseDurationMs("2")).toBe(2_000);
@@ -116,20 +116,20 @@ describe("maw stream plugin", () => {
 
     delete process.env.MAW_ENGINE_URL;
     delete process.env.MAW_PORT;
-    expect(streamUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as StreamDeps["loadConfig"] })).toBe("ws://127.0.0.1:4567/ws/pty");
+    expect(followUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as FollowDeps["loadConfig"] })).toBe("ws://127.0.0.1:4567/ws/pty");
 
     process.env.MAW_PORT = "4568";
-    expect(streamUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as StreamDeps["loadConfig"] })).toBe("ws://127.0.0.1:4568/ws/pty");
+    expect(followUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as FollowDeps["loadConfig"] })).toBe("ws://127.0.0.1:4568/ws/pty");
 
     process.env.MAW_ENGINE_URL = "https://engine.example:9443/base?token=ignored";
-    expect(streamUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as StreamDeps["loadConfig"] })).toBe("wss://engine.example:9443/ws/pty");
+    expect(followUrlFromConfig({ loadConfig: (() => ({ port: 4567 })) as FollowDeps["loadConfig"] })).toBe("wss://engine.example:9443/ws/pty");
   });
 
   test("resolves attach-style names while preserving explicit tmux pane suffixes", async () => {
     sessions = [{ name: "50-codex", windows: [{ name: "main" }] }];
-    expect(await resolveStreamTarget("codex", deps() as any)).toBe("50-codex");
-    expect(await resolveStreamTarget("codex:1.2", deps() as any)).toBe("50-codex:1.2");
-    expect(await resolveStreamTarget("raw:window", deps() as any)).toBe("raw:window");
+    expect(await resolveFollowTarget("codex", deps() as any)).toBe("50-codex");
+    expect(await resolveFollowTarget("codex:1.2", deps() as any)).toBe("50-codex:1.2");
+    expect(await resolveFollowTarget("raw:window", deps() as any)).toBe("raw:window");
   });
 
   test("rejects ambiguous attach-style names before opening a websocket", async () => {
@@ -138,11 +138,11 @@ describe("maw stream plugin", () => {
       { name: "51-codex", windows: [{ name: "main" }] },
     ];
 
-    await expect(resolveStreamTarget("codex", deps() as any)).rejects.toThrow("ambiguous");
+    await expect(resolveFollowTarget("codex", deps() as any)).rejects.toThrow("ambiguous");
   });
 
   test("follows live chunks by default without requesting scrollback replay", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
@@ -158,12 +158,12 @@ describe("maw stream plugin", () => {
     expect(out.join("")).toBe("hello\n");
 
     ws.message(JSON.stringify({ type: "detached", target: "mawjs-codex-oracle" }));
-    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "detached", chunks: 1 });
+    await expect(follow).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "detached", chunks: 1 });
     expect(handlers).toEqual({});
   });
 
-  test("streams structured JSON chunks and uses --since as bounded replay depth", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", { since: "10m", json: true }, deps());
+  test("emits structured JSON chunks and uses --since as bounded replay depth", async () => {
+    const follow = cmdFollow("mawjs-codex-oracle", { since: "10m", json: true }, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
@@ -174,7 +174,7 @@ describe("maw stream plugin", () => {
     await flush();
     ws.message(JSON.stringify({ type: "detached", target: "mawjs-codex-oracle" }));
 
-    await expect(stream).resolves.toMatchObject({ reason: "detached", chunks: 1 });
+    await expect(follow).resolves.toMatchObject({ reason: "detached", chunks: 1 });
     expect(JSON.parse(out[0])).toEqual({
       ts: "2026-05-21T14:23:45Z",
       pane: "mawjs-codex-oracle",
@@ -182,8 +182,8 @@ describe("maw stream plugin", () => {
     });
   });
 
-  test("decodes binary frame variants and malformed control JSON as stream chunks", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+  test("decodes binary frame variants and malformed control JSON as output chunks", async () => {
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
@@ -200,17 +200,17 @@ describe("maw stream plugin", () => {
     await flush();
     ws.message(JSON.stringify({ type: "detached" }));
 
-    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "detached", chunks: 5 });
+    await expect(follow).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "detached", chunks: 5 });
     expect(out).toEqual(["bytes\n", "view\n", "blob\n", "{", "[object Object]"]);
   });
 
   test("rejects invalid grep patterns before attaching", async () => {
-    await expect(cmdStream("mawjs-codex-oracle", { grep: "[" }, deps())).rejects.toThrow("invalid --grep pattern");
+    await expect(cmdFollow("mawjs-codex-oracle", { grep: "[" }, deps())).rejects.toThrow("invalid --grep pattern");
     expect(FakeWebSocket.instances).toEqual([]);
   });
 
   test("applies grep filtering and exits cleanly after idle", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", { grep: "keep", quitOnIdle: "5s" }, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", { grep: "keep", quitOnIdle: "5s" }, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
@@ -226,57 +226,57 @@ describe("maw stream plugin", () => {
     const activeTimer = [...timers].reverse().find(t => t.active);
     activeTimer?.fn();
 
-    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "idle", chunks: 1 });
+    await expect(follow).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "idle", chunks: 1 });
     expect(ws.sent.at(-1)).toBe(JSON.stringify({ type: "detach" }));
     expect(handlers).toEqual({});
   });
 
   test("detaches and resolves cleanly on Ctrl-C", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
     ws.open();
     handlers.SIGINT?.();
 
-    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "signal", chunks: 0 });
+    await expect(follow).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "signal", chunks: 0 });
     expect(ws.sent.at(-1)).toBe(JSON.stringify({ type: "detach" }));
     expect(handlers).toEqual({});
   });
 
   test("cleans up signal handlers on network close", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
     ws.open();
     ws.close();
 
-    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "closed", chunks: 0 });
+    await expect(follow).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "closed", chunks: 0 });
     expect(handlers).toEqual({});
   });
 
   test("surfaces bridge error frames on stderr", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
     ws.open();
     ws.message(JSON.stringify({ type: "error", message: "Failed to create PTY session" }));
 
-    await expect(stream).rejects.toThrow("Failed to create PTY session");
-    expect(err).toEqual(["stream: Failed to create PTY session\n"]);
+    await expect(follow).rejects.toThrow("Failed to create PTY session");
+    expect(err).toEqual(["follow: Failed to create PTY session\n"]);
   });
 
   test("surfaces websocket error events with the configured bridge URL", async () => {
-    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    const follow = cmdFollow("mawjs-codex-oracle", {}, deps());
     await flush();
 
     const ws = FakeWebSocket.instances[0];
     ws.open();
     ws.onerror?.({});
 
-    await expect(stream).rejects.toThrow("stream: websocket error: ws://127.0.0.1:4567/ws/pty");
+    await expect(follow).rejects.toThrow("follow: websocket error: ws://127.0.0.1:4567/ws/pty");
     expect(handlers).toEqual({});
   });
 });

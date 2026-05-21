@@ -1,5 +1,0 @@
-{
-  "source": "soul-brews-studio/maw-plugin-registry/stream@v0.1.0-stream",
-  "version": "v0.1.0-stream",
-  "summary": "Follow live pane output through the PTY websocket bridge."
-}

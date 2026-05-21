@@ -424,7 +424,7 @@ describe("coverage-100 core resolve and routing dispatch gaps", () => {
     packages[0].invokeResult = { ok: true, output: "plugin ok" };
     await expect(dispatch.dispatchCommand("plug", ["plug", "arg"])).rejects.toThrow("exit:0");
     expect(logs).toContain("plugin ok");
-    expect(invokedPlugins.at(-1)).toEqual([packages[0], { source: "cli", args: ["arg"] }]);
+    expect(invokedPlugins.at(-1)).toEqual([packages[0], { source: "cli", args: ["arg"], matchedName: "plug" }]);
 
     logs = [];
     packages[0].invokeResult = { ok: false, error: "plugin failed", exitCode: 7 };

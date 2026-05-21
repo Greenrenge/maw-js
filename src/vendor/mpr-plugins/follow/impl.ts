@@ -3,20 +3,20 @@ import { listSessions } from "maw-js/sdk";
 import { loadFleet } from "maw-js/commands/shared/fleet-load";
 import { resolveAttachTarget } from "../attach/resolve-attach-target";
 
-export const STREAM_USAGE = "usage: maw stream <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>]";
+export const FOLLOW_USAGE = "usage: maw follow <pane> [--since=<dur>] [--json] [--grep <pattern>] [--quit-on-idle=<dur>]";
 
-type StreamReason = "detached" | "closed" | "idle" | "signal" | "error";
+type FollowReason = "detached" | "closed" | "idle" | "signal" | "error";
 
-export interface StreamOptions {
+export interface FollowOptions {
   since?: string;
   json?: boolean;
   grep?: string;
   quitOnIdle?: string;
 }
 
-export interface StreamResult {
+export interface FollowResult {
   pane: string;
-  reason: StreamReason;
+  reason: FollowReason;
   chunks: number;
 }
 
@@ -33,7 +33,7 @@ type WebSocketLike = {
 
 type WebSocketCtor = new (url: string) => WebSocketLike;
 
-export interface StreamDeps {
+export interface FollowDeps {
   WebSocketCtor: WebSocketCtor;
   loadConfig: typeof loadConfig;
   listSessions: typeof listSessions;
@@ -47,7 +47,7 @@ export interface StreamDeps {
   processOff: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
 }
 
-export function streamDeps(overrides: Partial<StreamDeps> = {}): StreamDeps {
+export function followDeps(overrides: Partial<FollowDeps> = {}): FollowDeps {
   return {
     WebSocketCtor: WebSocket as unknown as WebSocketCtor,
     loadConfig,
@@ -86,7 +86,7 @@ export function replayLinesForDuration(ms: number): number {
   return Math.max(1, Math.min(10_000, Math.ceil(ms / 1000)));
 }
 
-export function streamUrlFromConfig(deps: Pick<StreamDeps, "loadConfig"> = streamDeps()): string {
+export function followUrlFromConfig(deps: Pick<FollowDeps, "loadConfig"> = followDeps()): string {
   const explicit = process.env.MAW_ENGINE_URL?.trim();
   if (explicit) {
     const url = new URL(explicit);
@@ -100,9 +100,9 @@ export function streamUrlFromConfig(deps: Pick<StreamDeps, "loadConfig"> = strea
   return `ws://127.0.0.1:${port}/ws/pty`;
 }
 
-export async function resolveStreamTarget(target: string, deps: Pick<StreamDeps, "listSessions" | "loadFleet">): Promise<string> {
+export async function resolveFollowTarget(target: string, deps: Pick<FollowDeps, "listSessions" | "loadFleet">): Promise<string> {
   const raw = target.trim();
-  if (!raw || raw.startsWith("-")) throw new Error(STREAM_USAGE);
+  if (!raw || raw.startsWith("-")) throw new Error(FOLLOW_USAGE);
 
   const numericTmuxTarget = /^(.*):(\d+(?:\.\d+)?)$/.exec(raw);
   if (!raw.includes(":") || numericTmuxTarget) {
@@ -111,10 +111,10 @@ export async function resolveStreamTarget(target: string, deps: Pick<StreamDeps,
       listSessions: deps.listSessions as any,
       loadFleet: deps.loadFleet as any,
     });
-    if (!result) throw new Error(`stream: session '${sessionQuery}' not found`);
-    if (result.tier !== 1) throw new Error(`stream: session '${sessionQuery}' is not running`);
+    if (!result) throw new Error(`follow: session '${sessionQuery}' not found`);
+    if (result.tier !== 1) throw new Error(`follow: session '${sessionQuery}' is not running`);
     if (result.ambiguousCandidates && result.ambiguousCandidates.length > 1) {
-      throw new Error(`stream: '${sessionQuery}' is ambiguous: ${result.ambiguousCandidates.join(", ")}`);
+      throw new Error(`follow: '${sessionQuery}' is ambiguous: ${result.ambiguousCandidates.join(", ")}`);
     }
     return numericTmuxTarget ? `${result.sessionName}:${numericTmuxTarget[2]}` : result.sessionName;
   }
@@ -149,25 +149,25 @@ function compileGrep(pattern: string | undefined): RegExp | null {
   try {
     return new RegExp(pattern);
   } catch (e: any) {
-    throw new Error(`stream: invalid --grep pattern: ${e.message || e}`);
+    throw new Error(`follow: invalid --grep pattern: ${e.message || e}`);
   }
 }
 
-function eventTimestamp(deps: Pick<StreamDeps, "now">): string {
+function eventTimestamp(deps: Pick<FollowDeps, "now">): string {
   return new Date(deps.now()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-export async function cmdStream(target: string, opts: StreamOptions = {}, overrides: Partial<StreamDeps> = {}): Promise<StreamResult> {
-  const deps = streamDeps(overrides);
-  const pane = await resolveStreamTarget(target, deps);
+export async function cmdFollow(target: string, opts: FollowOptions = {}, overrides: Partial<FollowDeps> = {}): Promise<FollowResult> {
+  const deps = followDeps(overrides);
+  const pane = await resolveFollowTarget(target, deps);
   const sinceMs = opts.since ? parseDurationMs(opts.since) : null;
-  if (opts.since && sinceMs === null) throw new Error(`stream: invalid --since duration: ${opts.since}`);
+  if (opts.since && sinceMs === null) throw new Error(`follow: invalid --since duration: ${opts.since}`);
   const idleMs = opts.quitOnIdle ? parseDurationMs(opts.quitOnIdle) : null;
-  if (opts.quitOnIdle && (!idleMs || idleMs <= 0)) throw new Error(`stream: invalid --quit-on-idle duration: ${opts.quitOnIdle}`);
+  if (opts.quitOnIdle && (!idleMs || idleMs <= 0)) throw new Error(`follow: invalid --quit-on-idle duration: ${opts.quitOnIdle}`);
 
   const replayLines = sinceMs === null ? 0 : replayLinesForDuration(sinceMs);
   const grep = compileGrep(opts.grep);
-  const url = streamUrlFromConfig(deps);
+  const url = followUrlFromConfig(deps);
   const ws = new deps.WebSocketCtor(url);
   ws.binaryType = "arraybuffer";
 
@@ -175,7 +175,7 @@ export async function cmdStream(target: string, opts: StreamOptions = {}, overri
   let settled = false;
   let chunks = 0;
 
-  return await new Promise<StreamResult>((resolve, reject) => {
+  return await new Promise<FollowResult>((resolve, reject) => {
     const clearIdle = () => {
       if (idleTimer) deps.clearTimeout(idleTimer);
       idleTimer = null;
@@ -191,7 +191,7 @@ export async function cmdStream(target: string, opts: StreamOptions = {}, overri
       deps.processOff("SIGINT", onSignal);
       deps.processOff("SIGTERM", onSignal);
     };
-    const finish = (reason: StreamReason, err?: Error) => {
+    const finish = (reason: FollowReason, err?: Error) => {
       if (settled) return;
       settled = true;
       cleanup();
@@ -244,8 +244,8 @@ export async function cmdStream(target: string, opts: StreamOptions = {}, overri
           return;
         }
         if (control?.type === "error") {
-          const message = control.message || "PTY stream error";
-          deps.stderrWrite(`stream: ${message}\n`);
+          const message = control.message || "PTY follow error";
+          deps.stderrWrite(`follow: ${message}\n`);
           finish("error", new Error(message));
           return;
         }
@@ -253,7 +253,7 @@ export async function cmdStream(target: string, opts: StreamOptions = {}, overri
       })().catch((e: any) => finish("error", e instanceof Error ? e : new Error(String(e))));
     };
     ws.onerror = () => {
-      finish("error", new Error(`stream: websocket error: ${url}`));
+      finish("error", new Error(`follow: websocket error: ${url}`));
     };
     ws.onclose = () => {
       finish("closed");

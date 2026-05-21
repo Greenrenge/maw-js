@@ -1,13 +1,15 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
 import { parseFlags } from "maw-js/cli/parse-args";
-import { cmdStream, STREAM_USAGE, type StreamOptions } from "./impl";
+import { cmdFollow, FOLLOW_USAGE, type FollowOptions } from "./impl";
+
+export const DEPRECATED_STREAM_WARNING = "warning: maw stream is deprecated; use maw follow";
 
 export const command = {
-  name: "stream",
+  name: "follow",
   description: "Follow live pane output through the PTY websocket bridge.",
 };
 
-function cliOptions(args: string[]): { target: string; opts: StreamOptions } {
+function cliOptions(args: string[]): { target: string; opts: FollowOptions } {
   const flags = parseFlags(args, {
     "--since": String,
     "--json": Boolean,
@@ -16,7 +18,7 @@ function cliOptions(args: string[]): { target: string; opts: StreamOptions } {
   }, 0);
   const target = flags._[0];
   if (!target || target === "--help" || target === "-h" || target.startsWith("-")) {
-    throw new Error(STREAM_USAGE);
+    throw new Error(FOLLOW_USAGE);
   }
   return {
     target,
@@ -29,7 +31,7 @@ function cliOptions(args: string[]): { target: string; opts: StreamOptions } {
   };
 }
 
-function apiOptions(args: Record<string, unknown>): { target: string; opts: StreamOptions } {
+function apiOptions(args: Record<string, unknown>): { target: string; opts: FollowOptions } {
   const target = typeof args.target === "string" ? args.target : "";
   if (!target) throw new Error("target is required");
   return {
@@ -48,7 +50,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const parsed = ctx.source === "cli"
       ? cliOptions(ctx.args as string[])
       : apiOptions(ctx.args as Record<string, unknown>);
-    await cmdStream(parsed.target, parsed.opts);
+    if (ctx.source === "cli" && ctx.matchedName === "stream") {
+      process.stderr.write(`${DEPRECATED_STREAM_WARNING}\n`);
+    }
+    await cmdFollow(parsed.target, parsed.opts);
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e.message || String(e) };
