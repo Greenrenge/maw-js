@@ -133,7 +133,7 @@ describe("tile plugin index coverage", () => {
     const result = await tileHandler({ source: "cli", args: ["--help"] } as any);
 
     expect(result.ok).toBe(true);
-    expect(result.output).toContain("usage: maw tile [N] [--wt <name>] [--path <dir>] [--cmd <cmd>]");
+    expect(result.output).toContain("usage: maw tile [N] [--wt <name>] [--layout nested|legacy] [--path <dir>] [--cmd <cmd>]");
     expect(result.output).toContain("maw tile 3 -p /repo -c \"bun test\"");
     expect(result.output).toContain("maw tile 3 --wt feat");
     expect(result.output).toContain("maw tile clean");

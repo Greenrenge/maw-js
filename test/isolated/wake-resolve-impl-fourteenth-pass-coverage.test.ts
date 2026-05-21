@@ -252,6 +252,7 @@ describe("worktree/session resolver fallback branches", () => {
   test("findWorktrees falls back to scoped slug lookup and shell-quotes apostrophes", async () => {
     hostExecHandler = async (cmd) => {
       if (cmd.startsWith("ls -d")) return "\n";
+      if (cmd.includes("/neo-oracle/agents")) return "\n";
       return "/repos/o'rg/neo-oracle.wt-7-fix-login\n";
     };
 
@@ -259,7 +260,8 @@ describe("worktree/session resolver fallback branches", () => {
       { path: "/repos/o'rg/neo-oracle.wt-7-fix-login", name: "7-fix-login" },
     ]);
     expect(hostExecCalls[0]).toContain("/repos/o'\\''rg");
-    expect(hostExecCalls[1]).toBe("find '/repos/o'\\''rg' -maxdepth 1 -type d -name 'neo-oracle.wt-*-fix-login' 2>/dev/null || true");
+    expect(hostExecCalls).toContain("find '/repos/o'\\''rg/neo-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true");
+    expect(hostExecCalls).toContain("find '/repos/o'\\''rg' -maxdepth 1 -type d -name 'neo-oracle.wt-*-fix-login' 2>/dev/null || true");
   });
 
   test("findReusableWorktreeBySlug handles unscoped matches, stat failures, and readdir failures", () => {
