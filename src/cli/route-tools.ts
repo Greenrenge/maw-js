@@ -8,8 +8,8 @@ import { mawDataPath } from "../core/xdg";
 // pass through invokePlugin, so they need their own --help guard to prevent
 // `maw plugin list --help` / `maw agents --help` from running real work.
 const CORE_HELP: Record<string, string> = {
-  plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name...>|disable <name>] [--json] [--all] [--force]",
-  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]",
+  plugins: "usage: maw plugins [ls|info <name>|remove <name>|lean|standard|full|nuke|enable <name...>|disable <name>] [--json] [--all] [-v|--verbose] [--core|--standard|--extra|--api] [--force]",
+  plugin: "usage: maw plugin <init|build|install|create|ls|info|remove|enable <name...>|disable> [args]\n  ls: compact by default; use -v for full table; filters: --core --standard --extra --api",
   artifacts: "usage: maw artifacts [ls|get] [team] [task-id] [--json]",
   artifact: "usage: maw artifact [ls|get] [team] [task-id] [--json]",
   agents: "usage: maw agents [--json] [--all] [--node <node>]",
@@ -174,7 +174,17 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
   if (cmd === "plugins") {
     const { cmdPlugins, parseFlags } = await deps.loadPluginLegacyTools();
     const sub = args[1] ?? "ls";
-    const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean, "--all": Boolean }, 2);
+    const flags = parseFlags(args, {
+      "--json": Boolean,
+      "--force": Boolean,
+      "--all": Boolean,
+      "--verbose": Boolean,
+      "-v": Boolean,
+      "--core": Boolean,
+      "--standard": Boolean,
+      "--extra": Boolean,
+      "--api": Boolean,
+    }, 2);
     await cmdPlugins(sub, args.slice(2), flags);
     return true;
   }
@@ -212,7 +222,17 @@ export async function routeToolsWithDeps(cmd: string, args: string[], deps: Rout
     // install-impl.ts via the plugin dispatcher.
     if (sub && ["ls", "list", "info", "remove", "uninstall", "rm", "lean", "standard", "full", "nuke", "enable", "disable"].includes(sub)) {
       const { cmdPlugins, parseFlags } = await deps.loadPluginLegacyTools();
-      const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean, "--all": Boolean }, 2);
+      const flags = parseFlags(args, {
+        "--json": Boolean,
+        "--force": Boolean,
+        "--all": Boolean,
+        "--verbose": Boolean,
+        "-v": Boolean,
+        "--core": Boolean,
+        "--standard": Boolean,
+        "--extra": Boolean,
+        "--api": Boolean,
+      }, 2);
       await cmdPlugins(sub, args.slice(2), flags);
       return true;
     }

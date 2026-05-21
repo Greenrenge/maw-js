@@ -79,6 +79,33 @@ describe("plugin ls/info default-suite seams", () => {
       .toContain("no active plugins. Use --all to see 1 disabled.");
   });
 
+  test("doLs renders a compact summary by default and filters by tier/api", () => {
+    const plugins = [
+      plugin("core-api", { manifest: { tier: "core", api: { path: "/api/core", methods: ["GET"] } } }),
+      plugin("standard-cli", { manifest: { tier: "standard" } }),
+      plugin("extra-api", { manifest: { tier: "extra", api: { path: "/api/extra", methods: ["POST"] } } }),
+    ];
+
+    const compact = capture(() => doLs(false, false, () => plugins, () => ({}))).out;
+    expect(compact).toContain("3 plugins (3 active, 0 disabled)");
+    expect(compact).toContain("core: 1 · standard: 1 · extra: 1");
+    expect(compact).toContain("cli: 3 · api: 2 · health:");
+    expect(compact).not.toContain("core-api");
+
+    const coreApi = capture(() => doLs(false, false, () => plugins, () => ({}), {
+      tiers: ["core"],
+      apiOnly: true,
+    })).out;
+    expect(coreApi).toContain("1 plugin (1 active, 0 disabled) matching core+api");
+    expect(coreApi).toContain("core: 1 · standard: 0 · extra: 0");
+
+    const missing = capture(() => doLs(false, false, () => plugins, () => ({}), {
+      tiers: ["standard"],
+      apiOnly: true,
+    })).out;
+    expect(missing).toContain("no plugins matching standard+api.");
+  });
+
   test("doLs groups, sorts, colors disabled plugins, and prints totals", () => {
     const plugins = [
       plugin("z-extra", { manifest: { tier: "extra" } }),
@@ -87,23 +114,23 @@ describe("plugin ls/info default-suite seams", () => {
       plugin("a-standard", { manifest: { tier: "standard" } }),
     ];
 
-    const showAll = capture(() => doLs(false, true, () => plugins, () => ({ disabledPlugins: ["b-standard"] }))).out;
+    const showAll = capture(() => doLs(false, true, () => plugins, () => ({ disabledPlugins: ["b-standard"] }), { verbose: true })).out;
     expect(showAll.indexOf("a-standard")).toBeLessThan(showAll.indexOf("b-standard"));
     expect(showAll).toContain("disabled");
     expect(showAll).toContain("4 total (3 active, 1 disabled)");
 
-    const activeOnly = capture(() => doLs(false, false, () => plugins, () => ({ disabledPlugins: ["b-standard"] }))).out;
+    const activeOnly = capture(() => doLs(false, false, () => plugins, () => ({ disabledPlugins: ["b-standard"] }), { verbose: true })).out;
     expect(activeOnly).toContain("3 active. 1 disabled");
     expect(activeOnly).not.toContain("b-standard");
 
-    const noDisabled = capture(() => doLs(false, false, () => [plugins[0]], () => ({}))).out;
+    const noDisabled = capture(() => doLs(false, false, () => [plugins[0]], () => ({}), { verbose: true })).out;
     expect(noDisabled).toContain("1 active");
   });
 
   test("doLs default loader path remains wired for production callers", () => {
     const out = capture(() => doLs(false, false, () => [plugin(`loader-${process.pid}`)])).out;
-    expect(out).toContain("loader-");
-    expect(out).toContain("1 active");
+    expect(out).toContain("1 plugin (1 active, 0 disabled)");
+    expect(out).toContain("health:");
   });
 
   test("doInfo prints explicit surfaces, default TS cli, and TS entry health", () => {

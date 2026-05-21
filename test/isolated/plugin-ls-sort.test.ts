@@ -50,7 +50,7 @@ describe("plugin ls", () => {
         plugin("alpha", "core"),
         plugin("beta", "standard"),
         plugin("aardvark", "standard"),
-      ]);
+      ], undefined, { verbose: true });
     `;
 
     const result = runBunChild({
