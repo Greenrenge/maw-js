@@ -192,6 +192,16 @@ describe("direct handler invocation", () => {
     }]);
   });
 
+  test("cmdLs help prints usage instead of treating --help as a filter", async () => {
+    const { calls, deps } = makeDeps();
+
+    await invokeDirectHandler("cmdLs", ["--help"], deps);
+
+    expect(calls.tmuxLs).toEqual([]);
+    expect(calls.logs.join("\n")).toContain("usage: maw ls");
+    expect(calls.logs.join("\n")).toContain("--active");
+  });
+
   test("layout help owns the top-level verb and applies presets to the current window", async () => {
     const { calls, deps } = makeDeps();
 

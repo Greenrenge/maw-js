@@ -264,6 +264,24 @@ export function parseLsAliasOpts(argv: string[]) {
   return opts;
 }
 
+function printLsAliasUsage(write: (line: string) => void): void {
+  write("usage: maw ls [filter] [--all|-a] [--verbose|-v] [--compact|-c] [--json] [--recent|-r [N]] [--active [30m|1h]]");
+  write("       maw ls --node <node> [--active [30m|1h]]");
+  write("       maw ls --channels | --verify | --fix");
+  write("");
+  write("List live local sessions. Default output is compact and oracle-only.");
+  write("");
+  write("Options:");
+  write("  -v, --verbose      show full per-pane detail");
+  write("  -a, --all          include sleeping roster and channel sessions");
+  write("  --channels         include channel/infrastructure sessions");
+  write("  -r, --recent [N]   sort newest-first, optionally limiting to N sessions");
+  write("  --active [DUR]     show sessions touched within a duration (default from tmux helper)");
+  write("  --node <node>      filter sessions by node/name");
+  write("  --verify           include worktree-bind diagnostics");
+  write("  --fix              prune orphaned worktrees");
+}
+
 type MaybePromise<T = unknown> = T | Promise<T>;
 
 export interface TopAliasHandlerDeps {
@@ -296,6 +314,10 @@ export async function invokeDirectHandler(
   const error = deps.error ?? console.error;
 
   if (exportName === "cmdLs") {
+    if (argv.some(a => a === "-h" || a === "--help" || a === "-help")) {
+      printLsAliasUsage(log);
+      return;
+    }
     await directCmdTmuxLs(parseLsAliasOpts(argv));
     return;
   }
