@@ -14,8 +14,10 @@ import {
 let tempHome = "";
 const origHome = process.env.MAW_HOME;
 const origEngineUrl = process.env.MAW_ENGINE_URL;
+const origPort = process.env.MAW_PORT;
 const origExit = process.exit;
 const origKill = process.kill;
+const origFetch = globalThis.fetch;
 
 beforeEach(() => {
   tempHome = mkdtempSync(join(tmpdir(), "maw-pid-"));
@@ -27,8 +29,11 @@ afterEach(() => {
   else process.env.MAW_HOME = origHome;
   if (origEngineUrl === undefined) delete process.env.MAW_ENGINE_URL;
   else process.env.MAW_ENGINE_URL = origEngineUrl;
+  if (origPort === undefined) delete process.env.MAW_PORT;
+  else process.env.MAW_PORT = origPort;
   process.exit = origExit;
   process.kill = origKill;
+  globalThis.fetch = origFetch;
   rmSync(tempHome, { recursive: true, force: true });
 });
 
@@ -208,5 +213,46 @@ describe("maw serve PID lock UX (#1434)", () => {
     expect(text).toContain("maw serve: listener reachable without PID file");
     expect(text).toContain("engine plugins: unavailable");
     expect(text).toContain("HTTP 404");
+  });
+
+  test("serve status falls back to stopped-only output when plugin fetch is unreachable", async () => {
+    const lines: string[] = [];
+    const origLog = console.log;
+    globalThis.fetch = (async () => {
+      throw new Error("connection refused");
+    }) as typeof fetch;
+    console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+
+    try {
+      await printServeStatusWithPlugins("http://127.0.0.1:9");
+    } finally {
+      console.log = origLog;
+    }
+
+    expect(lines).toEqual([`maw serve: stopped (${pidFile()})`]);
+  });
+
+  test("serve status uses MAW_PORT when a reachable engine URL cannot be parsed for lsof hints", async () => {
+    const lines: string[] = [];
+    const fetchCalls: string[] = [];
+    const origLog = console.log;
+    process.env.MAW_PORT = "7890";
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      fetchCalls.push(String(input));
+      return Response.json({ registrations: [] });
+    }) as typeof fetch;
+    console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+
+    try {
+      await printServeStatusWithPlugins("not a url");
+    } finally {
+      console.log = origLog;
+    }
+
+    const text = lines.join("\n");
+    expect(fetchCalls).toEqual(["not a url/api/_engine/registrations"]);
+    expect(text).toContain("maw serve: listener reachable without PID file (not a url)");
+    expect(text).toContain("lsof -nP -iTCP:7890 -sTCP:LISTEN");
+    expect(text).toContain("engine plugins: none (not a url)");
   });
 });

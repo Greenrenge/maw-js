@@ -249,7 +249,7 @@ async function resolveInboxStatusTarget(oracleArg?: string): Promise<InboxStatus
   return { oracle, inboxDir: resolveInboxDir() };
 }
 
-function oracleNameFromFleetWindow(window: { name?: string; repo?: string }): string | null {
+export function oracleNameFromFleetWindow(window: { name?: string; repo?: string }): string | null {
   const repoName = window.repo?.split("/").filter(Boolean).pop();
   if (repoName?.endsWith("-oracle")) return repoName;
   if (window.name?.endsWith("-oracle")) return window.name;

@@ -181,6 +181,13 @@ describe("tile plugin index coverage", () => {
     result = await tileHandler({ source: "cli", args: ["three"] } as any);
     expect(result).toEqual({ ok: false, error: "invalid count" });
 
+    result = await tileHandler({ source: "cli", args: ["1", "--layout", "diagonal"] } as any);
+    expect(result).toEqual({
+      ok: false,
+      error: "invalid layout",
+      output: "\x1b[33m⚠\x1b[0m tile: --layout must be nested or legacy",
+    });
+
     tileThrow = "tile";
     result = await tileHandler({ source: "cli", args: ["2"] } as any);
     expect(result).toEqual({ ok: false, error: "tile exploded", output: undefined });

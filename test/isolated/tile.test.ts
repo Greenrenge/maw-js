@@ -14,6 +14,7 @@ let nextPane = 1;
 let paneList = "";
 let worktreeList = "";
 let worktreeGlobList = "";
+let gitCommonDir = "";
 
 function generatedPaneIds(): string[] {
   return Array.from({ length: nextPane - 1 }, (_, i) => `%p${i + 1}`);
@@ -49,6 +50,7 @@ mock.module(join(import.meta.dir, "../../src/sdk"), () => ({
       const ids = paneIdsFromPaneList();
       return [...(ids.length ? ids : ["%lead"]), ...generatedPaneIds()].join("\n") + "\n";
     }
+    if (cmd.includes("rev-parse --git-common-dir")) return gitCommonDir;
     if (cmd.includes("git rev-parse --show-toplevel")) return "/tmp/maw-js\n";
     if (cmd.includes("ls -d") && cmd.includes(".wt-*")) return worktreeGlobList;
     if (cmd.includes("git -C '/tmp/maw-js' worktree list")) return worktreeList;
@@ -66,6 +68,7 @@ beforeEach(() => {
   paneList = "";
   worktreeList = "";
   worktreeGlobList = "";
+  gitCommonDir = "";
   rmSync("/tmp/maw-js.wt-1-tile-1", { recursive: true, force: true });
   rmSync("/tmp/maw-js.wt-2-sess-tile-1", { recursive: true, force: true });
   rmSync("/tmp/maw-js.wt-explore-1234", { recursive: true, force: true });
@@ -185,6 +188,15 @@ describe("tile plugin spawn metadata", () => {
     const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
     expect(splitCommand).toContain("/tmp/maw-js/agents/1-sess-tile-1");
     expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
+  });
+
+  test("normalizes a linked-worktree git common dir before creating tile worktrees", async () => {
+    gitCommonDir = "/tmp/maw-js/.git";
+
+    await cmdTile(1, { wt: true });
+
+    expect(commands).toContain("git -C '/tmp/maw-js' rev-parse --git-common-dir 2>/dev/null");
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js/agents/1-sess-tile-1' -b 'agents/1-sess-tile-1'");
   });
 
   test("honors --layout legacy for new tile worktrees", async () => {

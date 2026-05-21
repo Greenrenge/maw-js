@@ -9,6 +9,11 @@ const raw = [
   "%202|||47-mawjs:1.1|||notes|||researcher|||/opt/Code/github.com/Soul-Brews-Studio/notes-oracle.wt-2-researcher",
 ].join("\n");
 
+const nestedAgentsRaw = [
+  "%303|||47-mawjs:2.0|||nested-agent|||tile-3|||/opt/Code/github.com/Soul-Brews-Studio/mawjs-oracle/agents/12-codex-headless",
+  "%404|||47-mawjs:2.1|||plain-nested-agent|||tile-4|||/opt/Code/github.com/Soul-Brews-Studio/not-oracle/agents/researcher",
+].join("\n");
+
 describe("tmux kill pane target fallback (#1502)", () => {
   test("indexes pane titles, tile roles, and worktree aliases", () => {
     const names = paneTargetCandidatesFromListPanesOutput(raw).map(c => `${c.name}:${c.source}:${c.resolved}`);
@@ -17,6 +22,27 @@ describe("tmux kill pane target fallback (#1502)", () => {
     expect(names).toContain("tile-1:tile-role:%101");
     expect(names).toContain("codex-headless:worktree-role:%101");
     expect(names).toContain("mawjs-codex-headless:worktree-alias:%101");
+  });
+
+  test("indexes nested agents paths as dir, role, and repo-role aliases", () => {
+    const names = paneTargetCandidatesFromListPanesOutput(nestedAgentsRaw)
+      .map(c => `${c.name}:${c.source}:${c.resolved}`);
+
+    expect(names).toContain("12-codex-headless:worktree-dir:%303");
+    expect(names).toContain("codex-headless:worktree-role:%303");
+    expect(names).toContain("mawjs-codex-headless:worktree-alias:%303");
+    expect(names).toContain("researcher:worktree-dir:%404");
+    expect(names).toContain("not-researcher:worktree-alias:%404");
+    expect(names).not.toContain("researcher:worktree-role:%404");
+  });
+
+  test("resolves nested agents repo-role aliases to pane ids", () => {
+    const hit = resolvePaneTargetFromListPanesOutput("mawjs-codex-headless", nestedAgentsRaw);
+
+    expect(hit.kind).toBe("match");
+    if (hit.kind !== "match") throw new Error("expected match");
+    expect(hit.candidate.resolved).toBe("%303");
+    expect(hit.candidate.source).toBe("worktree-alias");
   });
 
   test("resolves the natural mawjs-prefixed worktree alias to the orphan pane id", () => {

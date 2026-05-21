@@ -58,7 +58,7 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleetEntries: () => fleetEntries,
 }));
 
-const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, getAllInboxStatuses, formatInboxStatus, formatInboxStatusList, cmdInboxStatus, cmdInboxDrain, formatInboxDrainResult, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
+const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, getAllInboxStatuses, formatInboxStatus, formatInboxStatusList, cmdInboxStatus, cmdInboxDrain, formatInboxDrainResult, oracleNameFromFleetWindow, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
   await import("../../src/vendor/mpr-plugins/inbox/impl");
 
 beforeEach(() => {
@@ -323,6 +323,35 @@ describe("inbox impl utility surface", () => {
     expect(status).toMatchObject({ oracle: "sample-oracle", unread: 1 });
   });
 
+  test("resolves a legacy .wt cwd to the canonical repo psi inbox fallback", async () => {
+    psiPath = undefined;
+    const canonicalRepo = join(rootDir, "legacy-oracle");
+    const worktree = join(rootDir, "legacy-oracle.wt-agent2");
+    const inbox = join(canonicalRepo, "psi", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(inbox, "2026-05-21_09-30_agent_note.md"), "legacy fallback");
+    process.chdir(worktree);
+
+    const status = await getInboxStatus(undefined, Date.parse("2026-05-21T10:00:00"));
+
+    expect(status).toMatchObject({ oracle: "legacy-oracle", unread: 1 });
+  });
+
+  test("falls back to the current directory inbox when no own repo target resolves", async () => {
+    psiPath = undefined;
+    const looseCwd = join(rootDir, "loose-cwd");
+    const inbox = join(looseCwd, "ψ", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    writeFileSync(join(inbox, "2026-05-21_09-30_agent_note.md"), "local fallback");
+    process.chdir(looseCwd);
+
+    const status = await getInboxStatus(undefined, Date.parse("2026-05-21T10:00:00"));
+
+    expect(status.unread).toBe(1);
+    expect(status.reasons).toEqual(["no_archive"]);
+  });
+
   test("uses named oracle repo resolution and prints json status", async () => {
     const repo = join(rootDir, "named-oracle");
     const inbox = join(repo, "ψ", "inbox");
@@ -387,6 +416,38 @@ describe("inbox impl utility surface", () => {
     ]);
   });
 
+  test("resolves fleet window-name oracles and tie-breaks same-level statuses by oracle name", async () => {
+    const zetaRepo = join(rootDir, "zeta-oracle");
+    const alphaRepo = join(rootDir, "alpha-oracle");
+    mkdirSync(join(zetaRepo, "ψ", "inbox"), { recursive: true });
+    mkdirSync(join(alphaRepo, "ψ", "inbox"), { recursive: true });
+    ghqRepos["zeta-oracle"] = zetaRepo;
+    ghqRepos["alpha-oracle"] = alphaRepo;
+    fleetEntries = [
+      {
+        session: {
+          windows: [
+            { name: "zeta-oracle" },
+            { name: "alpha-oracle" },
+          ],
+        },
+      },
+    ];
+
+    const statuses = await getAllInboxStatuses(Date.parse("2026-05-21T10:00:00"));
+
+    expect(statuses.map(s => `${s.level}:${s.oracle}`)).toEqual([
+      "green:alpha-oracle",
+      "green:zeta-oracle",
+    ]);
+  });
+
+  test("normalizes fleet windows without oracle-suffixed names or repos", () => {
+    expect(oracleNameFromFleetWindow({ name: "ops", repo: "Org/plain-repo" })).toBe("ops");
+    expect(oracleNameFromFleetWindow({ repo: "Org/plain-repo" })).toBe("plain-repo");
+    expect(oracleNameFromFleetWindow({})).toBeNull();
+  });
+
   test("safe drain archives only stale slice acknowledgements up to the max cap", async () => {
     const now = Date.parse("2026-05-21T12:00:00Z");
     const inbox = join(rootDir, "inbox");
@@ -433,6 +494,77 @@ describe("inbox impl utility surface", () => {
     expect(existsSync(join(inbox, oldShip))).toBe(true);
     expect(existsSync(join(inbox, consultation))).toBe(true);
     expect(existsSync(join(inbox, freshVerified))).toBe(true);
+  });
+
+  test("safe drain reports an empty filter for directive and non-matching bracketed messages", async () => {
+    const now = Date.parse("2026-05-21T12:00:00Z");
+    const inbox = join(rootDir, "inbox");
+    mkdirSync(inbox, { recursive: true });
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 8 * 60 * 60_000, "directive.md")),
+      "[m5:mawjs] directive do not archive this shipped slice",
+    );
+    writeFileSync(
+      join(inbox, inboxFilenameAt(now - 7 * 60 * 60_000, "plain-status.md")),
+      "[m5:mawjs] routine handoff complete",
+    );
+
+    const out = captureLogs();
+    const result = await cmdInboxDrain(undefined, { safe: true, dryRun: true }, now);
+    out.restore();
+
+    expect(result).toMatchObject({
+      scanned: 2,
+      matched: 0,
+      archived: 0,
+      remaining_matches: 0,
+    });
+    expect(result.items).toEqual([]);
+    expect(out.logs.join("\n")).toContain("no messages matched the safe stale-ack filter");
+  });
+
+  test("safe drain uses frontmatter timestamps, skips null timestamps, and suffixes archive collisions", async () => {
+    const now = Date.parse("2026-05-21T12:00:00Z");
+    const inbox = join(rootDir, "inbox");
+    const processed = join(inbox, "processed", "2026-05-21");
+    mkdirSync(processed, { recursive: true });
+    writeFileSync(join(processed, "frontmatter-only.md"), "already archived");
+    writeFileSync(join(inbox, "frontmatter-only.md"), [
+      "---",
+      "from: mawjs",
+      "to: node-oracle",
+      "timestamp: 2026-05-20T12:00:00.000Z",
+      "read: false",
+      "---",
+      "",
+      "[m5:mawjs] ✅ batch verified",
+    ].join("\n"));
+    writeFileSync(join(inbox, "missing-timestamp.md"), [
+      "---",
+      "from: mawjs",
+      "to: node-oracle",
+      "timestamp: not-a-date",
+      "read: false",
+      "---",
+      "",
+      "[m5:mawjs] ✅ batch verified",
+    ].join("\n"));
+
+    const out = captureLogs();
+    const result = await cmdInboxDrain(undefined, { safe: true, max: 10 }, now);
+    out.restore();
+
+    expect(result).toMatchObject({ scanned: 2, matched: 1, archived: 1 });
+    expect(result.items[0]).toMatchObject({
+      filename: "frontmatter-only.md",
+      action: "archived",
+      reason: "verified",
+    });
+    expect(result.items[0].destination).toBe(join(processed, "frontmatter-only-2.md"));
+    expect(existsSync(join(processed, "frontmatter-only.md"))).toBe(true);
+    expect(existsSync(join(processed, "frontmatter-only-2.md"))).toBe(true);
+    expect(existsSync(join(inbox, "frontmatter-only.md"))).toBe(false);
+    expect(existsSync(join(inbox, "missing-timestamp.md"))).toBe(true);
   });
 });
 

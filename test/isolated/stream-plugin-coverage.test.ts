@@ -132,6 +132,15 @@ describe("maw stream plugin", () => {
     expect(await resolveStreamTarget("raw:window", deps() as any)).toBe("raw:window");
   });
 
+  test("rejects ambiguous attach-style names before opening a websocket", async () => {
+    sessions = [
+      { name: "50-codex", windows: [{ name: "main" }] },
+      { name: "51-codex", windows: [{ name: "main" }] },
+    ];
+
+    await expect(resolveStreamTarget("codex", deps() as any)).rejects.toThrow("ambiguous");
+  });
+
   test("follows live chunks by default without requesting scrollback replay", async () => {
     const stream = cmdStream("mawjs-codex-oracle", {}, deps());
     await flush();
@@ -171,6 +180,33 @@ describe("maw stream plugin", () => {
       pane: "mawjs-codex-oracle",
       chunk: "history\n",
     });
+  });
+
+  test("decodes binary frame variants and malformed control JSON as stream chunks", async () => {
+    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    await flush();
+
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+    ws.message(new TextEncoder().encode("bytes\n").buffer);
+    await flush();
+    ws.message(new DataView(new TextEncoder().encode("view\n").buffer));
+    await flush();
+    ws.message(new Blob(["blob\n"]));
+    await flush();
+    ws.message("{");
+    await flush();
+    ws.message({ unexpected: true });
+    await flush();
+    ws.message(JSON.stringify({ type: "detached" }));
+
+    await expect(stream).resolves.toEqual({ pane: "mawjs-codex-oracle", reason: "detached", chunks: 5 });
+    expect(out).toEqual(["bytes\n", "view\n", "blob\n", "{", "[object Object]"]);
+  });
+
+  test("rejects invalid grep patterns before attaching", async () => {
+    await expect(cmdStream("mawjs-codex-oracle", { grep: "[" }, deps())).rejects.toThrow("invalid --grep pattern");
+    expect(FakeWebSocket.instances).toEqual([]);
   });
 
   test("applies grep filtering and exits cleanly after idle", async () => {
@@ -230,5 +266,17 @@ describe("maw stream plugin", () => {
 
     await expect(stream).rejects.toThrow("Failed to create PTY session");
     expect(err).toEqual(["stream: Failed to create PTY session\n"]);
+  });
+
+  test("surfaces websocket error events with the configured bridge URL", async () => {
+    const stream = cmdStream("mawjs-codex-oracle", {}, deps());
+    await flush();
+
+    const ws = FakeWebSocket.instances[0];
+    ws.open();
+    ws.onerror?.({});
+
+    await expect(stream).rejects.toThrow("stream: websocket error: ws://127.0.0.1:4567/ws/pty");
+    expect(handlers).toEqual({});
   });
 });

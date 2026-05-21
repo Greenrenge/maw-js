@@ -265,6 +265,8 @@ describe("cmdNew workspace session factory", () => {
         .rejects.toThrow("--path requires a non-empty directory");
       await expect(cmdNew(["empty-cmd", "--cmd", "", "--no-attach"]))
         .rejects.toThrow("--cmd cannot be empty");
+      await expect(cmdNew(["empty-window", "--window", "", "--no-attach"]))
+        .rejects.toThrow("--window requires a non-empty name");
       await expect(cmdNew(["bad-window", "--window", "bad:name", "--no-attach"]))
         .rejects.toThrow("invalid window name");
       await expect(cmdNew(["split-window", "--split", "--window", "main", "--no-attach"]))

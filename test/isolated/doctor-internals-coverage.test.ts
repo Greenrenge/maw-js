@@ -280,6 +280,10 @@ describe("stillborn worktree internals", () => {
     expect(dirNameToWindowName("discord-oracle.wt-1-awaken")).toBe("discord-awaken");
     expect(dirNameToWindowName("neo-oracle.wt-3-feature-foo")).toBe("neo-feature-foo");
     expect(dirNameToWindowName("myrepo.wt-task")).toBe("myrepo-task");
+    expect(dirNameToWindowName(`${GHQ}/github.com/Soul-Brews-Studio/mawjs-oracle/agents/12-codex-headless`))
+      .toBe("mawjs-codex-headless");
+    expect(dirNameToWindowName(`${GHQ}/github.com/Soul-Brews-Studio/plain-repo/agents/researcher`))
+      .toBe("plain-repo-researcher");
     expect(dirNameToWindowName("plain-directory")).toBe("plain-directory");
   });
 
@@ -382,6 +386,33 @@ describe("stillborn worktree internals", () => {
     expect(logs[0]).toContain("stillborn: ghost-oracle.wt-1-task-a (cleanup: maw done ghost-task-a)");
     expect(logs[4]).toContain("stillborn: ghost-oracle.wt-5-task-e (cleanup: maw done ghost-task-e)");
     expect(logs[5]).toContain("... (+1 more)");
+  });
+
+  test("walks nested agents paths defensively while classifying legacy worktrees", () => {
+    ghqRootResult = `${GHQ}\n`;
+    addDir(`${GHQ}/github.com`, ["Soul-Brews-Studio"]);
+    addDir(`${GHQ}/github.com/Soul-Brews-Studio`, [
+      "mawjs-oracle",
+      "neo-oracle.wt-1-awaken",
+    ]);
+    addDir(`${GHQ}/github.com/Soul-Brews-Studio/mawjs-oracle`);
+    addDir(`${GHQ}/github.com/Soul-Brews-Studio/mawjs-oracle/agents`, [
+      "12-codex-headless",
+      "broken-agent",
+    ]);
+    addDir(`${GHQ}/github.com/Soul-Brews-Studio/mawjs-oracle/agents/12-codex-headless`);
+    statFailures.add(`${GHQ}/github.com/Soul-Brews-Studio/mawjs-oracle/agents/broken-agent`);
+    addDir(`${GHQ}/github.com/Soul-Brews-Studio/neo-oracle.wt-1-awaken`);
+    tmuxWindowsResult = "neo-awaken\n";
+
+    const result = checkStillbornWorktrees();
+
+    expect(result).toEqual({
+      name: "worktrees:stillborn",
+      ok: true,
+      message: "1 active worktree, 0 stillborn",
+    });
+    expect(logs).toEqual([]);
   });
 
   test("treats worktrees as stillborn when tmux window listing is unavailable", () => {

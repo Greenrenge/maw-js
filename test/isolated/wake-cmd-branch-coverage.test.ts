@@ -252,7 +252,7 @@ mock.module(join(import.meta.dir, "../../src/core/ghq"), () => ({
   ghqFind: async (...args: any[]) => mockActive ? null : (realGhq.ghqFind as any)(...args),
 }));
 
-const { cmdWake } = await import("../../src/commands/shared/wake-cmd");
+const { cmdWake, _wtPicker } = await import("../../src/commands/shared/wake-cmd");
 
 beforeEach(() => {
   mockActive = true;
@@ -316,6 +316,34 @@ describe("wake-cmd isolated executable branch coverage", () => {
     expect(rendered).toContain("would drop wake-bud birth signal");
     expect(newWindowCalls).toEqual([]);
     expect(sendTextCalls).toEqual([]);
+  });
+
+  test("bring --pick can match a nested agents worktree cwd alias", async () => {
+    windowsBySession = {
+      "54-mawjs": [{ name: "scratch", index: 0, active: true, cwd: join(repoPath, "agents", "review-123") }],
+    };
+    const originalIsStdoutTTY = _wtPicker.isStdoutTTY;
+    const originalReadChoice = _wtPicker.readChoice;
+    _wtPicker.isStdoutTTY = () => true;
+    _wtPicker.readChoice = () => "1";
+
+    try {
+      const { result, logs } = await captureLogs(() => cmdWake("review-123", {
+        bringAlias: true,
+        session: "54-mawjs",
+        pick: true,
+        dryRun: true,
+      }));
+
+      expect(result).toBe("54-mawjs:scratch");
+      const rendered = logs.join("\n");
+      expect(rendered).toContain("live tmux window: 54-mawjs:scratch");
+      expect(rendered).toContain("tmux window in 54-mawjs · oracle mawjs · worktree review-123");
+      expect(newWindowCalls).toEqual([]);
+    } finally {
+      _wtPicker.isStdoutTTY = originalIsStdoutTTY;
+      _wtPicker.readChoice = originalReadChoice;
+    }
   });
 
   test("existing window with prompt selects, sends escaped prompt, attaches, splits, tabs, and snapshots", async () => {
