@@ -23,6 +23,8 @@ function makeHarness(overrides: Record<string, any> = {}) {
     cmdTmuxSplit: async (target: string, opts: unknown) => { calls.push(["split", target, opts]); },
     cmdTmuxKill: async (target: string, opts: unknown) => { calls.push(["kill", target, opts]); },
     cmdTmuxLayout: async (target: string, preset: string) => { calls.push(["layout", target, preset]); },
+    cmdTmuxPipePane: async (target: string, command: string | undefined, opts: unknown) => { calls.push(["pipe", target, command, opts]); },
+    cmdTmuxSynchronizePanes: async (target: string, on: boolean) => { calls.push(["sync", target, on]); },
     cmdTmuxAttach: (target: string, opts: unknown) => { calls.push(["attach", target, opts]); },
     resolveTmuxTarget: (target: string) => ({ resolved: `resolved-${target}`, source: "test" }),
     hostExec: async (cmd: string) => { calls.push(["hostExec", cmd]); return ""; },
@@ -126,13 +128,35 @@ describe("tmux plugin command handler", () => {
     expect(await failing.handler(cli(["layout", "pane", "tiled"]))).toMatchObject({ ok: false, error: "layout boom" });
   });
 
-  test("routes attach help, validation, and print option", async () => {
+  test("routes pipe and sync help, validation, and options", async () => {
     const h = makeHarness();
-    expect((await h.handler(cli(["attach", "--help"]))).output).toContain("--print");
+    expect((await h.handler(cli(["pipe", "--help"]))).output).toContain("pipe-pane");
+    expect(await h.handler(cli(["pipe"]))).toMatchObject({ ok: false, error: "target required" });
+
+    await h.handler(cli(["pipe-pane", "pane", "cat", ">", "/tmp/fifo", "--input", "--only-if-closed"]));
+    expect(h.calls).toContainEqual(["pipe", "pane", "cat > /tmp/fifo", { input: true, output: undefined, onlyIfClosed: true }]);
+
+    expect(await h.handler(cli(["pipe", "pane", "--no-output"]))).toMatchObject({ ok: false, error: "--no-output requires --input" });
+
+    await h.handler(cli(["pipe", "pane", "cat", "--input", "--no-output"]));
+    expect(h.calls).toContainEqual(["pipe", "pane", "cat", { input: true, output: false, onlyIfClosed: false }]);
+
+    expect((await h.handler(cli(["sync", "--help"]))).output).toContain("synchronize-panes");
+    expect(await h.handler(cli(["sync", "pane"]))).toMatchObject({ ok: false, error: "target and on/off required" });
+
+    await h.handler(cli(["synchronize-panes", "pane", "on"]));
+    await h.handler(cli(["sync", "pane", "0"]));
+    expect(h.calls).toContainEqual(["sync", "pane", true]);
+    expect(h.calls).toContainEqual(["sync", "pane", false]);
+  });
+
+  test("routes attach help, validation, print option, and readonly option", async () => {
+    const h = makeHarness();
+    expect((await h.handler(cli(["attach", "--help"]))).output).toContain("--readonly");
     expect(await h.handler(cli(["attach"]))).toMatchObject({ ok: false, error: "target required" });
 
-    await h.handler(cli(["attach", "pane", "--print"]));
-    expect(h.calls).toContainEqual(["attach", "pane", { print: true }]);
+    await h.handler(cli(["attach", "pane", "--print", "--readonly"]));
+    expect(h.calls).toContainEqual(["attach", "pane", { print: true, readonly: true }]);
   });
 
   test("close/unsplit require tmux and hide sibling panes", async () => {

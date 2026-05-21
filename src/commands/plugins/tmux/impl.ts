@@ -778,9 +778,56 @@ export async function cmdTmuxLayout(target: string, preset: string): Promise<voi
   console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);
 }
 
+export interface TmuxPipePaneOpts {
+  /** Connect shell-command stdout to the pane as typed input (`pipe-pane -I`). */
+  input?: boolean;
+  /** Connect pane output to shell-command stdin (`pipe-pane -O`). Default true. */
+  output?: boolean;
+  /** Only open a new pipe when no pipe is already active (`pipe-pane -o`). */
+  onlyIfClosed?: boolean;
+}
+
+/**
+ * Pipe a pane through a shell command. Omit command to close the current pipe.
+ * Thin wrapper over `Tmux.pipePane()` with maw target resolution.
+ */
+export async function cmdTmuxPipePane(target: string, command?: string, opts: TmuxPipePaneOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  try {
+    await tmux.pipePane(resolved, command, opts);
+  } catch (e: any) {
+    throw new Error(`pipe-pane failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  const mode = `${opts.input ? "input" : ""}${opts.input && opts.output !== false ? "+" : ""}${opts.output === false && opts.input ? "" : "output"}` || "output";
+  const action = command === undefined ? "closed pipe" : `piped (${mode})`;
+  console.log(`[32m✓[0m ${action} ${target} → ${resolved} [90m[${source}]${opts.onlyIfClosed ? " (only-if-closed)" : ""}[0m`);
+}
+
+/** Toggle tmux synchronize-panes on a target window. */
+export async function cmdTmuxSynchronizePanes(target: string, on: boolean): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+  const window = resolved.replace(/\.\d+$/, "");
+
+  try {
+    await tmux.synchronizePanes(window, on);
+  } catch (e: any) {
+    throw new Error(`synchronize-panes failed for '${window}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`[32m✓[0m synchronize-panes ${on ? "on" : "off"} for ${target} → ${window} [90m[${source}][0m`);
+}
+
 export interface TmuxAttachOpts {
   /** Force print-only mode (no exec) regardless of TTY/$TMUX state. */
   print?: boolean;
+  /** Attach read-only (`tmux attach-session -r`). */
+  readonly?: boolean;
 }
 
 /**
@@ -813,19 +860,23 @@ export function cmdTmuxAttach(target: string, opts: TmuxAttachOpts = {}): void {
   const isTty = _tty.isStdoutTTY();
   const inTmux = !!process.env.TMUX;
 
+  const attachArgs = opts.readonly
+    ? ["attach", "-r", "-t", session]
+    : inTmux
+    ? ["switch-client", "-t", session]
+    : ["attach", "-t", session];
+  const printArgs = opts.readonly
+    ? ["attach", "-r", "-t", session]
+    : ["attach", "-t", session];
+
   if (opts.print || !isTty) {
-    console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
-    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
+    console.log(`\x1b[36mRun:\x1b[0m tmux ${printArgs.join(" ")}`);
+    console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]${opts.readonly ? " (read-only)" : ""}`);
     console.log(`  detach with: Ctrl-b d\x1b[0m`);
     return;
   }
 
-  const tmuxArgs = inTmux
-    ? ["switch-client", "-t", session]
-    : ["attach", "-t", session];
-  const verb = inTmux ? "switch-client" : "attach";
-
-  const result = Bun.spawnSync(["tmux", ...tmuxArgs], {
+  const result = Bun.spawnSync(["tmux", ...attachArgs], {
     stdio: ["inherit", "inherit", "inherit"],
   });
 

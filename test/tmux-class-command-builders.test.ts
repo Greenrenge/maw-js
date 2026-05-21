@@ -177,6 +177,10 @@ describe("Tmux command wrapper coverage", () => {
     await t.splitWindow("s:0");
     await t.selectPane("s:0.1", { title: "work pane" });
     await t.selectLayout("s:0", "tiled");
+    await t.attachReadonly("s");
+    await t.pipePane("s:0.1", "cat > /tmp/out", { onlyIfClosed: true });
+    await t.pipePane("s:0.1", undefined, { input: true, output: false });
+    await t.synchronizePanes("s:0", true);
     await t.sendKeys("s:0.1", "C-c", "Enter");
     await t.sendKeysLiteral("s:0.1", "hello world");
     await t.pasteBuffer("s:0.1");
@@ -191,6 +195,10 @@ describe("Tmux command wrapper coverage", () => {
       "split-window -t s:0",
       "select-pane -t s:0.1 -T work pane",
       "select-layout -t s:0 tiled",
+      "attach-session -r -t s",
+      "pipe-pane -O -o -t s:0.1 cat > /tmp/out",
+      "pipe-pane -I -t s:0.1",
+      "set-window-option -t s:0 synchronize-panes on",
       "send-keys -t s:0.1 C-c Enter",
       "send-keys -t s:0.1 -l hello world",
       "paste-buffer -t s:0.1",

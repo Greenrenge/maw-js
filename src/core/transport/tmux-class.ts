@@ -295,6 +295,42 @@ export class Tmux {
     await this.run("select-layout", "-t", target, layout);
   }
 
+  /** Attach a client in tmux read-only mode (`attach-session -r`). */
+  async attachReadonly(session: string): Promise<void> {
+    await this.run("attach-session", "-r", "-t", session);
+  }
+
+  /**
+   * Pipe pane output and/or shell-command output through tmux `pipe-pane`.
+   *
+   * tmux defaults to output mode (`-O`) when neither `input` nor `output` is
+   * set; this wrapper makes the default explicit for callers and tests. Omit
+   * `command` to close the current pipe for the target pane.
+   */
+  async pipePane(target: string, command?: string, opts: {
+    /** Connect shell-command stdout to the pane as typed input (`-I`). */
+    input?: boolean;
+    /** Connect pane output to shell-command stdin (`-O`). Default true. */
+    output?: boolean;
+    /** Only open a new pipe if none exists (`-o`). */
+    onlyIfClosed?: boolean;
+  } = {}): Promise<void> {
+    const args: (string | number)[] = [];
+    const input = opts.input === true;
+    const output = opts.output !== false || !input;
+    if (input) args.push("-I");
+    if (output) args.push("-O");
+    if (opts.onlyIfClosed) args.push("-o");
+    args.push("-t", target);
+    if (command !== undefined) args.push(command);
+    await this.run("pipe-pane", ...args);
+  }
+
+  /** Toggle tmux synchronize-panes for a target window. */
+  async synchronizePanes(target: string, on: boolean): Promise<void> {
+    await this.run("set-window-option", "-t", target, "synchronize-panes", on ? "on" : "off");
+  }
+
   // --- Keys ---
 
   async sendKeys(target: string, ...keys: string[]): Promise<void> {

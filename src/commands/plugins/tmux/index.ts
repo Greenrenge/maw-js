@@ -1,6 +1,6 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
-import { activeDurationArg, cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach, parseActiveDurationSeconds, resolveTmuxTarget } from "./impl";
+import { activeDurationArg, cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxPipePane, cmdTmuxSynchronizePanes, cmdTmuxAttach, parseActiveDurationSeconds, resolveTmuxTarget } from "./impl";
 import { hostExec } from "../../../sdk";
 
 export const command = {
@@ -15,6 +15,8 @@ interface TmuxHandlerDeps {
   cmdTmuxSplit: typeof cmdTmuxSplit;
   cmdTmuxKill: typeof cmdTmuxKill;
   cmdTmuxLayout: typeof cmdTmuxLayout;
+  cmdTmuxPipePane: typeof cmdTmuxPipePane;
+  cmdTmuxSynchronizePanes: typeof cmdTmuxSynchronizePanes;
   cmdTmuxAttach: typeof cmdTmuxAttach;
   resolveTmuxTarget: typeof resolveTmuxTarget;
   hostExec: typeof hostExec;
@@ -28,6 +30,8 @@ const defaultDeps: TmuxHandlerDeps = {
   cmdTmuxSplit,
   cmdTmuxKill,
   cmdTmuxLayout,
+  cmdTmuxPipePane,
+  cmdTmuxSynchronizePanes,
   cmdTmuxAttach,
   resolveTmuxTarget,
   hostExec,
@@ -214,23 +218,71 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
         return { ok: false, error: "target and preset required", output: logs.join("\n") };
       }
       await deps.cmdTmuxLayout(target, preset);
-    } else if (sub === "attach") {
+    } else if (sub === "pipe" || sub === "pipe-pane") {
       const flags = parseFlags(args, {
-        "--print": Boolean,
+        "--input": Boolean, "-I": "--input",
+        "--output": Boolean, "-O": "--output",
+        "--no-output": Boolean,
+        "--only-if-closed": Boolean,
+        "--open": "--only-if-closed",
+        "-o": "--only-if-closed",
         "--help": Boolean, "-h": "--help",
       }, 1);
       if (flags["--help"]) {
-        console.log("usage: maw tmux attach <target> [--print]");
+        console.log("usage: maw tmux pipe <target> [command] [--input] [--output|--no-output] [--only-if-closed|-o]");
+        console.log("  default: pipe pane output to command stdin (`tmux pipe-pane -O`).");
+        console.log("  omit command to close the current pipe for the target pane.");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      if (!target) {
+        console.log("usage: maw tmux pipe <target> [command] [--input] [--output|--no-output] [--only-if-closed]");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      if (flags["--no-output"] && !flags["--input"]) {
+        return { ok: false, error: "--no-output requires --input", output: logs.join("\n") || undefined };
+      }
+      const command = flags._.slice(1).join(" ") || undefined;
+      await deps.cmdTmuxPipePane(target, command, {
+        input: !!flags["--input"],
+        output: flags["--no-output"] ? false : flags["--output"] ? true : undefined,
+        onlyIfClosed: !!flags["--only-if-closed"],
+      });
+    } else if (sub === "sync" || sub === "synchronize-panes") {
+      const flags = parseFlags(args, { "--help": Boolean, "-h": "--help" }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux sync <target> <on|off>");
+        console.log("  toggles tmux synchronize-panes for the target window.");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      const state = String(flags._[1] ?? "").toLowerCase();
+      if (!target || !["on", "off", "true", "false", "1", "0"].includes(state)) {
+        console.log("usage: maw tmux sync <target> <on|off>");
+        return { ok: false, error: "target and on/off required", output: logs.join("\n") };
+      }
+      await deps.cmdTmuxSynchronizePanes(target, state === "on" || state === "true" || state === "1");
+    } else if (sub === "attach") {
+      const flags = parseFlags(args, {
+        "--print": Boolean,
+        "--readonly": Boolean,
+        "--read-only": "--readonly",
+        "-r": "--readonly",
+        "--help": Boolean, "-h": "--help",
+      }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux attach <target> [--print] [--readonly|-r]");
         console.log("  default: exec `tmux attach` (or `switch-client` inside $TMUX) when on a TTY.");
+        console.log("  --readonly/-r: attach with tmux read-only client flags.");
         console.log("  --print: print the tmux command instead of exec'ing (auto-on without a TTY).");
         return { ok: true, output: logs.join("\n") || undefined };
       }
       const target = flags._[0];
       if (!target) {
-        console.log("usage: maw tmux attach <target> [--print]");
+        console.log("usage: maw tmux attach <target> [--print] [--readonly]");
         return { ok: false, error: "target required", output: logs.join("\n") };
       }
-      deps.cmdTmuxAttach(target, { print: !!flags["--print"] });
+      deps.cmdTmuxAttach(target, { print: !!flags["--print"], readonly: !!flags["--readonly"] });
     } else if (sub === "close" || sub === "unsplit") {
       if (!process.env.TMUX) {
         console.log("\x1b[33m⚠\x1b[0m close requires tmux");
@@ -291,18 +343,20 @@ export function createTmuxHandler(overrides: Partial<TmuxHandlerDeps> = {}) {
       console.log(`\x1b[32m✓\x1b[0m toggled zoom on ${resolved}`);
 
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|attach> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|open|close|layout|pipe|sync|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
       console.log("  split <target>          split a pane (--vertical, --pct, --cmd)");
       console.log("  kill <target>           kill a pane or --session (fleet-safe)");
       console.log("  layout <target> <preset> apply a tmux layout preset");
-      console.log("  attach <target> [--print] attach to a tmux session (--print to skip exec)");
+      console.log("  pipe <target> [cmd]      pipe pane output/input (`pipe-pane`)");
+      console.log("  sync <target> <on|off>  toggle synchronize-panes");
+      console.log("  attach <target> [--print] [--readonly] attach to a tmux session");
       return { ok: true, output: logs.join("\n") || undefined };
     } else {
       console.log(`unknown tmux subcommand: ${sub}`);
-      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|attach>");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|pipe|sync|attach>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
