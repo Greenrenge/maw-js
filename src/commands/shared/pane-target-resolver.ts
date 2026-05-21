@@ -14,14 +14,21 @@ export type PaneTargetResolution =
   | { kind: "match"; candidate: PaneTargetCandidate }
   | { kind: "ambiguous"; candidates: PaneTargetCandidate[] };
 
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).pop() || path;
-}
 
 function worktreeNamesFromCwd(cwd: string): Array<{ name: string; source: string }> {
-  const base = basename(cwd);
+  const parts = cwd.split("/").filter(Boolean);
+  const base = parts.at(-1) || "";
   if (!base) return [];
   const out: Array<{ name: string; source: string }> = [{ name: base, source: "worktree-dir" }];
+
+  if (parts.at(-2) === "agents") {
+    const role = base.replace(/^\d+-/, "");
+    const repo = parts.at(-3)?.trim();
+    if (role && role !== base) out.push({ name: role, source: "worktree-role" });
+    const repoStem = repo?.replace(/-oracle$/, "");
+    if (repoStem && role) out.push({ name: `${repoStem}-${role}`, source: "worktree-alias" });
+    return out;
+  }
 
   const match = base.match(/^(?<repo>.+)\.wt-\d+-(?<role>.+)$/);
   const role = match?.groups?.role?.trim();

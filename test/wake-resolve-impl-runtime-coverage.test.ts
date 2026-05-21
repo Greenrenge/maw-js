@@ -417,15 +417,27 @@ describe("resolveOracle runtime paths", () => {
 });
 
 describe("findWorktrees and detectSession runtime paths", () => {
-  test("findWorktrees maps shell glob output into wake worktree records", async () => {
+  test("findWorktrees maps legacy and nested shell output into wake worktree records", async () => {
+    const calls: string[] = [];
     hostExecImpl = async (cmd) => {
-      expect(cmd).toBe("ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true");
-      return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
+      calls.push(cmd);
+      if (cmd === "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true") {
+        return "/repos/mawjs-oracle.wt-feature\n/repos/mawjs-oracle.wt-2-bug\n";
+      }
+      if (cmd === "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true") {
+        return "/repos/mawjs-oracle/agents/3-nested\n";
+      }
+      throw new Error(`unexpected command: ${cmd}`);
     };
 
     await expect(findWorktrees("/repos", "mawjs-oracle")).resolves.toEqual([
       { path: "/repos/mawjs-oracle.wt-feature", name: "feature" },
       { path: "/repos/mawjs-oracle.wt-2-bug", name: "2-bug" },
+      { path: "/repos/mawjs-oracle/agents/3-nested", name: "3-nested" },
+    ]);
+    expect(calls).toEqual([
+      "ls -d '/repos'/'mawjs-oracle'.wt-* 2>/dev/null || true",
+      "find '/repos/mawjs-oracle/agents' -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true",
     ]);
   });
 

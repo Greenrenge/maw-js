@@ -127,7 +127,7 @@ describe("wake plugin index", () => {
   test("maps cli reusable worktree picker flags", async () => {
     const result = await handler({
       source: "cli",
-      args: ["homekeeper", "--wt", "white", "--pick", "--name", "osmosis"],
+      args: ["homekeeper", "--wt", "white", "--layout", "legacy", "--pick", "--name", "osmosis"],
     } as any);
 
     expect(result.ok).toBe(true);
@@ -136,6 +136,7 @@ describe("wake plugin index", () => {
         oracle: "homekeeper",
         opts: {
           wt: "white",
+          layout: "legacy",
           pick: true,
           name: "osmosis",
         },
@@ -236,6 +237,7 @@ describe("wake plugin index", () => {
         wt: "feature-slot",
         pick: true,
         name: "named-slot",
+        layout: "nested",
         dryRun: true,
         solo: true,
         snapshot: "snap-1",
@@ -251,6 +253,7 @@ describe("wake plugin index", () => {
           wt: "feature-slot",
           pick: true,
           name: "named-slot",
+          layout: "nested",
           prompt: "pr body",
           task: "pr-7",
           dryRun: true,
@@ -275,7 +278,7 @@ describe("wake plugin index", () => {
 
     let result = await handler({
       source: "cli",
-      args: ["neo", "remote-task", "--peer", "gpu", "--wt", "slot", "--task", "prompt", "--issue", "5", "--repo", "o/r", "--fresh", "--pick", "--name", "named"],
+      args: ["neo", "remote-task", "--peer", "gpu", "--wt", "slot", "--layout", "legacy", "--task", "prompt", "--issue", "5", "--repo", "o/r", "--fresh", "--pick", "--name", "named"],
     } as any);
 
     expect(result.ok).toBe(true);
@@ -283,7 +286,7 @@ describe("wake plugin index", () => {
     expect(result.output).toContain("remote output");
     expect(peerCalls).toEqual([{
       url: "http://gpu",
-      body: { oracle: "neo", task: "remote-task", wt: "slot", prompt: "prompt", issue: 5, repo: "o/r", fresh: true, pick: true, name: "named" },
+      body: { oracle: "neo", task: "remote-task", wt: "slot", layout: "legacy", prompt: "prompt", issue: 5, repo: "o/r", fresh: true, pick: true, name: "named" },
     }]);
     expect(wakeCalls).toEqual([]);
 

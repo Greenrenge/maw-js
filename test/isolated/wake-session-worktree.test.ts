@@ -35,7 +35,7 @@ describe("createWorktree", () => {
     await createWorktree("/repo", "/tmp", "repo", "oracle", "tile-1", []);
 
     expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-tile-1' -b 'agents/1-tile-1'");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-tile-1' -b 'agents/1-tile-1'");
   });
 
   test("reattaches an existing stale branch at the stable reusable slot", async () => {
@@ -45,7 +45,7 @@ describe("createWorktree", () => {
 
     expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
     expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/1-tile-1'");
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-tile-1' 'agents/1-tile-1'");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/1-tile-1' 'agents/1-tile-1'");
   });
 
   test("fresh mode skips stale branch names instead of clobbering them", async () => {
@@ -55,7 +55,7 @@ describe("createWorktree", () => {
 
     expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
     expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/1-tile-1'");
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-2-tile-1' -b 'agents/2-tile-1'");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/2-tile-1' -b 'agents/2-tile-1'");
   });
 
   test("named mode uses the exact reusable worktree and branch name", async () => {
@@ -63,6 +63,13 @@ describe("createWorktree", () => {
 
     expect(commands.some(cmd => cmd.includes("branch -D"))).toBe(false);
     expect(commands).toContain("git -C '/repo' show-ref --verify --quiet 'refs/heads/agents/osmosis-white'");
-    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-osmosis-white' -b 'agents/osmosis-white'");
+    expect(commands).toContain("git -C '/repo' worktree add '/repo/agents/osmosis-white' -b 'agents/osmosis-white'");
+  });
+
+  test("explicit legacy layout keeps the old sibling .wt path", async () => {
+    await createWorktree("/repo", "/tmp", "repo", "oracle", "tile-1", [], { layout: "legacy" });
+
+    expect(commands.some(cmd => cmd === "mkdir -p '/repo/agents'")).toBe(false);
+    expect(commands).toContain("git -C '/repo' worktree add '/tmp/repo.wt-1-tile-1' -b 'agents/1-tile-1'");
   });
 });

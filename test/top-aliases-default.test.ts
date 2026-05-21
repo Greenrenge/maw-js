@@ -223,6 +223,7 @@ describe("direct handler invocation", () => {
       "neo",
       "--task", "fix bug",
       "--wt", "issue-1",
+      "--layout", "legacy",
       "--session", "workspace",
       "-p", "hello",
       "--incubate", "Soul-Brews-Studio/maw-js",
@@ -245,6 +246,7 @@ describe("direct handler invocation", () => {
     expect(calls.wake).toEqual([["neo", {
       task: "fix bug",
       wt: "issue-1",
+      layout: "legacy",
       session: "workspace",
       prompt: "hello",
       incubate: "Soul-Brews-Studio/maw-js",

@@ -4,6 +4,7 @@ import { ghqFind } from "maw-js/core/ghq";
 import { buildCommand } from "maw-js/config";
 import { findWorktrees } from "maw-js/commands/shared/wake";
 import { resolveWorktreeTarget } from "maw-js/core/matcher/resolve-target";
+import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "maw-js/core/fleet/worktree-layout";
 
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
@@ -17,7 +18,7 @@ async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: 
   return { repoPath, repoName, parentDir };
 }
 
-export async function cmdWorkon(repo: string, task?: string): Promise<void> {
+export async function cmdWorkon(repo: string, task?: string, opts: { layout?: WorktreeLayout } = {}): Promise<void> {
   const { repoPath, repoName, parentDir } = await resolveRepo(repo);
 
   let targetPath = repoPath;
@@ -51,10 +52,12 @@ export async function cmdWorkon(repo: string, task?: string): Promise<void> {
       const nums = worktrees.map(w => parseInt(w.name) || 0);
       const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
       const wtName = `${nextNum}-${task}`;
-      const wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
+      const layout = normalizeWorktreeLayout(opts.layout);
+      const wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
       const branch = `agents/${wtName}`;
 
       try { await hostExec(`git -C '${repoPath}' branch -D '${branch}' 2>/dev/null`); } catch { /* expected: branch may not exist */ }
+      if (layout === "nested") await hostExec(`mkdir -p '${repoPath.replace(/'/g, "'\\''")}/agents'`);
       await hostExec(`git -C '${repoPath}' worktree add '${wtPath}' -b '${branch}'`);
       console.log(`\x1b[32m+\x1b[0m worktree: ${wtPath} (${branch})`);
       targetPath = wtPath;

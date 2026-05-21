@@ -166,7 +166,7 @@ function printBringUsage(write: (line: string) => void = console.log): void {
 }
 
 function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => void = console.log): void {
-  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
+  write(`usage: maw ${verb} <oracle> [--session <tmux-session>] [--task <s>] [--wt <s>] [--layout nested|legacy] [--bud] [--signal-on-birth] [-p|--prompt <s>] [--incubate <slug>] [--fresh|--new] [--pick] [--name <s>] [-a|--attach] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--split] [--all-local] [-e|--engine <name>]`);
   if (verb === "awake") {
     write("  Launch/start an oracle process with the selected engine. Does not send /awaken.");
     write("  Use `maw awaken` for the awakening ritual; use `maw new` for a plain workspace session.");
@@ -175,6 +175,7 @@ function printWakeAliasUsage(verb: "wake" | "awake", write: (line: string) => vo
   }
   write("  --session targets an existing foreign workspace session instead of the oracle's own session.");
   write("  --fresh/--new forces a new numbered worktree slot; default prefers a stable reusable slot.");
+  write("  --layout selects new worktree filesystem layout: nested (default repo/agents/N-X) or legacy (.wt-N-X).");
   write("  --pick opens the reusable worktree picker; --name creates/reuses a stable named worktree.");
   write("  --list previews worktrees only; it does not create sessions or respawn windows.");
   write("  --from-snapshot restores missing windows from the latest recovery snapshot; --snapshot <id> selects one.");
@@ -324,6 +325,7 @@ export async function invokeDirectHandler(
     const flags = parseFlags(argv, {
       "--task": String,
       "--wt": String,
+      "--layout": String,
       "--session": String,
       "--prompt": String, "-p": "--prompt",
       "--incubate": String,
@@ -374,9 +376,15 @@ export async function invokeDirectHandler(
       engine?: string;
       fromSnapshot?: boolean;
       snapshotId?: string;
+      layout?: "nested" | "legacy";
     } = {};
     if (flags["--task"]) opts.task = flags["--task"];
     if (flags["--wt"]) opts.wt = flags["--wt"];
+    if (flags["--layout"]) {
+      const layout = flags["--layout"];
+      if (layout !== "nested" && layout !== "legacy") throw new UserError("wake: --layout must be nested or legacy");
+      opts.layout = layout;
+    }
     if (flags["--session"]) opts.session = flags["--session"];
     if (flags["--prompt"]) opts.prompt = flags["--prompt"];
     if (flags["--incubate"]) opts.incubate = flags["--incubate"];

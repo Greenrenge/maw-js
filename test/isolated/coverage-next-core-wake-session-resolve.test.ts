@@ -64,9 +64,9 @@ describe("coverage next wake-session", () => {
       } as any,
     );
 
-    expect(result).toEqual({ wtPath: "/repo path/project-oracle.wt-stable-task", windowName: "project-stable-task" });
+    expect(result).toEqual({ wtPath: "/repo path/project-oracle/agents/stable-task", windowName: "project-stable-task" });
     expect(localCalls).toContain("git -C '/repo path/project-oracle' show-ref --verify --quiet 'refs/heads/agents/stable-task'");
-    expect(localCalls).toContain("git -C '/repo path/project-oracle' worktree add '/repo path/project-oracle.wt-stable-task' 'agents/stable-task'");
+    expect(localCalls).toContain("git -C '/repo path/project-oracle' worktree add '/repo path/project-oracle/agents/stable-task' 'agents/stable-task'");
     expect(localCalls.some((cmd) => cmd.includes(" -b "))).toBe(false);
   });
 

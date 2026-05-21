@@ -4,6 +4,7 @@ import {
 } from "../tmux/layout-manager";
 import { hostExec } from "../../../sdk";
 import { withPaneLock } from "../../../core/transport/tmux-pane-lock";
+import { worktreePathForLayout, type WorktreeLayout } from "../../../core/fleet/worktree-layout";
 
 function shellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -46,7 +47,7 @@ async function sendTileCommand(paneId: string, command: string): Promise<void> {
 }
 
 const TILE_TITLE_RE = /^(?:[A-Za-z0-9_.-]+-)?tile-\d+(?: 🌳)?$/;
-const TILE_WORKTREE_PATH_RE = /\.wt-\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+$/;
+const TILE_WORKTREE_PATH_RE = /(?:\.wt-\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+|\/agents\/\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+)$/;
 const TILE_BRANCH_RE = /^agents\/\d+-(?:[A-Za-z0-9_.-]+-)?tile-\d+$/;
 
 function tileScope(parentAddress: string): string {
@@ -114,6 +115,7 @@ export interface TileOpts {
   cmd?: string;
   shell?: boolean;
   engine?: string;
+  layout?: WorktreeLayout;
 }
 
 function expandHome(raw: string): string {
@@ -148,6 +150,20 @@ function normalizeTileCommand(raw?: string): string {
 
 function namedWorktree(opts: TileOpts): string {
   return typeof opts.wt === "string" ? opts.wt.trim() : "";
+}
+
+async function mainRepoPathFromGitTopLevel(repoPath: string): Promise<string> {
+  const { isAbsolute, join, dirname } = await import("path");
+  try {
+    const commonDir = (await hostExec(`git -C ${shellArg(repoPath)} rev-parse --git-common-dir 2>/dev/null`)).trim();
+    if (commonDir && commonDir !== ".git") {
+      const mainGit = isAbsolute(commonDir) ? commonDir : join(repoPath, commonDir);
+      return dirname(mainGit);
+    }
+  } catch {
+    // Treat repoPath as the main repo below.
+  }
+  return repoPath;
 }
 
 export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void> {
@@ -192,22 +208,18 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
 
   if (opts.wt) {
     const { findWorktrees, sanitizeBranchName } = await import("../../shared/wake-resolve-impl");
-    repoPath = (await hostExec("git rev-parse --show-toplevel")).trim();
     const { dirname, basename } = await import("path");
+    repoPath = await mainRepoPathFromGitTopLevel((await hostExec("git rev-parse --show-toplevel")).trim());
     parentDir = dirname(repoPath);
     repoName = basename(repoPath).replace(/\.wt-.*$/, "");
-    const mainRepo = `${parentDir}/${repoName}`;
-    try {
-      await hostExec(`git -C '${mainRepo}' rev-parse --git-dir 2>/dev/null`);
-      repoPath = mainRepo;
-    } catch { /* already main */ }
     existingWorktrees = await findWorktrees(parentDir, repoName);
 
     if (requestedWt) {
       sharedWtName = sanitizeBranchName(requestedWt);
       if (!sharedWtName) throw new Error("tile: --wt requires a worktree name");
-      const expectedPath = `${parentDir}/${repoName}.wt-${sharedWtName}`;
-      const existing = existingWorktrees.find(w => w.name === sharedWtName || w.path === expectedPath);
+      const expectedPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName: sharedWtName, layout: opts.layout ?? "nested" });
+      const legacyExpectedPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName: sharedWtName, layout: "legacy" });
+      const existing = existingWorktrees.find(w => w.name === sharedWtName || w.path === expectedPath || w.path === legacyExpectedPath);
       if (existing) {
         sharedWtPath = existing.path;
         const { reconcileParentClaudeDir } = await import("../../shared/wake-session");
@@ -222,7 +234,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
           oracle,
           sharedWtName,
           existingWorktrees,
-          { named: true },
+          { named: true, layout: opts.layout ?? "nested" },
         );
         sharedWtPath = result.wtPath;
         existingWorktrees.push({ name: sharedWtName, path: sharedWtPath });
@@ -243,7 +255,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     } else if (opts.wt) {
       const { createWorktree } = await import("../../shared/wake-session");
       const oracle = repoName.replace(/-oracle$/, "");
-      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, existingWorktrees);
+      const result = await createWorktree(repoPath, parentDir, repoName, oracle, name, existingWorktrees, { layout: opts.layout ?? "nested" });
       cwd = await resolveTileCwd(opts.path, result.wtPath);
       existingWorktrees.push({ name, path: result.wtPath });
     }
@@ -342,8 +354,8 @@ export async function cmdTileClean(): Promise<void> {
   // Clean up orphaned tile worktrees
   const { existsSync } = await import("fs");
   try {
-    const repoPath = (await hostExec("git rev-parse --show-toplevel")).trim();
     const { dirname, basename } = await import("path");
+    const repoPath = await mainRepoPathFromGitTopLevel((await hostExec("git rev-parse --show-toplevel")).trim());
     const parentDir = dirname(repoPath);
     const repoName = basename(repoPath).replace(/\.wt-.*$/, "");
     const mainRepo = `${parentDir}/${repoName}`;

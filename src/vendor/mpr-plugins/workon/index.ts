@@ -1,4 +1,5 @@
 import type { InvokeContext, InvokeResult } from "maw-js/plugin/types";
+import { parseFlags } from "maw-js/cli/parse-args";
 import { cmdWorkon } from "./impl";
 
 export const command = {
@@ -20,10 +21,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
   try {
     const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
-    if (!args[0]) {
-      throw new Error("usage: maw workon <repo> [task]");
+    const flags = parseFlags(args, { "--layout": String }, 0);
+    if (!flags._[0]) {
+      throw new Error("usage: maw workon <repo> [task] [--layout nested|legacy]");
     }
-    await cmdWorkon(args[0], args[1]);
+    const layout = flags["--layout"] as string | undefined;
+    if (layout && layout !== "nested" && layout !== "legacy") {
+      throw new Error("workon: --layout must be nested or legacy");
+    }
+    await cmdWorkon(flags._[0], flags._[1], { layout: layout as "nested" | "legacy" | undefined });
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {
     return { ok: false, error: logs.join("\n") || e.message, output: logs.join("\n") || undefined };

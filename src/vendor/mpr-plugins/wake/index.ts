@@ -32,7 +32,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (!args[0]) {
         return {
           ok: false,
-          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
+          error: "usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--wt <name>] [--layout nested|legacy] [--fresh|--new] [--pick] [--name <s>] [--attach] [--issue N] [--pr N] [--repo org/name] [--list] [--dry-run] [--from-snapshot|--snapshot <id>] [--main|--solo|--no-rehydrate] [--all-local] [--peer <alias>]\n       maw wake all [--kill]\n       --layout selects new worktree layout: nested (default repo/agents/N-X) or legacy (.wt-N-X)\n       --list previews worktrees only; no tmux session/window changes\n       --dry-run previews session/worktree rehydrate actions; --from-snapshot previews/restores missing snapshot windows; --main skips worktree rehydrate\n       --new is an alias for --fresh: force a new numbered worktree slot; --pick opens the reusable picker; --name creates/reuses a stable named worktree",
         };
       }
 
@@ -44,6 +44,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const flags = parseFlags(args, {
         "--wt": String,
+        "--layout": String,
         "--incubate": String, "--issue": Number,
         "--pr": Number, "--repo": String, "--task": String,
         "--fresh": Boolean, "--new": "--fresh", "--pick": Boolean, "--name": String, "--attach": Boolean, "-a": "--attach",
@@ -68,6 +69,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         dryRun?: boolean; noRehydrate?: boolean;
         split?: boolean; urlRepoName?: string; allLocal?: boolean;
         fromSnapshot?: boolean; snapshotId?: string;
+        layout?: "nested" | "legacy";
       } = {};
       let issueNum: number | null = flags["--issue"] ?? null;
       let repo: string | undefined = flags["--repo"];
@@ -83,6 +85,12 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       }
 
       if (flags["--wt"]) wakeOpts.wt = flags["--wt"];
+      if (flags["--layout"]) {
+        if (flags["--layout"] !== "nested" && flags["--layout"] !== "legacy") {
+          return { ok: false, error: "wake: --layout must be nested or legacy" };
+        }
+        wakeOpts.layout = flags["--layout"];
+      }
       if (flags["--incubate"]) wakeOpts.incubate = flags["--incubate"];
       if (flags["--fresh"]) wakeOpts.fresh = true;
       if (flags["--pick"]) wakeOpts.pick = true;
@@ -131,9 +139,11 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       task?: string; prompt?: string; wt?: string;
       fresh?: boolean; pick?: boolean; name?: string; attach?: boolean; dryRun?: boolean; noRehydrate?: boolean;
       fromSnapshot?: boolean; snapshotId?: string;
+      layout?: "nested" | "legacy";
     } = {};
     if (body.task) wakeOpts.task = body.task as string;
     if (body.wt) wakeOpts.wt = body.wt as string;
+    if (body.layout === "nested" || body.layout === "legacy") wakeOpts.layout = body.layout;
     if (body.prompt) wakeOpts.prompt = body.prompt as string;
     if (body.issue) {
       const issueNum = body.issue as number;
@@ -194,6 +204,7 @@ async function forwardToPeer(
   const body: Record<string, unknown> = { oracle };
   if (positionals.length > 0) body.task = positionals[0];
   if (flags["--wt"]) body.wt = flags["--wt"];
+  if (flags["--layout"]) body.layout = flags["--layout"];
   if (flags["--task"]) body.prompt = flags["--task"];
   if (flags["--issue"]) body.issue = flags["--issue"];
   if (flags["--pr"]) body.pr = flags["--pr"];

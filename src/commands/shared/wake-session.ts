@@ -1,6 +1,7 @@
 import { hostExec, tmux } from "../../sdk";
 import { buildCommand, buildCommandInDir, cfgTimeout } from "../../config";
 import { execSync } from "child_process";
+import { normalizeWorktreeLayout, worktreePathForLayout, type WorktreeLayout } from "../../core/fleet/worktree-layout";
 
 type WakeTmuxDeps = Pick<typeof tmux, "switchClient" | "listWindows" | "getPaneCommands" | "sendText">;
 
@@ -17,6 +18,8 @@ export interface WakeSessionDeps {
   fresh: boolean;
   /** Use an exact stable worktree/branch name instead of a numbered slot (#1768 --name). */
   named: boolean;
+  /** Filesystem layout for newly-created worktrees (#1850). Defaults to nested repo/agents/<name>. */
+  layout: WorktreeLayout;
 }
 
 export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeSessionDeps {
@@ -31,6 +34,7 @@ export function wakeSessionDeps(overrides: Partial<WakeSessionDeps> = {}): WakeS
     log: console.log.bind(console),
     fresh: false,
     named: false,
+    layout: "nested",
     ...overrides,
   };
 }
@@ -181,6 +185,7 @@ export async function createWorktree(
     await d.hostExec(`git -C '${safe(repoPath)}' commit --allow-empty -m "init: bootstrap for worktree"`);
   }
 
+  const layout = normalizeWorktreeLayout(d.layout);
   let wtName = "";
   let wtPath = "";
   let branch = "";
@@ -188,7 +193,7 @@ export async function createWorktree(
   let allocated = false;
   if (d.named) {
     wtName = name;
-    wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
+    wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
     branch = `agents/${wtName}`;
     const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
     if (!knownWorktree) {
@@ -203,7 +208,7 @@ export async function createWorktree(
   } else {
     for (let attempts = 0; attempts < 1000; attempts++) {
       wtName = `${nextNum}-${name}`;
-      wtPath = `${parentDir}/${repoName}.wt-${wtName}`;
+      wtPath = worktreePathForLayout({ repoPath, parentDir, repoName, wtName, layout });
       branch = `agents/${wtName}`;
       const knownWorktree = existingWorktrees.some(w => w.name === wtName || w.path === wtPath);
       if (knownWorktree) {
@@ -229,6 +234,9 @@ export async function createWorktree(
     throw new Error(`could not allocate worktree for ${name}`);
   }
 
+  if (layout === "nested") {
+    await d.hostExec(`mkdir -p '${safe(repoPath)}/agents'`);
+  }
   const addArgs = branchExists
     ? `'${safe(wtPath)}' '${safe(branch)}'`
     : `'${safe(wtPath)}' -b '${safe(branch)}'`;

@@ -181,20 +181,28 @@ describe("tile plugin spawn metadata", () => {
   test("uses scoped tile roles for worktree names and branches", async () => {
     await cmdTile(1, { wt: true });
 
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js/agents/1-sess-tile-1' -b 'agents/1-sess-tile-1'");
+    const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
+    expect(splitCommand).toContain("/tmp/maw-js/agents/1-sess-tile-1");
+    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
+  });
+
+  test("honors --layout legacy for new tile worktrees", async () => {
+    await cmdTile(1, { wt: true, layout: "legacy" });
+
     expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js.wt-1-sess-tile-1' -b 'agents/1-sess-tile-1'");
     const splitCommand = commands.find(cmd => cmd.includes("tmux split-window"));
     expect(splitCommand).toContain("/tmp/maw-js.wt-1-sess-tile-1");
-    expect(splitCommand).toContain("MAW_TILE_ROLE='\\''sess-tile-1'\\''");
   });
 
   test("creates one named --wt worktree and opens all tile panes as blank shells inside it", async () => {
     await cmdTile(3, { wt: "explore-1234" });
 
-    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js.wt-explore-1234' -b 'agents/explore-1234'");
+    expect(commands).toContain("git -C '/tmp/maw-js' worktree add '/tmp/maw-js/agents/explore-1234' -b 'agents/explore-1234'");
     const splitCommands = commands.filter(cmd => cmd.includes("tmux split-window"));
     expect(splitCommands).toHaveLength(3);
     for (const splitCommand of splitCommands) {
-      expect(splitCommand).toContain("/tmp/maw-js.wt-explore-1234");
+      expect(splitCommand).toContain("/tmp/maw-js/agents/explore-1234");
       expect(splitCommand).toContain("exec zsh");
       expect(splitCommand).not.toContain("claude");
     }

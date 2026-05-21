@@ -213,6 +213,10 @@ function normalizeRepoPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function isWorktreePath(path: string): boolean {
+  return /\.wt[-/.]/.test(path) || /\.wt-[^/]+$/.test(path) || /\/agents\/[^/]+$/.test(path);
+}
+
 function repoRecord(path: string): GhqRepoRecord {
   const normalized = normalizeRepoPath(path);
   const parts = normalized.split("/").filter(Boolean);
@@ -228,7 +232,7 @@ function repoRecord(path: string): GhqRepoRecord {
     owner,
     host,
     oracleLike: /(^|[-_])oracle($|[-_])/.test(name) || name.includes("oracle"),
-    worktree: /\.wt[-/.]/.test(normalized) || /\.wt-[^/]+$/.test(normalized),
+    worktree: isWorktreePath(normalized),
   };
 }
 

@@ -10,7 +10,10 @@
     "aliases": [
       "work"
     ],
-    "help": "maw workon <repo> [task]"
+    "help": "maw workon <repo> [task] [--layout nested|legacy] (default nested repo/agents/N-X; --layout legacy uses .wt-N-X)",
+    "flags": {
+      "--layout": "string"
+    }
   },
   "weight": 30,
   "license": "MIT",
