@@ -58,6 +58,18 @@ describe("attach resolver channel-session filtering", () => {
     });
   });
 
+  test("prefers a single exact session name over legacy dashless fuzzy ambiguity", async () => {
+    const result = await resolveAttachTarget("77-mawjs", {
+      listSessions: async () => [
+        { name: "51-maw-js", windows: [{ name: "main" }] },
+        { name: "77-mawjs", windows: [{ name: "main" }] },
+      ],
+      loadFleet: () => [],
+    });
+
+    expect(result).toEqual({ tier: 1, sessionName: "77-mawjs" });
+  });
+
   test("falls back to a single sleeping fleet match when no session matches", async () => {
     const result = await resolveAttachTarget("homekeeper", {
       listSessions: async () => [],

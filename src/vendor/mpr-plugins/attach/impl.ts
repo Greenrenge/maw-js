@@ -1,7 +1,7 @@
 /**
  * `maw attach <name>` cascade — Phase 1 (#25) — Smart Local.
  *
- *   Tier 1 (live):     attach immediately via `maw tmux attach <session>`
+ *   Tier 1 (live):     attach immediately via the tmux attach implementation
  *   Tier 2 (sleeping): prompt → `maw wake <fleet-name>` → attach
  *   no match:          error + list of available oracles
  *
@@ -12,6 +12,7 @@
 import { listSessions } from "maw-js/sdk";
 import { loadFleet } from "maw-js/commands/shared/fleet-load";
 import { getGhqRoot } from "maw-js/config/ghq-root";
+import { cmdTmuxAttach } from "../../../commands/plugins/tmux/impl";
 import { isClaudeLikePane } from "../../../commands/plugins/tmux/safety";
 import { join } from "path";
 import {
@@ -95,7 +96,7 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
         return;
       }
       console.log(`  \x1b[32m→\x1b[0m attaching to ${retried.sessionName}`);
-      await spawnMaw(["tmux", "attach", retried.sessionName]);
+      await attachToSession(retried.sessionName);
       return;
     }
     console.error(`\x1b[31m✗\x1b[0m '${name}' still not running after wake`);
@@ -120,7 +121,7 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
       return;
     }
     console.log(`  \x1b[32m→\x1b[0m attaching to ${result.sessionName}`);
-    await spawnMaw(["tmux", "attach", result.sessionName]);
+    await attachToSession(result.sessionName);
     return;
   }
 
@@ -145,7 +146,7 @@ export async function cmdAttach(name: string, opts: AttachOpts = {}): Promise<vo
       return;
     }
     console.log(`  \x1b[32m→\x1b[0m attaching to ${result.fleetName}`);
-    await spawnMaw(["tmux", "attach", result.fleetName]);
+    await attachToSession(result.fleetName);
     return;
   }
 }
@@ -228,9 +229,17 @@ async function isClaudeLikeCaller(): Promise<boolean> {
 }
 
 /**
- * Invoke `maw` as a subprocess so we go through the same dispatch path the
- * user would use directly. tmux attach takes over the terminal — `inherit`
- * stdio is required for that handoff to work.
+ * Tmux attach takes over the terminal. Keep that handoff in-process so the
+ * caller's stdio stays attached; spawning `maw tmux attach` can detach as soon
+ * as the subprocess boundary exits (#1869).
+ */
+async function attachToSession(sessionName: string): Promise<void> {
+  cmdTmuxAttach(sessionName);
+}
+
+/**
+ * Invoke `maw` as a subprocess for wake paths that need the normal CLI
+ * dispatch stack before this command can re-resolve and attach in-process.
  */
 async function spawnMaw(args: string[]): Promise<void> {
   await spawnProc(["maw", ...args]);

@@ -30,6 +30,8 @@ let spawnCalls: string[][] = [];
 let spawnExitCode = 0;
 let spawnStdout = "";
 let spawnThrowsOnPipe = false;
+let tmuxAttachCalls: string[] = [];
+let tmuxAttachError: Error | null = null;
 let logs: string[] = [];
 let errors: string[] = [];
 
@@ -49,6 +51,13 @@ mock.module("maw-js/sdk", () => ({
 
 mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleet,
+}));
+
+mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
+  cmdTmuxAttach: (target: string) => {
+    tmuxAttachCalls.push(target);
+    if (tmuxAttachError) throw tmuxAttachError;
+  },
 }));
 
 mock.module(join(attachRoot, "resolve-attach-target"), () => ({
@@ -78,6 +87,8 @@ beforeEach(() => {
   spawnExitCode = 0;
   spawnStdout = "";
   spawnThrowsOnPipe = false;
+  tmuxAttachCalls = [];
+  tmuxAttachError = null;
   logs = [];
   errors = [];
 
@@ -141,10 +152,8 @@ describe("attach impl command routing", () => {
 
     await cmdAttach("wind");
 
-    expect(spawnCalls).toEqual([
-      ["maw", "wake", "wind"],
-      ["maw", "tmux", "attach", "01-Somwind"],
-    ]);
+    expect(spawnCalls).toEqual([["maw", "wake", "wind"]]);
+    expect(tmuxAttachCalls).toEqual(["01-Somwind"]);
     expect(resolveCalls.map((call) => ({ target: call.target, opts: call.opts }))).toEqual([
       { target: "wind", opts: {} },
       { target: "wind", opts: { fuzzy: true } },
@@ -184,14 +193,16 @@ describe("attach impl command routing", () => {
     logs = [];
     resolveQueue = [{ tier: 1, sessionName: "01-live" }];
     await cmdAttach("live");
-    expect(spawnCalls).toEqual([["maw", "tmux", "attach", "01-live"]]);
+    expect(spawnCalls).toEqual([]);
+    expect(tmuxAttachCalls).toEqual(["01-live"]);
     expect(logs.join("\n")).toContain("attaching to 01-live");
 
-    spawnCalls = [];
-    spawnExitCode = 7;
+    tmuxAttachCalls = [];
+    tmuxAttachError = new Error("tmux attach failed");
     resolveQueue = [{ tier: 1, sessionName: "01-broken" }];
-    await expect(cmdAttach("broken")).rejects.toThrow("maw tmux attach 01-broken exited 7");
-    expect(spawnCalls).toEqual([["maw", "tmux", "attach", "01-broken"]]);
+    await expect(cmdAttach("broken")).rejects.toThrow("tmux attach failed");
+    expect(spawnCalls).toEqual([]);
+    expect(tmuxAttachCalls).toEqual(["01-broken"]);
   });
 
   test("opens a shell split at the live oracle repo without attaching to claude", async () => {
@@ -294,10 +305,8 @@ describe("attach impl command routing", () => {
     logs = [];
     resolveQueue = [{ tier: 2, fleetName: "sleepy" }];
     await cmdAttach("sleepy", { yes: true });
-    expect(spawnCalls).toEqual([
-      ["maw", "wake", "sleepy"],
-      ["maw", "tmux", "attach", "sleepy"],
-    ]);
+    expect(spawnCalls).toEqual([["maw", "wake", "sleepy"]]);
+    expect(tmuxAttachCalls).toEqual(["sleepy"]);
     expect(logs.join("\n")).toContain("waking sleepy");
     expect(logs.join("\n")).toContain("attaching to sleepy");
   });

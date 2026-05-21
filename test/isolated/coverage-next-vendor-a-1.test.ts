@@ -13,6 +13,7 @@ let hostExecCalls: string[] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 let spawnCalls: string[][] = [];
+let tmuxAttachCalls: string[] = [];
 let sessions: any[] = [];
 let fleet: any[] = [];
 let paneRaw = "";
@@ -93,6 +94,12 @@ mock.module(join(attachRoot, "resolve-attach-target"), () => ({
   resolveAttachTarget: async () => resolveAttachResult,
 }));
 
+mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
+  cmdTmuxAttach: (target: string) => {
+    tmuxAttachCalls.push(target);
+  },
+}));
+
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "maw-coverage-next-vendor-a-"));
   ghqRoot = join(tempRoot, "ghq");
@@ -100,6 +107,7 @@ beforeEach(() => {
   logs = [];
   errors = [];
   spawnCalls = [];
+  tmuxAttachCalls = [];
   sessions = [];
   fleet = [];
   paneRaw = "";
@@ -310,10 +318,8 @@ describe("coverage-next vendor group A", () => {
     const { cmdAttach } = await import("../../src/vendor/mpr-plugins/attach/impl.ts?coverage-next-vendor-a-attach");
 
     await cmdAttach("sleepy", { yes: true });
-    expect(spawnCalls).toEqual([
-      ["maw", "wake", "sleepy-oracle"],
-      ["maw", "tmux", "attach", "sleepy-oracle"],
-    ]);
+    expect(spawnCalls).toEqual([["maw", "wake", "sleepy-oracle"]]);
+    expect(tmuxAttachCalls).toEqual(["sleepy-oracle"]);
 
     const sourcePath = resolve(repoRoot, "src/vendor/mpr-plugins/attach/impl.ts");
     const script = `${"\n".repeat(46)}function listAvailable(fleet, sessions) {\n  const all = new Set([...sessions.map(s => s.name), ...fleet.map(f => f.name)]);\n  if (all.size === 0) return "(none)";\n  return [...all].sort().join(", ");\n}\n//# sourceURL=${pathToFileURL(sourcePath).href}`;

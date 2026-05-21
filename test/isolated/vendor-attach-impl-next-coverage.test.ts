@@ -9,6 +9,7 @@ const realFs = require("fs") as typeof import("fs");
 let resolveResult: any = null;
 let spawnCalls: string[][] = [];
 let spawnExitCode = 0;
+let tmuxAttachCalls: string[] = [];
 let logs: string[] = [];
 let errors: string[] = [];
 let ttyWrites: string[] = [];
@@ -34,6 +35,12 @@ mock.module("maw-js/commands/shared/fleet-load", () => ({
   loadFleet: () => [],
 }));
 
+mock.module(import.meta.resolve("../../src/commands/plugins/tmux/impl"), () => ({
+  cmdTmuxAttach: (target: string) => {
+    tmuxAttachCalls.push(target);
+  },
+}));
+
 mock.module(join(attachRoot, "resolve-attach-target"), () => ({
   resolveAttachTarget: async () => resolveResult,
 }));
@@ -44,6 +51,7 @@ beforeEach(() => {
   resolveResult = null;
   spawnCalls = [];
   spawnExitCode = 0;
+  tmuxAttachCalls = [];
   logs = [];
   errors = [];
   ttyWrites = [];
@@ -98,10 +106,8 @@ describe("attach impl interactive prompt coverage", () => {
 
     expect(ttyWrites.join("")).toContain('Wake "sleepy-oracle"? [y/N]');
     expect(logs.join("\n")).toContain("'sleepy-oracle' is sleeping");
-    expect(spawnCalls).toEqual([
-      ["maw", "wake", "sleepy-oracle"],
-      ["maw", "tmux", "attach", "sleepy-oracle"],
-    ]);
+    expect(spawnCalls).toEqual([["maw", "wake", "sleepy-oracle"]]);
+    expect(tmuxAttachCalls).toEqual(["sleepy-oracle"]);
   });
 
   test("interactive Tier 2 aborts cleanly when /dev/tty answer is not yes", async () => {

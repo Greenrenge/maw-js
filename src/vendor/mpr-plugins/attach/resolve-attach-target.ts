@@ -136,6 +136,17 @@ export async function resolveAttachTarget(
     };
   }
   if (runningMatches.length > 1) {
+    const exactSessionMatches = runningMatches.filter(
+      match => match.session.name.toLowerCase() === target.toLowerCase(),
+    );
+    if (exactSessionMatches.length === 1) {
+      const match = exactSessionMatches[0];
+      return {
+        tier: 1,
+        sessionName: match.session.name,
+        ...(match.windowName ? { windowName: match.windowName } : {}),
+      };
+    }
     return {
       tier: 1,
       sessionName: runningMatches[0].session.name,
