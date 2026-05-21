@@ -4,6 +4,8 @@ const sharedFleetPath = import.meta.resolve("../../src/commands/shared/fleet");
 const fleetInitPath = import.meta.resolve("../../src/commands/plugins/fleet/fleet-init");
 const healthPath = import.meta.resolve("../../src/commands/plugins/fleet/fleet-health");
 const doctorPath = import.meta.resolve("../../src/commands/shared/fleet-doctor");
+const configDoctorPath = import.meta.resolve("../../src/commands/shared/fleet-config-doctor");
+const realConfigDoctorExports = await import("../../src/commands/shared/fleet-config-doctor.ts?fleet-index-real");
 const consolidatePath = import.meta.resolve("../../src/commands/plugins/fleet/fleet-consolidate");
 const snapshotPath = import.meta.resolve("../../src/core/fleet/snapshot");
 const wakeCmdPath = import.meta.resolve("../../src/commands/shared/wake-cmd");
@@ -16,6 +18,7 @@ let renumberCalls = 0;
 let validateCalls = 0;
 let healthCalls = 0;
 let doctorCalls: Array<Record<string, unknown>> = [];
+let configDoctorCalls: Array<Record<string, unknown>> = [];
 let consolidateCalls: Array<Record<string, unknown>> = [];
 let syncConfigsCalls = 0;
 let syncWindowsCalls = 0;
@@ -83,6 +86,14 @@ mock.module(doctorPath, () => ({
   },
 }));
 
+mock.module(configDoctorPath, () => ({
+  ...realConfigDoctorExports,
+  cmdFleetConfigDoctor: async (opts: Record<string, unknown>) => {
+    configDoctorCalls.push(opts);
+    console.log("fleet config doctor");
+  },
+}));
+
 mock.module(consolidatePath, () => ({
   cmdFleetConsolidate: async (opts: Record<string, unknown>) => {
     consolidateCalls.push(opts);
@@ -119,6 +130,7 @@ beforeEach(() => {
   validateCalls = 0;
   healthCalls = 0;
   doctorCalls = [];
+  configDoctorCalls = [];
   consolidateCalls = [];
   syncConfigsCalls = 0;
   syncWindowsCalls = 0;
@@ -168,6 +180,7 @@ describe("fleet plugin index", () => {
     await handler({ source: "cli", args: ["init", "--agents", "--dry-run"] } as any);
     await handler({ source: "cli", args: ["health"] } as any);
     await handler({ source: "cli", args: ["dr", "--fix", "--json"] } as any);
+    await handler({ source: "cli", args: ["config-doctor", "--baseline", "/tmp/base", "--json"] } as any);
     await handler({ source: "cli", args: ["consolidate", "--dry-run", "--remove"] } as any);
     await handler({ source: "cli", args: ["sync"] } as any);
     await handler({ source: "cli", args: ["sync-windows"] } as any);
@@ -179,6 +192,7 @@ describe("fleet plugin index", () => {
     expect(initAgentsCalls).toEqual([{ dryRun: true }]);
     expect(healthCalls).toBe(1);
     expect(doctorCalls).toEqual([{ fix: true, json: true, reboot: false }]);
+    expect(configDoctorCalls).toEqual([{ baseline: "/tmp/base", json: true }]);
     expect(consolidateCalls).toEqual([{ dryRun: true, remove: true }]);
     expect(syncConfigsCalls).toBe(1);
     expect(syncWindowsCalls).toBe(1);
@@ -282,7 +296,13 @@ describe("fleet plugin index", () => {
     result = await handler({ source: "cli", args: ["mystery"] } as any);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("unknown fleet subcommand: mystery");
-    expect(result.error).toContain("usage: maw fleet <init|ls|rename|renumber|validate|health|doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>");
+    expect(result.error).toContain("usage: maw fleet <init|ls|rename|renumber|validate|health|doctor|config-doctor|consolidate|sync|sync-windows|snapshots|restore|snapshot>");
+
+    result = await handler({ source: "cli", args: ["config-doctor", "--fix"] } as any);
+    expect(result).toEqual({ ok: false, error: "maw fleet config-doctor is report-only; review the drift output before copying repo-local config" });
+
+    result = await handler({ source: "cli", args: ["config-doctor", "--baseline"] } as any);
+    expect(result).toEqual({ ok: false, error: "usage: maw fleet config-doctor [--baseline <path>] [--json]" });
 
     throwLabel = "health";
     result = await handler({ source: "cli", args: ["health"] } as any);
