@@ -53,6 +53,24 @@ interface PtyHandlers {
   handlePtyClose: (ws: MawWS) => void;
 }
 
+function replayLinesFromControl(value: unknown): number {
+  if (value === undefined) return 2000;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return 2000;
+  return Math.max(0, Math.min(10_000, Math.floor(n)));
+}
+
+function replayCapture(ws: MawWS, target: string, lines: number, io: PtyDeps) {
+  if (lines <= 0) return;
+  try {
+    const cap = io.spawnSync(["tmux", "capture-pane", "-t", target, "-p", "-e", "-J", "-S", `-${lines}`]);
+    if (cap.stdout && cap.stdout.length > 0) {
+      ws.send(cap.stdout);
+      ws.send(new TextEncoder().encode("\r\n"));
+    }
+  } catch { /* expected: capture-pane may fail if target gone or tmux missing */ }
+}
+
 export function createPtyHandlers(overrides: Partial<PtyDeps> = {}): PtyHandlers {
   const io = ptyDeps(overrides);
   let nextPtyId = 0;
@@ -85,7 +103,7 @@ function handlePtyMessage(ws: MawWS, msg: string | Buffer) {
   // JSON control message
   try {
     const data = JSON.parse(msg);
-    if (data.type === "attach") attach(ws, data.target, data.cols || 120, data.rows || 40);
+    if (data.type === "attach") attach(ws, data.target, data.cols || 120, data.rows || 40, replayLinesFromControl(data.replayLines));
     else if (data.type === "resize") resize(ws, data.cols, data.rows);
     else if (data.type === "detach") detach(ws);
   } catch { /* expected: malformed WS message */ }
@@ -95,7 +113,7 @@ function handlePtyClose(ws: MawWS) {
   detach(ws);
 }
 
-async function attach(ws: MawWS, target: string, cols: number, rows: number) {
+async function attach(ws: MawWS, target: string, cols: number, rows: number, replayLines: number) {
   // Sanitize target: only allow safe characters
   const safe = target.replace(/[^a-zA-Z0-9\-_:.]/g, "");
   if (!safe) return;
@@ -114,13 +132,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
     // Late viewer: cached PTY only streams *new* output, so without a replay
     // the screen stays empty until something happens in the pane → looks like
     // "black pane covering tmux". Mirror the new-session capture-pane block.
-    try {
-      const cap = io.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
-      if (cap.stdout && cap.stdout.length > 0) {
-        ws.send(cap.stdout);
-        ws.send(new TextEncoder().encode("\r\n"));
-      }
-    } catch { /* expected: capture-pane may fail if target gone or tmux missing */ }
+    replayCapture(ws, safe, replayLines, io);
     ws.send(JSON.stringify({ type: "attached", target: safe }));
     return;
   }
@@ -153,13 +165,7 @@ async function attach(ws: MawWS, target: string, cols: number, rows: number) {
   // attach only redraws current pane → viewer's local buffer has no history.
   // capture-pane reads tmux server-side history (limit set by history-limit).
   // -p stdout, -e include ANSI attrs, -S -2000 last 2000 lines, -J join wrapped.
-  try {
-    const cap = io.spawnSync(["tmux", "capture-pane", "-t", safe, "-p", "-e", "-J", "-S", "-2000"]);
-    if (cap.stdout && cap.stdout.length > 0) {
-      ws.send(cap.stdout);
-      ws.send(new TextEncoder().encode("\r\n"));
-    }
-  } catch { /* expected: capture-pane may fail if target gone or tmux missing */ }
+  replayCapture(ws, safe, replayLines, io);
 
   // Spawn PTY wrapper — attach to our grouped session (not the original).
   //
