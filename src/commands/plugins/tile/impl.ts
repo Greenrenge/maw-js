@@ -15,9 +15,33 @@ function envExport(assignments: Record<string, string>): string {
     .join(" ");
 }
 
+function tileCommandSettleMs(): number {
+  const raw = process.env.MAW_TILE_CMD_SETTLE_MS;
+  if (raw === undefined || raw === "") return 300;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 300;
+  return Math.min(parsed, 5_000);
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise(r => setTimeout(r, ms));
+}
+
 async function sendTileCommand(paneId: string, command: string): Promise<void> {
   if (!command) return;
+  const settleMs = tileCommandSettleMs();
+  await sleep(settleMs);
+  try {
+    // #1843 — second parallel tile panes can still be in early shell/TUI boot
+    // when --cmd is typed. Clear any prompt noise before the literal payload,
+    // then delay Enter separately so tmux has time to drain pending input.
+    await hostExec(`tmux send-keys -t '${paneId}' C-u`);
+  } catch {
+    // Best effort only: the literal command send below is the real action.
+  }
   await hostExec(`tmux send-keys -t '${paneId}' -l ${shellArg(command)}`);
+  await sleep(Math.min(settleMs, 250));
   await hostExec(`tmux send-keys -t '${paneId}' Enter`);
 }
 

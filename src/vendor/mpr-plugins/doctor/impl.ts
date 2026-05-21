@@ -24,7 +24,7 @@ import { detectBunLinkedCheckout } from "./internal/bun-link-detect";
 
 export interface DoctorResult {
   ok: boolean;
-  checks: Array<{ name: string; ok: boolean; message: string }>;
+  checks: Array<{ name: string; ok: boolean; message: string; details?: unknown }>;
 }
 
 export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
@@ -32,6 +32,7 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   const positional = args.filter(a => !a.startsWith("--"));
   const only = positional[0];
   const allowDrift = flags.has("--allow-drift");
+  const json = flags.has("--json");
   const smoke = flags.has("--smoke") || only === "smoke";
   const checks: DoctorResult["checks"] = [];
 
@@ -74,7 +75,8 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   const hardOk = checks.every(c => c.ok);
   const onlyDriftFails = !hardOk && checks.every(c => c.ok || c.name.startsWith("version:"));
   const ok = hardOk || (allowDrift && onlyDriftFails);
-  renderResults(checks, ok);
+  if (json) renderJsonResults(checks, ok);
+  else renderResults(checks, ok);
   return { ok, checks };
 }
 
@@ -132,6 +134,23 @@ function checkXdgLayout(): DoctorResult["checks"][number] {
     : isMawXdgEnabled()
       ? "MAW_XDG=on"
       : "MAW_XDG=off";
+  const nextAction = xdgNextAction(configRuntimeArtifacts, legacyRuntimeArtifacts);
+  const details = {
+    mode,
+    paths: {
+      config: mawConfigDir(),
+      state: mawStateDir(),
+      data: mawDataDir(),
+      cache: mawCacheDir(),
+      legacyRuntime,
+    },
+    legacyRuntimeState,
+    artifacts: {
+      configRuntime: configRuntimeArtifacts,
+      legacyRuntime: legacyRuntimeArtifacts,
+    },
+    nextAction,
+  };
 
   return {
     name: "xdg:paths",
@@ -145,7 +164,9 @@ function checkXdgLayout(): DoctorResult["checks"][number] {
       `legacy ~/.maw ${legacyRuntimeState}`,
       artifactSummary("config-runtime", configRuntimeArtifacts),
       artifactSummary("legacy-runtime", legacyRuntimeArtifacts),
+      `action=${nextAction}`,
     ].join("; "),
+    details,
   };
 }
 
@@ -195,6 +216,19 @@ function artifactSummary(label: string, names: string[]): string {
   const preview = names.slice(0, 8).join(",");
   const suffix = names.length > 8 ? `,+${names.length - 8}` : "";
   return `${label}=${names.length} [${preview}${suffix}]`;
+}
+
+function xdgNextAction(configRuntimeArtifacts: string[], legacyRuntimeArtifacts: string[]): string {
+  if (configRuntimeArtifacts.length > 0 && legacyRuntimeArtifacts.length > 0) {
+    return "mixed-runtime-state: run targeted migrate/doctor cleanup before deleting legacy files";
+  }
+  if (configRuntimeArtifacts.length > 0) {
+    return "config-runtime-state: move runtime/cache/data artifacts out of config dir";
+  }
+  if (legacyRuntimeArtifacts.length > 0 && isMawXdgEnabled()) {
+    return "legacy-runtime-state: read-through fallback active; migrate then prune ~/.maw leftovers";
+  }
+  return "ok";
 }
 
 /**
@@ -409,6 +443,18 @@ function renderResults(checks: DoctorResult["checks"], ok: boolean): void {
     console.log(`    ${icon} ${c.name}${C.reset}: ${c.message}`);
   }
   console.log("");
+}
+
+function renderJsonResults(checks: DoctorResult["checks"], ok: boolean): void {
+  console.log(JSON.stringify({
+    ok,
+    checks: checks.map(c => ({
+      name: c.name,
+      ok: c.ok,
+      message: c.message,
+      ...(c.details === undefined ? {} : { details: c.details }),
+    })),
+  }, null, 2));
 }
 
 function iconFor(c: { name: string; ok: boolean; message: string }): string {

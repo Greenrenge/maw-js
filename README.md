@@ -1,6 +1,6 @@
 # maw
 
-[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=alpha)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Aalpha) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.5.17--alpha.752-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Tests](https://img.shields.io/badge/tests-1700%2B_passing-brightgreen)](./test)
+[![CI](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml/badge.svg?branch=alpha)](https://github.com/Soul-Brews-Studio/maw-js/actions/workflows/ci.yml?query=branch%3Aalpha) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fnazt%2Fb00c729c7f40d4804f82011167bfd9d8%2Fraw%2Fmaw-js-coverage.json&cacheSeconds=300)](docs/testing/coverage-gap-analysis.md) [![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE) [![CalVer](https://img.shields.io/badge/calver-v26.5.20--alpha.2203-blue)](https://calver.org) [![Bun](https://img.shields.io/badge/runtime-Bun%201.3%2B-f9f1e1)](https://bun.sh) [![Test files](https://img.shields.io/badge/test_files-750%2B-brightgreen)](./test)
 
 > Multi-Agent Workflow — wake agents, talk across machines, see the mesh.
 
@@ -45,6 +45,7 @@ maw ui install                           # download the federation lens
 maw ui                                   # → http://localhost:3456/federation_2d.html
 maw ls --recent 5                        # find recent sessions
 maw wake neo --split                     # wake side-by-side with an oracle
+maw bring neo --to work:review --pick    # bring to an explicit session:window when fuzzy
 maw hey neo "what are you working on?"   # bare-name addressing works
 ```
 
@@ -225,7 +226,7 @@ maw-js (backend + CLI)              maw-ui (frontend)
 ├── src/engine/    (WebSocket + serve proxy)├── src/lib/
 ├── src/transports/ (HTTP/tmux/hub)         └── 16 HTML entry points
 ├── plugins        (89 installed plugin surfaces)
-├── test/          (1700+ passing tests)
+├── test/          (750+ test files)
 └── install.sh
 ```
 
@@ -237,9 +238,9 @@ Mar 2026   maw.js                 Bun/TS rewrite, tmux orchestration
 Mar 2026   maw-js + maw-ui        Backend/frontend split
 Apr 2026   v2.0.0-alpha.66        Plugin OS foundation, Bun runtime,
                                    federation API + maw-ui split
-May 2026   v26.5.17-alpha.752     Plugin engine, lifecycle hooks,
+May 2026   v26.5.20-alpha.2203    Plugin engine, lifecycle hooks,
                                    team workspaces, 89 plugins,
-                                   1700+ tests, 70% function coverage,
+                                   750+ test files, near-100% coverage,
                                    portable Rust spec fixtures
 ```
 
@@ -261,6 +262,12 @@ plugin. Full runbook: [`docs/federation/docker-testing.md`](docs/federation/dock
 Onboarding a new node? Use `maw pair generate` / `maw pair <url> <code>`
 for a 6-char ephemeral handshake — see
 [`docs/federation/pair-code.md`](docs/federation/pair-code.md).
+
+## maw-rs port
+
+The Rust port is tracked through portable JSON fixtures instead of prose-only
+specs. See [`docs/maw-rs-port-status.md`](docs/maw-rs-port-status.md) for the
+current fixture inventory, crate lanes, and contributor entry points.
 
 ## Marketplace
 
