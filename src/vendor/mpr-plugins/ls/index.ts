@@ -3,7 +3,7 @@ import { cmdList } from "maw-js/commands/shared/comm";
 import { activeDurationArg, cmdTmuxLs, parseActiveDurationSeconds } from "maw-js/commands/plugins/tmux/impl";
 import { parseFlags } from "maw-js/cli/parse-args";
 
-export const command = { name: "ls", description: "List live local sessions by default; use --federation for peers." };
+export const command = { name: "ls", description: "List live sessions locally by default; use --federation for peers." };
 
 const HELP = [
   "maw ls — list live sessions (local or cross-node)",

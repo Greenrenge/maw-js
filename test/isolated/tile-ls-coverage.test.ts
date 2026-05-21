@@ -229,7 +229,7 @@ describe("ls plugin index coverage", () => {
 
     expect(lsCommand).toEqual({
       name: "ls",
-      description: "List live local sessions by default; use --federation for peers.",
+      description: "List live sessions locally by default; use --federation for peers.",
     });
     expect(result.ok).toBe(true);
     expect(JSON.parse(result.output ?? "{}")).toEqual({
