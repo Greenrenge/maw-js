@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import { loadConfig } from "maw-js/config";
 import { ghqFind } from "maw-js/core/ghq";
+import { loadFleetEntries } from "maw-js/commands/shared/fleet-load";
 import {
   deletePending,
   loadPending,
@@ -61,6 +62,11 @@ interface InboxCursorEntry {
 }
 
 type InboxCursorStore = Record<string, InboxCursorEntry>;
+
+interface InboxStatusTarget {
+  oracle: string;
+  inboxDir: string;
+}
 
 const UNREAD_RED_THRESHOLD = 50;
 const OLDEST_RED_SECONDS = 4 * 60 * 60;
@@ -159,12 +165,19 @@ function stripWorktreeSuffix(name: string): string {
 
 function inferOracleNameFromCwd(): string {
   const config = loadConfig();
-  const cwdName = stripWorktreeSuffix(basename(process.cwd()));
+  const cwd = process.cwd();
+  const cwdName = stripWorktreeSuffix(basename(dirname(cwd)) === "agents"
+    ? basename(dirname(dirname(cwd)))
+    : basename(cwd));
   return cwdName || config.oracle || config.node || "local";
 }
 
 function canonicalRepoFromCwd(): string | null {
   const cwd = process.cwd();
+  if (basename(dirname(cwd)) === "agents") {
+    const repo = dirname(dirname(cwd));
+    if (existsSync(repo)) return repo;
+  }
   const cwdName = basename(cwd);
   const stripped = stripWorktreeSuffix(cwdName);
   if (stripped !== cwdName) {
@@ -184,7 +197,7 @@ async function resolveOracleRepo(oracle: string): Promise<string | null> {
   return (await ghqFind(`/${oracle}-oracle$`)) ?? (await ghqFind(`/${oracle}$`));
 }
 
-async function resolveInboxStatusTarget(oracleArg?: string): Promise<{ oracle: string; inboxDir: string }> {
+async function resolveInboxStatusTarget(oracleArg?: string): Promise<InboxStatusTarget> {
   if (oracleArg) {
     const repoPath = await resolveOracleRepo(oracleArg);
     if (!repoPath) throw new Error(`no oracle named '${oracleArg}' — try: maw oracle ls`);
@@ -197,6 +210,43 @@ async function resolveInboxStatusTarget(oracleArg?: string): Promise<{ oracle: s
   if (repoPath) return { oracle, inboxDir: inboxDirForRepo(repoPath) };
   if (config.psiPath) return { oracle: config.oracle || oracle, inboxDir: join(config.psiPath, "inbox") };
   return { oracle, inboxDir: resolveInboxDir() };
+}
+
+function oracleNameFromFleetWindow(window: { name?: string; repo?: string }): string | null {
+  const repoName = window.repo?.split("/").filter(Boolean).pop();
+  if (repoName?.endsWith("-oracle")) return repoName;
+  if (window.name?.endsWith("-oracle")) return window.name;
+  return window.name || repoName || null;
+}
+
+async function resolveFleetWindowRepo(window: { name?: string; repo?: string }): Promise<string | null> {
+  const repo = window.repo;
+  const repoName = repo?.split("/").filter(Boolean).pop();
+  if (repo) {
+    const bySlug = await ghqFind(`/${repo}$`);
+    if (bySlug) return bySlug;
+  }
+  if (repoName) {
+    const byRepo = await ghqFind(`/${repoName}$`);
+    if (byRepo) return byRepo;
+  }
+  const oracle = oracleNameFromFleetWindow(window);
+  return oracle ? resolveOracleRepo(oracle) : null;
+}
+
+async function resolveFleetInboxStatusTargets(): Promise<InboxStatusTarget[]> {
+  const targets = new Map<string, InboxStatusTarget>();
+  for (const entry of loadFleetEntries()) {
+    for (const window of entry.session?.windows ?? []) {
+      if (!window.name?.endsWith("-oracle")) continue;
+      const oracle = oracleNameFromFleetWindow(window);
+      if (!oracle || targets.has(oracle)) continue;
+      const repoPath = await resolveFleetWindowRepo(window);
+      if (!repoPath) continue;
+      targets.set(oracle, { oracle, inboxDir: inboxDirForRepo(repoPath) });
+    }
+  }
+  return [...targets.values()].sort((a, b) => a.oracle.localeCompare(b.oracle));
 }
 
 function topLevelInboxFiles(inboxDir: string): string[] {
@@ -234,8 +284,11 @@ function ageSeconds(timestampMs: number, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
 }
 
-export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Promise<InboxStatus> {
-  const { oracle, inboxDir } = await resolveInboxStatusTarget(oracleArg);
+function buildInboxStatus(
+  { oracle, inboxDir }: InboxStatusTarget,
+  nowMs: number,
+  cursor: InboxCursorStore,
+): InboxStatus {
   const files = topLevelInboxFiles(inboxDir);
   const unread = files.length;
 
@@ -248,7 +301,6 @@ export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Pr
   const archiveMtimeMs = latestArchiveMtimeMs(inboxDir);
   const lastArchiveAgeSeconds = archiveMtimeMs === null ? null : ageSeconds(archiveMtimeMs, nowMs);
 
-  const cursor = readCursorStore();
   const previous = cursor[oracle];
   const delta = previous ? unread - previous.unread : 0;
   const archiveAdvanced = previous
@@ -281,9 +333,27 @@ export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Pr
     latestArchiveMtimeMs: archiveMtimeMs,
     checkedAt: new Date(nowMs).toISOString(),
   };
-  writeCursorStore(cursor);
 
   return status;
+}
+
+export async function getInboxStatus(oracleArg?: string, nowMs = Date.now()): Promise<InboxStatus> {
+  const target = await resolveInboxStatusTarget(oracleArg);
+  const cursor = readCursorStore();
+  const status = buildInboxStatus(target, nowMs, cursor);
+  writeCursorStore(cursor);
+  return status;
+}
+
+export async function getAllInboxStatuses(nowMs = Date.now()): Promise<InboxStatus[]> {
+  const targets = await resolveFleetInboxStatusTargets();
+  const cursor = readCursorStore();
+  const statuses = targets.map(target => buildInboxStatus(target, nowMs, cursor));
+  writeCursorStore(cursor);
+  return statuses.sort((a, b) => {
+    if (a.level !== b.level) return a.level === "red" ? -1 : 1;
+    return a.oracle.localeCompare(b.oracle);
+  });
 }
 
 function formatDuration(seconds: number | null): string {
@@ -311,7 +381,27 @@ export function formatInboxStatus(status: InboxStatus): string {
   return `${line}\n   → not draining — consider escalation`;
 }
 
-export async function cmdInboxStatus(oracle?: string, opts: { json?: boolean } = {}): Promise<InboxStatus> {
+export function formatInboxStatusList(statuses: InboxStatus[]): string {
+  if (!statuses.length) return "no local fleet inboxes found";
+  return statuses.map((status) => {
+    const symbol = status.level === "red" ? "🔴" : "🟢";
+    const oldest = status.oldest_age_seconds === null ? "none" : formatDuration(status.oldest_age_seconds);
+    const archive = status.last_archive_age_seconds === null ? "never" : `${formatDuration(status.last_archive_age_seconds)} ago`;
+    const reasons = status.reasons.length ? ` [${status.reasons.join(",")}]` : "";
+    return `${symbol} ${status.oracle}: unread ${status.unread} (oldest ${oldest}, last archive ${archive}, Δ ${formatDelta(status.delta_since_last_check)})${reasons}`;
+  }).join("\n");
+}
+
+export async function cmdInboxStatus(
+  oracle?: string,
+  opts: { json?: boolean; all?: boolean } = {},
+): Promise<InboxStatus | InboxStatus[]> {
+  if (opts.all) {
+    const statuses = await getAllInboxStatuses();
+    console.log(opts.json ? JSON.stringify(statuses, null, 2) : formatInboxStatusList(statuses));
+    return statuses;
+  }
+
   const status = await getInboxStatus(oracle);
   console.log(opts.json ? JSON.stringify(status, null, 2) : formatInboxStatus(status));
   return status;

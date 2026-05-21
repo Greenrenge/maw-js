@@ -28,7 +28,7 @@ let inboxLsCalls: Array<{ unread?: boolean; from?: string; last?: number }> = []
 let markReadCalls: string[] = [];
 let inboxReadCalls: Array<string | undefined> = [];
 let inboxWriteCalls: string[] = [];
-let inboxStatusCalls: Array<{ oracle?: string; json?: boolean }> = [];
+let inboxStatusCalls: Array<{ oracle?: string; json?: boolean; all?: boolean }> = [];
 
 mock.module(implPath, () => ({
   cmdQueueList: () => {
@@ -80,9 +80,10 @@ mock.module(implPath, () => ({
     console.error(`read stderr ${id ?? "latest"}`);
     if (throwLabel === "inbox-read") throw new Error("inbox read exploded");
   },
-  cmdInboxStatus: async (oracle?: string, opts?: { json?: boolean }) => {
-    inboxStatusCalls.push({ oracle, json: opts?.json });
-    console.log(opts?.json ? `json status ${oracle ?? "current"}` : `status ${oracle ?? "current"}`);
+  cmdInboxStatus: async (oracle?: string, opts?: { json?: boolean; all?: boolean }) => {
+    inboxStatusCalls.push({ oracle, json: opts?.json, all: opts?.all });
+    const target = opts?.all ? "all" : (oracle ?? "current");
+    console.log(opts?.json ? `json status ${target}` : `status ${target}`);
     if (throwLabel === "inbox-status") throw new Error("inbox status exploded");
   },
   cmdInboxWrite: async (note: string) => {
@@ -237,10 +238,17 @@ describe("inbox plugin index", () => {
       output: "json status mawjs-codex-oracle",
     });
     expect(await invoke(["status", "--json"])).toEqual({ ok: true, output: "json status current" });
+    expect(await invoke(["status", "--all", "--json"])).toEqual({ ok: true, output: "json status all" });
+    expect(await invoke(["status", "--all", "mawjs-codex-oracle"])).toEqual({
+      ok: false,
+      error: "usage: maw inbox status [oracle-name] [--json] [--all]",
+      output: "",
+    });
     expect(inboxStatusCalls).toEqual([
-      { oracle: undefined, json: false },
-      { oracle: "mawjs-codex-oracle", json: true },
-      { oracle: undefined, json: true },
+      { oracle: undefined, json: false, all: false },
+      { oracle: "mawjs-codex-oracle", json: true, all: false },
+      { oracle: undefined, json: true, all: false },
+      { oracle: undefined, json: true, all: true },
     ]);
 
     expect(await invoke(["write", "hello", "world"])).toEqual({ ok: true, output: "wrote hello world" });

@@ -18,6 +18,7 @@ const commSendCalls: Array<{ query: string; message: string }> = [];
 let psiPath: string | undefined = "";
 const originalCwd = process.cwd();
 let ghqRepos: Record<string, string> = {};
+let fleetEntries: Array<{ session?: { windows?: Array<{ name: string; repo: string }> } }> = [];
 
 function captureLogs() {
   const logs: string[] = [];
@@ -53,7 +54,11 @@ mock.module("maw-js/core/ghq", () => ({
   },
 }));
 
-const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, formatInboxStatus, cmdInboxStatus, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
+mock.module("maw-js/commands/shared/fleet-load", () => ({
+  loadFleetEntries: () => fleetEntries,
+}));
+
+const { resolveInboxDir, writeInboxFile, loadInboxMessages, cmdInboxLs, relativeTime, cmdInboxMarkRead, cmdInboxRead, cmdInboxWrite, parseInboxFilenameTimestamp, getInboxStatus, getAllInboxStatuses, formatInboxStatus, formatInboxStatusList, cmdInboxStatus, resolvePendingId, cmdQueueList, formatQueueList, formatQueueDetail, cmdApprove, cmdReject, cmdShow, loadPending, savePending, loadPendingById, updatePending, deletePending } =
   await import("../../src/vendor/mpr-plugins/inbox/impl");
 
 beforeEach(() => {
@@ -64,6 +69,7 @@ beforeEach(() => {
   process.env.MAW_STATE_DIR = join(rootDir, "state");
   psiPath = rootDir;
   ghqRepos = {};
+  fleetEntries = [];
   commSendCalls.length = 0;
 });
 
@@ -302,6 +308,21 @@ describe("inbox impl utility surface", () => {
     expect(second.reasons).toContain("delta>0_no_archive_activity");
   });
 
+  test("defaults status to the parent oracle when invoked from an agents subdirectory", async () => {
+    psiPath = undefined;
+    const repo = join(rootDir, "sample-oracle.wt-1-agent2");
+    const inbox = join(repo, "ψ", "inbox");
+    const agentDir = join(repo, "agents", "agent-a");
+    mkdirSync(inbox, { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(inbox, "2026-05-21_09-30_agent_note.md"), "note");
+    process.chdir(agentDir);
+
+    const status = await getInboxStatus(undefined, Date.parse("2026-05-21T10:00:00"));
+
+    expect(status).toMatchObject({ oracle: "sample-oracle", unread: 1 });
+  });
+
   test("uses named oracle repo resolution and prints json status", async () => {
     const repo = join(rootDir, "named-oracle");
     const inbox = join(repo, "ψ", "inbox");
@@ -319,6 +340,51 @@ describe("inbox impl utility surface", () => {
       level: "green",
       reasons: [],
     });
+  });
+
+  test("reports all locally resolvable fleet inbox statuses as a json array", async () => {
+    const now = Date.now();
+    const redRepo = join(rootDir, "red-oracle");
+    const greenRepo = join(rootDir, "green-oracle");
+    mkdirSync(join(redRepo, "ψ", "inbox"), { recursive: true });
+    mkdirSync(join(greenRepo, "ψ", "inbox"), { recursive: true });
+    writeFileSync(join(redRepo, "ψ", "inbox", inboxFilenameAt(now - 5 * 60 * 60_000, "old.md")), "old");
+    ghqRepos["Org/red-oracle"] = redRepo;
+    ghqRepos["Org/green-oracle"] = greenRepo;
+    fleetEntries = [
+      {
+        session: {
+          windows: [
+            { name: "red-oracle", repo: "Org/red-oracle" },
+            { name: "red-oracle", repo: "Org/red-oracle" },
+            { name: "green-oracle", repo: "Org/green-oracle" },
+            { name: "green-alias-oracle", repo: "Org/green-oracle" },
+            { name: "missing-oracle", repo: "Org/missing-oracle" },
+          ],
+        },
+      },
+    ];
+
+    const statuses = await getAllInboxStatuses(now);
+
+    expect(statuses.map(s => s.oracle)).toEqual(["red-oracle", "green-oracle"]);
+    expect(statuses[0]).toMatchObject({
+      oracle: "red-oracle",
+      unread: 1,
+      level: "red",
+      reasons: ["oldest>4h", "no_archive"],
+    });
+    expect(statuses[1]).toMatchObject({ oracle: "green-oracle", unread: 0, level: "green" });
+    expect(formatInboxStatusList(statuses)).toContain("🔴 red-oracle");
+
+    const out = captureLogs();
+    const returned = await cmdInboxStatus(undefined, { all: true, json: true });
+    out.restore();
+    expect(returned).toHaveLength(2);
+    expect(JSON.parse(out.logs.join("\\n")).map((s: { oracle: string }) => s.oracle)).toEqual([
+      "red-oracle",
+      "green-oracle",
+    ]);
   });
 });
 

@@ -86,11 +86,15 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       // maw inbox read <id>  — mark as read
       await cmdInboxMarkRead(args[1] ?? "");
     } else if (sub === "status") {
-      // maw inbox status [oracle-name] [--json] — red/green unread backpressure.
+      // maw inbox status [oracle-name] [--json] [--all] — red/green unread backpressure.
       const rest = args.slice(1);
       const json = rest.includes("--json");
+      const all = rest.includes("--all");
       const oracle = rest.find(a => !a.startsWith("-"));
-      await cmdInboxStatus(oracle, { json });
+      if (all && oracle) {
+        return { ok: false, error: "usage: maw inbox status [oracle-name] [--json] [--all]", output: out() };
+      }
+      await cmdInboxStatus(oracle, { json, all });
     } else if (sub === "show") {
       // maw inbox show [N|name]  — display content of a message
       await cmdInboxRead(args[1]);
