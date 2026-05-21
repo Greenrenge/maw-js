@@ -96,7 +96,7 @@ export function activityDeps(overrides: Partial<ActivityDeps> = {}): ActivityDep
     followSnapshotPane: collectFollowSnapshot,
     snapshotSettleMs: 150,
     snapshotTimeoutMs: 1_000,
-    allConcurrency: 8,
+    allConcurrency: 32,
     ...overrides,
   };
 }
@@ -304,11 +304,12 @@ export function classifySnapshots(pane: string, rawSamples: SnapshotSample[], wi
   };
 }
 
-export async function sampleActivity(target: string, opts: ActivityOptions = {}, overrides: Partial<ActivityDeps> = {}): Promise<ActivityResult> {
-  const deps = activityDeps(overrides);
-  const parsed = parseActivityOptions(opts);
-  const pane = await resolveFollowTarget(target, deps);
-  const snapshotTarget = parsed.sampler === "peek" ? await resolvePeekTarget(pane, deps) : pane;
+async function sampleResolvedActivity(
+  pane: string,
+  snapshotTarget: string,
+  parsed: ParsedActivityOptions,
+  deps: ActivityDeps,
+): Promise<ActivityResult> {
   const intervalMs = parsed.samples === 1 ? 0 : Math.round(parsed.windowMs / (parsed.samples - 1));
   const samples: SnapshotSample[] = [];
   const snapshot = parsed.sampler === "follow" ? deps.followSnapshotPane : deps.snapshotPane;
@@ -320,6 +321,14 @@ export async function sampleActivity(target: string, opts: ActivityOptions = {},
   }
 
   return classifySnapshots(pane, samples, parsed.windowMs);
+}
+
+export async function sampleActivity(target: string, opts: ActivityOptions = {}, overrides: Partial<ActivityDeps> = {}): Promise<ActivityResult> {
+  const deps = activityDeps(overrides);
+  const parsed = parseActivityOptions(opts);
+  const pane = await resolveFollowTarget(target, deps);
+  const snapshotTarget = parsed.sampler === "peek" ? await resolvePeekTarget(pane, deps) : pane;
+  return await sampleResolvedActivity(pane, snapshotTarget, parsed, deps);
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R | undefined>): Promise<R[]> {
@@ -351,7 +360,24 @@ function allTargets(entries: FleetEntry[]): string[] {
 
 export async function sampleAllActivity(opts: ActivityOptions = {}, overrides: Partial<ActivityDeps> = {}): Promise<ActivityResult[]> {
   const deps = activityDeps(overrides);
+  const parsed = parseActivityOptions(opts);
   const targets = allTargets(deps.loadFleetEntries());
+  if (parsed.sampler === "peek") {
+    const sessions = await deps.listSessions();
+    const resolved = targets.flatMap((target) => {
+      const snapshotTarget = deps.findWindow(sessions as any, target);
+      return snapshotTarget ? [{ pane: target, snapshotTarget }] : [];
+    });
+    const results = await mapLimit(resolved, deps.allConcurrency, async ({ pane, snapshotTarget }) => {
+      try {
+        return await sampleResolvedActivity(pane, snapshotTarget, parsed, deps);
+      } catch {
+        return undefined;
+      }
+    });
+    return results.sort((a, b) => a.pane.localeCompare(b.pane));
+  }
+
   const results = await mapLimit(targets, deps.allConcurrency, async (target) => {
     try {
       return await sampleActivity(target, opts, deps);
@@ -399,10 +425,11 @@ function renderedLineCount(text: string): number {
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
 }
 
-function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions): string {
+function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions, status?: string): string {
   const rows = results.map(formatActivityHuman);
-  const body = rows.length ? rows.join("\n") : "(no panes resolved)";
-  return `activity: watching ${scope} (${samplingDescription(opts)}); press Ctrl-C to stop\n${body}\n`;
+  const body = rows.length ? rows.join("\n") : status === "sampling" ? "(sampling...)" : "(no panes resolved)";
+  const description = status ? `${samplingDescription(opts)}, ${status}` : samplingDescription(opts);
+  return `activity: watching ${scope} (${description}); press Ctrl-C to stop\n${body}\n`;
 }
 
 function redrawWatchTable(renderedLines: number, text: string, deps: Pick<ActivityDeps, "stdoutWrite">): number {
@@ -436,13 +463,16 @@ async function cmdActivityWatch(target: string | undefined, opts: ActivityOption
   deps.processOn("SIGTERM", onSignal);
   try {
     const max = opts.watchIterations ?? Number.POSITIVE_INFINITY;
+    if (!opts.json) {
+      renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, [], opts, "sampling"), deps);
+    }
     for (let i = 0; i < max && !stopped; i += 1) {
       const results = opts.all
         ? await sampleAllActivity(opts, deps)
         : [await sampleActivity(target || "", opts, deps)];
       if (stopped) break;
       if (!opts.json) {
-        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, results, opts), deps);
+        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, results, opts, `refresh=${i + 1}`), deps);
         if (Number.isFinite(max)) emitted.push(...results);
         continue;
       }

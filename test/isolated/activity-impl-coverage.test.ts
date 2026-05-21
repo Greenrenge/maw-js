@@ -197,11 +197,18 @@ describe("maw activity impl", () => {
       { file: "50-mawjs.json", path: "/fleet/50-mawjs.json", num: 50, groupName: "mawjs", session: { name: "50-mawjs", windows: [{ name: "mawjs-features", repo: "Soul-Brews-Studio/maw-js" }, { name: "ghost-pane", repo: "Ghost/repo" }] } },
     ];
     snapshots = ["same", "same"];
+    let listSessionCalls = 0;
 
-    const results = await sampleAllActivity({ window: "1s", samples: 2 }, deps());
+    const results = await sampleAllActivity({ window: "1s", samples: 2 }, deps({
+      listSessions: async () => {
+        listSessionCalls += 1;
+        return sessions as any;
+      },
+    }));
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ pane: "50-mawjs:mawjs-features", state: "idle" });
+    expect(listSessionCalls).toBe(1);
   });
 
   test("surveys fleet targets with bounded parallelism", async () => {
@@ -258,7 +265,9 @@ describe("maw activity impl", () => {
     }, deps());
 
     const rendered = out.join("");
-    expect(rendered).toContain("activity: watching mawjs-features (window=1s, samples=2, sampler=peek); press Ctrl-C to stop");
+    expect(rendered).toContain("activity: watching mawjs-features (window=1s, samples=2, sampler=peek, sampling); press Ctrl-C to stop");
+    expect(rendered).toContain("(sampling...)");
+    expect(rendered).toContain("activity: watching mawjs-features (window=1s, samples=2, sampler=peek, refresh=1); press Ctrl-C to stop");
     expect(rendered).toContain("50-mawjs:mawjs-features: 🟡 IDLE");
     expect(rendered).toContain("\u001b[2A\r\u001b[J");
     expect(err.join("")).not.toContain("transitions only");
@@ -276,7 +285,8 @@ describe("maw activity impl", () => {
     }, deps());
 
     const rendered = out.join("");
-    expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek); press Ctrl-C to stop");
+    expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek, sampling); press Ctrl-C to stop");
+    expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek, refresh=1); press Ctrl-C to stop");
     expect(rendered).toContain("50-mawjs:mawjs-features: 🟡 IDLE");
     expect(rendered).toContain("\u001b[2A\r\u001b[J");
   });
