@@ -425,17 +425,33 @@ function filterResults(results: ActivityResult[], opts: ActivityOptions): Activi
   return opts.stuckOnly ? results.filter(result => result.state === "stuck") : results;
 }
 
+function recordTransitions(results: ActivityResult[], previous: Map<string, ActivityState>): ActivityResult[] {
+  const changed: ActivityResult[] = [];
+  for (const result of results) {
+    const prev = previous.get(result.pane);
+    previous.set(result.pane, result.state);
+    if (prev !== undefined && prev !== result.state) changed.push(result);
+  }
+  return changed;
+}
+
 function renderedLineCount(text: string): number {
   if (!text) return 0;
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
 }
 
-function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions, status?: string): string {
+function formatWatchFooter(opts: ActivityOptions, refreshedAt: number, transitions: number): string {
+  const timestamp = new Date(refreshedAt).toTimeString().slice(0, 8);
+  return `watching (${samplingDescription(opts)}) · last refresh: ${timestamp} · transitions=${transitions}`;
+}
+
+function formatWatchTable(scope: string, results: ActivityResult[], opts: ActivityOptions, status?: string, footer?: string): string {
   const rows = results.map(formatActivityHuman);
   const empty = opts.stuckOnly ? "(no stuck panes)" : "(no panes resolved)";
   const body = rows.length ? rows.join("\n") : status === "sampling" ? "(sampling...)" : empty;
   const description = status ? `${samplingDescription(opts)}, ${status}` : samplingDescription(opts);
-  return `activity: watching ${scope} (${description}); press Ctrl-C to stop\n${body}\n`;
+  const footerBlock = footer ? `\n───────────────────────────────────────────────────────────────────────────────\n${footer}` : "";
+  return `activity: watching ${scope} (${description}); press Ctrl-C to stop\n${body}${footerBlock}\n`;
 }
 
 function redrawWatchTable(renderedLines: number, text: string, deps: Pick<ActivityDeps, "stdoutWrite">): number {
@@ -462,6 +478,7 @@ async function cmdActivityWatch(target: string | undefined, opts: ActivityOption
   const scope = opts.all ? "fleet" : target || "";
   const emitted: ActivityResult[] = [];
   const previous = new Map<string, ActivityState>();
+  let transitionCount = 0;
   let renderedLines = 0;
   let stopped = false;
   const onSignal = () => { stopped = true; };
@@ -476,20 +493,20 @@ async function cmdActivityWatch(target: string | undefined, opts: ActivityOption
       const results = opts.all
         ? await sampleAllActivity(opts, deps)
         : [await sampleActivity(target || "", opts, deps)];
+      const transitions = recordTransitions(results, previous);
+      transitionCount += transitions.length;
       const visibleResults = filterResults(results, opts);
       if (stopped) break;
       if (!opts.json) {
-        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, visibleResults, opts, `refresh=${i + 1}`), deps);
+        const footer = formatWatchFooter(opts, deps.now(), transitionCount);
+        renderedLines = redrawWatchTable(renderedLines, formatWatchTable(scope, visibleResults, opts, `refresh=${i + 1}`, footer), deps);
         if (Number.isFinite(max)) emitted.push(...visibleResults);
         continue;
       }
-      for (const result of results) {
-        const prev = previous.get(result.pane);
-        previous.set(result.pane, result.state);
-        if (prev !== undefined && prev !== result.state && (!opts.stuckOnly || result.state === "stuck")) {
-          emit(result, opts, deps);
-          emitted.push(result);
-        }
+      for (const result of transitions) {
+        if (opts.stuckOnly && result.state !== "stuck") continue;
+        emit(result, opts, deps);
+        emitted.push(result);
       }
     }
   } finally {

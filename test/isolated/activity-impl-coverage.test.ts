@@ -297,8 +297,25 @@ describe("maw activity impl", () => {
     expect(rendered).toContain("(sampling...)");
     expect(rendered).toContain("activity: watching mawjs-features (window=1s, samples=2, sampler=peek, refresh=1); press Ctrl-C to stop");
     expect(rendered).toContain("50-mawjs:mawjs-features: 🟡 IDLE");
+    expect(rendered).toContain("last refresh:");
+    expect(rendered).toContain("transitions=0");
     expect(rendered).toContain("\u001b[2A\r\u001b[J");
     expect(err.join("")).not.toContain("transitions only");
+  });
+
+  test("human watch footer counts state transitions across refreshes", async () => {
+    snapshots = ["same", "same", "one", "two"];
+
+    await cmdActivity("mawjs-features", {
+      watch: true,
+      watchIterations: 2,
+      window: "1s",
+      samples: 2,
+    }, deps());
+
+    const rendered = out.join("");
+    expect(rendered).toContain("transitions=0");
+    expect(rendered).toContain("transitions=1");
   });
 
   test("human fleet watch redraws the whole fleet table in place", async () => {
@@ -316,6 +333,7 @@ describe("maw activity impl", () => {
     expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek, sampling); press Ctrl-C to stop");
     expect(rendered).toContain("activity: watching fleet (window=1s, samples=2, sampler=peek, refresh=1); press Ctrl-C to stop");
     expect(rendered).toContain("50-mawjs:mawjs-features: 🟡 IDLE");
+    expect(rendered).toContain("watching (window=1s, samples=2, sampler=peek)");
     expect(rendered).toContain("\u001b[2A\r\u001b[J");
   });
 
@@ -333,6 +351,7 @@ describe("maw activity impl", () => {
     const rendered = out.join("");
     expect(rendered).toContain("(sampling...)");
     expect(rendered).toContain("(no stuck panes)");
+    expect(rendered).toContain("last refresh:");
     expect(rendered).not.toContain("IDLE");
   });
 
