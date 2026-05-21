@@ -1,7 +1,7 @@
 /**
  * `maw new` — shared workspace tmux session factory (#1616).
  *
- * Creates a named tmux session with a plain shell lead window. It does not
+ * Creates a named tmux session with a plain shell workspace window. It does not
  * create, wake, bud, or awaken an oracle. Use it as the first step in a shared
  * workspace:
  *
@@ -66,10 +66,19 @@ export function validateWorkspaceSessionName(name: string): void {
   }
 }
 
+export function validateWorkspaceWindowName(name: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(name)) {
+    throw new UserError(
+      `new: invalid window name '${name}' — use letters, numbers, dot, underscore, or dash`,
+    );
+  }
+}
+
 function printUsage(write: (line: string) => void = console.log): void {
-  write("usage: maw new [session-name] [--path|-p <dir>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach]");
-  write("  Create a plain tmux workspace session with a lead shell window.");
-  write("  --path, -p   Start the lead shell in <dir> (absolute, relative, or ~/...)");
+  write("usage: maw new [session-name] [--path|-p <dir>] [--window <name>] [--cmd|-c <cmd>|--claude] [--shell] [--split] [--print|--json] [--attach|-a] [--no-attach]");
+  write("  Create a plain tmux workspace session with a shell window.");
+  write("  --path, -p   Start the workspace shell in <dir> (absolute, relative, or ~/...)");
+  write("  --window     Name the first tmux window (default: lead).");
   write("  --cmd, -c    Run <cmd> after the shell starts; keep the shell open afterward.");
   write("  --shell      Explicit shell mode (default today; accepted for future symmetry).");
   write("  --claude     Shortcut for Claude Code with maw team env enabled.");
@@ -160,8 +169,8 @@ type NewWorkspacePrintPayload = {
   reused: boolean;
 };
 
-async function leadPaneId(session: string): Promise<string | undefined> {
-  return tmux.firstPaneId?.(`${session}:lead`) ?? undefined;
+async function workspacePaneId(session: string, windowName: string): Promise<string | undefined> {
+  return tmux.firstPaneId?.(`${session}:${windowName}`) ?? undefined;
 }
 
 async function currentTmuxSessionWindow(): Promise<{ session: string; window: string }> {
@@ -178,6 +187,7 @@ async function currentTmuxSessionWindow(): Promise<{ session: string; window: st
 
 const WORKSPACE_CWD_OPTION = "@maw_new_cwd";
 const WORKSPACE_COMMAND_OPTION = "@maw_new_command";
+const WORKSPACE_WINDOW_OPTION = "@maw_new_window";
 
 async function readSessionOption(session: string, option: string): Promise<string | undefined> {
   try {
@@ -187,16 +197,18 @@ async function readSessionOption(session: string, option: string): Promise<strin
   }
 }
 
-async function readWorkspaceLaunch(session: string): Promise<{ cwd: string; command: string } | undefined> {
+async function readWorkspaceLaunch(session: string): Promise<{ cwd: string; command: string; window: string } | undefined> {
   const cwd = await readSessionOption(session, WORKSPACE_CWD_OPTION);
   if (cwd === undefined) return undefined;
   const command = await readSessionOption(session, WORKSPACE_COMMAND_OPTION);
-  return { cwd, command: command ?? "" };
+  const window = await readSessionOption(session, WORKSPACE_WINDOW_OPTION);
+  return { cwd, command: command ?? "", window: window || "lead" };
 }
 
-async function rememberWorkspaceLaunch(session: string, cwd: string, command: string | undefined): Promise<void> {
+async function rememberWorkspaceLaunch(session: string, cwd: string, command: string | undefined, windowName: string): Promise<void> {
   await tmux.setOption(session, WORKSPACE_CWD_OPTION, cwd);
   await tmux.setOption(session, WORKSPACE_COMMAND_OPTION, command ?? "");
+  await tmux.setOption(session, WORKSPACE_WINDOW_OPTION, windowName);
 }
 
 function printMachinePayload(payload: NewWorkspacePrintPayload): void {
@@ -211,6 +223,7 @@ export async function cmdNew(argv: string[]): Promise<void> {
     "--no-attach": Boolean,
     "--path": String,
     "-p": "--path",
+    "--window": String,
     "--cmd": String,
     "-c": "--cmd",
     "--shell": Boolean,
@@ -245,10 +258,19 @@ export async function cmdNew(argv: string[]): Promise<void> {
     throw new UserError("new: missing session name");
   }
   validateWorkspaceSessionName(name);
+  const rawWindowName = flags["--window"];
+  if (rawWindowName !== undefined && (typeof rawWindowName !== "string" || rawWindowName.trim() === "")) {
+    throw new UserError("new: --window requires a non-empty name");
+  }
+  const windowName = rawWindowName ?? "lead";
+  validateWorkspaceWindowName(windowName);
   const tmuxCommand = shellAfterCommand(startupCommand);
 
   const machineReadable = !!(flags["--print"] || flags["--json"]);
   const split = !!flags["--split"];
+  if (split && rawWindowName !== undefined) {
+    throw new UserError("new: --window only applies when creating or reusing a workspace session, not --split");
+  }
 
   if (split) {
     const { session, window } = await currentTmuxSessionWindow();
@@ -278,34 +300,41 @@ export async function cmdNew(argv: string[]): Promise<void> {
 
   const existed = await tmux.hasSession(name);
   let paneId: string | undefined;
+  let payloadWindowName = windowName;
   if (!existed) {
     const rawPaneId = await tmux.newSession(name, {
-      window: "lead",
+      window: windowName,
       cwd,
       ...(tmuxCommand ? { command: tmuxCommand } : {}),
       ...(machineReadable ? { printFormat: "#{pane_id}" } : {}),
     });
     paneId = rawPaneId?.trim() || undefined;
-    await rememberWorkspaceLaunch(name, cwd, startupCommand);
+    await rememberWorkspaceLaunch(name, cwd, startupCommand, windowName);
     if (!machineReadable) {
-      const mode = startupCommand ? "lead shell + command" : "lead shell";
+      const mode = startupCommand ? `${windowName} shell + command` : `${windowName} shell`;
       console.log(`\x1b[32m✓\x1b[0m created workspace session '${name}' (${mode})`);
     }
   } else {
     const existingLaunch = await readWorkspaceLaunch(name);
-    if (existingLaunch && (existingLaunch.cwd !== cwd || existingLaunch.command !== (startupCommand ?? ""))) {
+    const effectiveWindowName = existingLaunch?.window ?? windowName;
+    payloadWindowName = effectiveWindowName;
+    if (existingLaunch && (
+      existingLaunch.cwd !== cwd
+      || existingLaunch.command !== (startupCommand ?? "")
+      || (rawWindowName !== undefined && existingLaunch.window !== windowName)
+    )) {
       throw new UserError(
-        `new: session '${name}' already exists with different launch context; choose a new name or match the original --path/--cmd`,
+        `new: session '${name}' already exists with different launch context; choose a new name or match the original --path/--cmd/--window`,
       );
     }
-    paneId = machineReadable ? await leadPaneId(name) : undefined;
+    paneId = machineReadable ? await workspacePaneId(name, effectiveWindowName) : undefined;
     if (!machineReadable) console.log(`\x1b[36m→\x1b[0m session exists: ${name}`);
   }
 
   if (machineReadable) {
     printMachinePayload({
       session: name,
-      window: "lead",
+      window: payloadWindowName,
       ...(paneId ? { pane_id: paneId } : {}),
       cwd,
       ...(startupCommand ? { command: startupCommand } : {}),
