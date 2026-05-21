@@ -256,8 +256,10 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
       MAW_TILE_WINDOW: windowAddress,
     });
 
-    let shellCmd = `export ${tileEnv}; exec zsh`;
     const launchCmd = requestedCmd || engineCmd;
+    let shellCmd = requestedCmd
+      ? `export ${tileEnv}; exec zsh -ic ${shellArg(`${requestedCmd}; exec zsh`)}`
+      : `export ${tileEnv}; exec zsh`;
     if (cwd) {
       shellCmd = `cd ${shellArg(cwd)} || exit $?; ${shellCmd}`;
     }
@@ -281,7 +283,7 @@ export async function cmdTile(count: number, opts: TileOpts = {}): Promise<void>
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile '1'`);
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_parent ${shellArg(parentAddress)}`);
     await hostExec(`tmux set-option -p -t '${paneId}' @maw_tile_role ${shellArg(name)}`);
-    await sendTileCommand(paneId, launchCmd);
+    if (!requestedCmd) await sendTileCommand(paneId, launchCmd);
 
     const extras = [
       cwd ? `\x1b[90m${cwd}\x1b[0m` : "",

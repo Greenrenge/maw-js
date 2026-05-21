@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readlinkSync } from "fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from "fs";
 import { execSync } from "child_process";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
@@ -34,6 +34,8 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
   const allowDrift = flags.has("--allow-drift");
   const json = flags.has("--json");
   const smoke = flags.has("--smoke") || only === "smoke";
+  const xdgMigrate = flags.has("--migrate") || flags.has("--fix-xdg");
+  const xdgDryRun = flags.has("--dry-run") || flags.has("--plan");
   const checks: DoctorResult["checks"] = [];
 
   // #1238 — `maw doctor --fix-stale` short-circuits the normal check
@@ -51,7 +53,7 @@ export async function cmdDoctor(args: string[] = []): Promise<DoctorResult> {
       checks.push(await checkInstall());
     }
     if (only === "xdg" || only === "all") {
-      checks.push(checkXdgLayout());
+      checks.push(xdgMigrate ? migrateXdgLayout({ dryRun: xdgDryRun }) : checkXdgLayout());
     }
     if (!only || only === "version" || only === "all") {
       const vChecks = await checkVersionDrift();
@@ -220,15 +222,188 @@ function artifactSummary(label: string, names: string[]): string {
 
 function xdgNextAction(configRuntimeArtifacts: string[], legacyRuntimeArtifacts: string[]): string {
   if (configRuntimeArtifacts.length > 0 && legacyRuntimeArtifacts.length > 0) {
-    return "mixed-runtime-state: run targeted migrate/doctor cleanup before deleting legacy files";
+    return "mixed-runtime-state: run 'maw doctor xdg --migrate --dry-run', then 'maw doctor xdg --migrate'";
   }
   if (configRuntimeArtifacts.length > 0) {
-    return "config-runtime-state: move runtime/cache/data artifacts out of config dir";
+    return "config-runtime-state: run 'maw doctor xdg --migrate' to copy runtime/cache/data artifacts out of config dir";
   }
   if (legacyRuntimeArtifacts.length > 0 && isMawXdgEnabled()) {
-    return "legacy-runtime-state: read-through fallback active; migrate then prune ~/.maw leftovers";
+    return "legacy-runtime-state: run 'maw doctor xdg --migrate' while read-through fallback is active";
   }
   return "ok";
+}
+
+type XdgBucket = "state" | "data" | "cache";
+type XdgMigrationSource = "config" | "legacy";
+type XdgMigrationOutcome = "copied" | "dry-run" | "missing" | "exists" | "same" | "error";
+
+interface XdgMigrationItem {
+  sourceKind: XdgMigrationSource;
+  name: string;
+  bucket: XdgBucket;
+  source: string;
+  destination: string;
+  outcome?: XdgMigrationOutcome;
+  message?: string;
+}
+
+const CONFIG_MIGRATION_TARGETS: Record<(typeof CONFIG_RUNTIME_ARTIFACTS)[number], XdgBucket> = {
+  "audit.jsonl": "state",
+  "fleet-resume.log": "state",
+  snapshots: "state",
+  fleet: "state",
+  teams: "state",
+  workspaces: "data",
+  "tab-order": "state",
+  "message-ledger.sqlite": "data",
+  "oracle-births.json": "cache",
+  "oracles.json": "cache",
+  "peer-key": "state",
+  "auth-secret": "state",
+  "session-warnings.state": "state",
+  pending: "state",
+  parked: "state",
+  "trust.json": "state",
+  "consent-pending": "state",
+};
+
+const LEGACY_MIGRATION_TARGETS: Record<(typeof LEGACY_RUNTIME_ARTIFACTS)[number], XdgBucket> = {
+  plugins: "data",
+  node_modules: "cache",
+  sessions: "state",
+  state: "state",
+  inbox: "data",
+  schedules: "state",
+  teams: "state",
+  "peers.json": "state",
+  "audit.jsonl": "state",
+  artifacts: "cache",
+  inst: "data",
+  ui: "data",
+  "message-ledger.sqlite": "data",
+  "nicknames.json": "cache",
+};
+
+function absoluteXdgEnv(name: string): string | null {
+  const value = process.env[name];
+  return value && value.startsWith("/") ? value : null;
+}
+
+function xdgSpecBase(envName: string, ...fallback: string[]): string {
+  return absoluteXdgEnv(envName) ?? join(homedir(), ...fallback);
+}
+
+function xdgMigrationDir(bucket: XdgBucket): string {
+  if (process.env.MAW_HOME) return process.env.MAW_HOME;
+  if (bucket === "state") return process.env.MAW_STATE_DIR || join(xdgSpecBase("XDG_STATE_HOME", ".local", "state"), "maw");
+  if (bucket === "data") return process.env.MAW_DATA_DIR || join(xdgSpecBase("XDG_DATA_HOME", ".local", "share"), "maw");
+  return process.env.MAW_CACHE_DIR || join(xdgSpecBase("XDG_CACHE_HOME", ".cache"), "maw");
+}
+
+function xdgMigrationDestination(bucket: XdgBucket, name: string): string {
+  return join(xdgMigrationDir(bucket), name);
+}
+
+function buildXdgMigrationPlan(): XdgMigrationItem[] {
+  const configBase = mawConfigDir();
+  const legacyBase = legacyMawPath();
+  const items: XdgMigrationItem[] = [];
+
+  for (const name of CONFIG_RUNTIME_ARTIFACTS) {
+    const bucket = CONFIG_MIGRATION_TARGETS[name];
+    items.push({
+      sourceKind: "config",
+      name,
+      bucket,
+      source: join(configBase, name),
+      destination: xdgMigrationDestination(bucket, name),
+    });
+  }
+
+  for (const name of LEGACY_RUNTIME_ARTIFACTS) {
+    const bucket = LEGACY_MIGRATION_TARGETS[name];
+    items.push({
+      sourceKind: "legacy",
+      name,
+      bucket,
+      source: join(legacyBase, name),
+      destination: xdgMigrationDestination(bucket, name),
+    });
+  }
+
+  return items;
+}
+
+function copyXdgArtifact(item: XdgMigrationItem, dryRun: boolean): XdgMigrationItem {
+  if (!existsSync(item.source)) return { ...item, outcome: "missing" };
+  if (resolve(item.source) === resolve(item.destination)) return { ...item, outcome: "same" };
+  if (existsSync(item.destination)) return { ...item, outcome: "exists" };
+  if (dryRun) return { ...item, outcome: "dry-run" };
+
+  try {
+    const stat = lstatSync(item.source);
+    mkdirSync(dirname(item.destination), { recursive: true });
+    cpSync(item.source, item.destination, {
+      recursive: stat.isDirectory(),
+      force: false,
+      errorOnExist: true,
+      preserveTimestamps: true,
+    });
+    return { ...item, outcome: "copied" };
+  } catch (e: any) {
+    return { ...item, outcome: "error", message: e?.message || String(e) };
+  }
+}
+
+function summarizeMigration(items: XdgMigrationItem[]): Record<XdgMigrationOutcome, number> {
+  const summary: Record<XdgMigrationOutcome, number> = {
+    copied: 0,
+    "dry-run": 0,
+    missing: 0,
+    exists: 0,
+    same: 0,
+    error: 0,
+  };
+  for (const item of items) summary[item.outcome || "missing"]++;
+  return summary;
+}
+
+function migrateXdgLayout(opts: { dryRun: boolean }): DoctorResult["checks"][number] {
+  const planned = buildXdgMigrationPlan().map(item => copyXdgArtifact(item, opts.dryRun));
+  const summary = summarizeMigration(planned);
+  const actionable = planned.filter(item => item.outcome === "copied" || item.outcome === "dry-run" || item.outcome === "error");
+  const preview = actionable
+    .slice(0, 8)
+    .map(item => `${item.sourceKind}:${item.name}->${item.bucket}:${item.outcome}`)
+    .join(", ");
+  const suffix = actionable.length > 8 ? `,+${actionable.length - 8}` : "";
+  const mode = opts.dryRun ? "dry-run" : "apply";
+  const ok = summary.error === 0;
+  return {
+    name: "xdg:migrate",
+    ok,
+    message: [
+      mode,
+      `copied=${summary.copied}`,
+      `planned=${summary["dry-run"]}`,
+      `exists=${summary.exists}`,
+      `missing=${summary.missing}`,
+      `same=${summary.same}`,
+      `errors=${summary.error}`,
+      preview ? `[${preview}${suffix}]` : "no actionable artifacts",
+    ].join("; "),
+    details: {
+      mode,
+      targets: {
+        state: xdgMigrationDir("state"),
+        data: xdgMigrationDir("data"),
+        cache: xdgMigrationDir("cache"),
+      },
+      summary,
+      items: planned,
+      note: "safe copy-forward only: existing destinations are preserved and legacy sources are not deleted",
+    },
+  };
 }
 
 /**

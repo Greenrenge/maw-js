@@ -449,7 +449,30 @@ async function normalizeBringDestinationWindow(source: string, opts: WakeOptions
 
   const matches = await findLiveWindowsByName(destination);
   if (matches.length === 0) return;
-  if (matches.length > 1) throw buildAmbiguousBringDestinationError(source, destination, matches);
+  if (matches.length > 1) {
+    if (opts.pick) {
+      const picked = promptAmbiguousBringPick(
+        destination,
+        matches.map(match => ({
+          name: match.window,
+          target: match.target,
+          detail: `tmux window in ${match.session}`,
+        })),
+      );
+      if (picked) {
+        const [session, ...windowParts] = picked.target.split(":");
+        opts.session = session || picked.target;
+        opts.splitTarget = picked.target;
+        opts.resolvedBringDestinationWindow = {
+          session: session || picked.target,
+          window: windowParts.join(":") || picked.name,
+          target: picked.target,
+        };
+        return;
+      }
+    }
+    throw buildAmbiguousBringDestinationError(source, destination, matches);
+  }
 
   const match = matches[0]!;
   opts.session = match.session;

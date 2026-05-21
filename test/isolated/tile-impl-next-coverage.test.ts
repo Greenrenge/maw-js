@@ -141,20 +141,20 @@ describe("tile impl next coverage", () => {
   });
 
 
-  test("--cmd starts a shell pane first, then sends the command literally", async () => {
+  test("--cmd starts through the pane startup command instead of racing typed input", async () => {
     plainPaneList = "%lead\n%p1\n";
 
     await cmdTile(1, { cmd: "claude --agent-id reader-a@team --model sonnet" });
 
     const split = commands.find((cmd) => cmd.includes("tmux split-window"));
-    expect(split).toContain("exec zsh");
-    expect(split).not.toContain("claude --agent-id");
-    expect(commands).toContain("tmux send-keys -t '%p1' -l 'claude --agent-id reader-a@team --model sonnet'");
-    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
+    expect(split).toContain("exec zsh -ic");
+    expect(split).toContain("claude --agent-id reader-a@team --model sonnet");
+    expect(commands.some(cmd => cmd.includes("tmux send-keys -t '%p1' -l"))).toBe(false);
+    expect(commands).not.toContain("tmux send-keys -t '%p1' Enter");
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("cmd"));
   });
 
-  test("--cmd stays shell-first across back-to-back single-pane spawns", async () => {
+  test("--cmd avoids typed-input races across back-to-back single-pane spawns", async () => {
     const firstCmd = "claude --agent-id reader-a@team --model sonnet";
     const secondCmd = "claude --agent-id reader-b@team --model sonnet";
 
@@ -167,15 +167,11 @@ describe("tile impl next coverage", () => {
 
     const splits = commands.filter((cmd) => cmd.includes("tmux split-window"));
     expect(splits).toHaveLength(2);
-    for (const split of splits) {
-      expect(split).toContain("exec zsh");
-      expect(split).not.toContain("--agent-id reader-");
-    }
+    expect(splits[0]).toContain(firstCmd);
+    expect(splits[1]).toContain(secondCmd);
+    expect(splits.every(split => split.includes("exec zsh -ic"))).toBe(true);
 
-    expect(commands).toContain(`tmux send-keys -t '%p1' -l '${firstCmd}'`);
-    expect(commands).toContain("tmux send-keys -t '%p1' Enter");
-    expect(commands).toContain(`tmux send-keys -t '%p2' -l '${secondCmd}'`);
-    expect(commands).toContain("tmux send-keys -t '%p2' Enter");
+    expect(commands.some(cmd => cmd.includes("tmux send-keys") && cmd.includes("-l") && cmd.includes("reader-"))).toBe(false);
     expect(borderCalls.map((call) => call.label)).toEqual(["sess-tile-1", "sess-tile-2"]);
   });
 

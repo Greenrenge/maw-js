@@ -7,6 +7,8 @@ Status anchor for maw-js issues [#1798](https://github.com/Soul-Brews-Studio/maw
 - `maw-js` owns the portable fixture specs in `test/spec/*.fixtures.json`.
 - `maw-rs` lives at `Soul-Brews-Studio/maw-rs` and is no longer an empty scaffold.
 - The Rust workspace currently contains these crate lanes: `maw-auth`, `maw-auto-wake`, `maw-bind`, `maw-bring`, `maw-calver`, `maw-cli`, `maw-feed`, `maw-fuzzy`, `maw-hub`, `maw-identity`, `maw-matcher`, `maw-peer`, `maw-plugin-manifest`, `maw-plugin-scaffold`, `maw-policy`, `maw-routing`, `maw-split`, `maw-tmux`, `maw-transport`, `maw-worktree`, and `maw-xdg`.
+- The original #1798 gate is satisfied on the maw-js side: portable fixtures are stable, maw-js has reached the practical coverage ceiling, and maw-rs has an active Cargo workspace. Remaining work belongs in maw-rs crate/CLI parity issues rather than maw-js coverage work.
+- #1801 is now a contributor workflow, not a blocker: maw-js provides the fixtures and coordination surface; implementation/review happens in maw-rs lanes with `cargo test --workspace` and crate-specific fixture parity as the proof.
 
 ## Portable fixture inventory
 
@@ -30,10 +32,10 @@ The current maw-js fixture set is:
 
 ## Next contributor lanes
 
-1. Pick one fixture file above.
-2. Add or update the matching Rust fixture loader in the relevant `maw-rs` crate.
+1. Pick one open maw-rs crate/CLI parity lane rather than reopening maw-js coverage work.
+2. If it is pure logic, pick one fixture file above and add/update the matching Rust fixture loader in the relevant crate.
 3. Keep the Rust implementation data-driven from fixtures, not copied line-for-line from TypeScript.
-4. Prove the lane with `cargo test -p <crate>`.
+4. Prove the lane with `cargo test -p <crate>`; use `cargo test --workspace` before publishing a maw-rs batch.
 5. If fixture behavior changes in maw-js, update the JSON fixture first, then port the new expectation to Rust.
 
 ## Cross-engine coordination contract
